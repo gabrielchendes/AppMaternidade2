@@ -1,11 +1,13 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import admin from 'firebase-admin';
+
+// We will import Vite dynamically only in development
+// import { createServer as createViteServer } from 'vite';
 
 console.log('SERVER.TS IS STARTING UP...');
 dotenv.config();
@@ -637,6 +639,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -686,9 +689,13 @@ async function startServer() {
     addLog('unhandled_rejection', { reason: reason?.message || String(reason) });
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+  
+  return app;
 }
 
-startServer();
+export default await startServer();
