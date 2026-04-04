@@ -42,6 +42,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+
+    // Create a timeout to prevent hanging
+    const timeoutId = setTimeout(() => {
+      if (loading) {
+        console.warn('Settings fetch timed out, using defaults');
+        setLoading(false);
+      }
+    }, 3500);
+
     try {
       const { data, error } = await supabase
         .from('app_settings')
@@ -56,6 +65,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error fetching settings:', error);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
