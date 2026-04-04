@@ -8,7 +8,7 @@ import admin from 'firebase-admin';
 dotenv.config();
 const app = express();
 
-// 2. Inicialização do Firebase Admin (Sem duplicidade)
+// 2. Inicialização do Firebase Admin
 try {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (serviceAccount && admin.apps.length === 0) {
@@ -16,10 +16,10 @@ try {
     admin.initializeApp({
       credential: admin.credential.cert(parsedAccount)
     });
-    console.log('Firebase Admin OK');
+    console.log('Firebase Admin initialized');
   }
 } catch (err) {
-  console.error('Firebase Admin Error:', err);
+  console.error('Firebase Admin Init Error:', err);
 }
 
 // 3. Inicialização do Supabase Admin
@@ -68,7 +68,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
 app.use(express.json());
 
-// Middleware de Autenticação Admin
+// Admin Auth Middleware
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !supabaseAdmin) return res.status(401).json({ error: 'Unauthorized' });
@@ -82,7 +82,7 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
   } catch (err) { res.status(401).json({ error: 'Invalid token' }); }
 };
 
-// API Admin: Listar Usuários
+// Admin API: Listar Usuários
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
@@ -92,7 +92,7 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// API Admin: Criar Usuário
+// Admin API: Criar Usuário
 app.post('/api/admin/users', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   const { email, password, full_name } = req.body;
@@ -103,11 +103,67 @@ app.post('/api/admin/users', adminAuth, async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// API Admin: Deletar Usuário
+// Admin API: Deletar Usuário
 app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
     const { error } = await supabaseAdmin.auth.admin.deleteUser(req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+// Admin API: Enviar Notificação (Broadcast)
+app.post('/api/admin/broadcast', adminAuth, async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: 'Admin não inicializado' });
+  const { title, message, type } = req.body;
+  
+  try {
+    // 1. Buscar todos os usuários
+    const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers();
+    if (usersError) throw usersError;
+    const userIds = (usersData?.users || []).map(u => u.id);
+
+    // 2. Notificações In-App (Dentro do App)
+    if (type === 'both' || type === 'in-app') {
+      const notifications = userIds.map(uid => ({
+        user_id: uid,
+        title,
+        message,
+        read: false
+      }));
+      const { error: notifError } = await supabaseAdmin.from('notifications').insert(notifications);
+      if (notifError) throw notifError;
+    }
+
+    // 3. Notificações Push (Firebase)
+    if (type === 'both' || type === 'push') {
+      const { data: tokens } = await supabaseAdmin.from('push_tokens').select('token');
+      const uniqueTokens = Array.from(new Set((tokens || []).map(t => t.token)));
+
+      if (uniqueTokens.length > 0 && admin.apps.length > 0) {
+        const payload = {
+          notification: { title, body: message },
+          tokens: uniqueTokens
+        };
+        await admin.messaging().sendEachForMulticast(payload);
+      }
+    }
+
+    res.json({ success: true, count: userIds.length });
+  } catch (error: any) {
+    console.error('Erro no Broadcast:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin API: Deletar Post da Comunidade
+app.delete('/api/admin/community/posts/:id', adminAuth, async (req, res) => {
+  if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
+  try {
+    await supabaseAdmin.from('post_likes').delete().eq('post_id', req.params.id);
+    await supabaseAdmin.from('post_comments').delete().eq('post_id', req.params.id);
+    const { error } = await supabaseAdmin.from('community_posts').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
   } catch (error: any) { res.status(500).json({ error: error.message }); }
@@ -132,5 +188,4 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// Exportar para Vercel
 export default app;
