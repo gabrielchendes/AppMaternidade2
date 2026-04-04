@@ -33,7 +33,18 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 // 4. Rotas da API
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    version: '1.0.2',
+    time: new Date().toISOString(),
+    config: {
+      hasSupabase: !!process.env.VITE_SUPABASE_URL,
+      hasSupabaseAdmin: !!supabaseAdmin,
+      hasStripe: !!process.env.STRIPE_SECRET_KEY,
+      hasFirebase: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      nodeEnv: process.env.NODE_ENV
+    }
+  });
 });
 
 // Webhook do Stripe
