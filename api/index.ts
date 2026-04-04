@@ -10,18 +10,14 @@ dotenv.config();
 const app = express();
 
 // Initialize Firebase Admin
-let firebaseAdminApp: any = null;
 try {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount) {
+  if (serviceAccount && admin.apps.length === 0) {
     const parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
-    if (admin.apps.length === 0) {
-      firebaseAdminApp = admin.initializeApp({
-        credential: admin.credential.cert(parsedAccount)
-      });
-    } else {
-      firebaseAdminApp = admin.apps[0];
-    }
+    admin.initializeApp({
+      credential: admin.credential.cert(parsedAccount)
+    });
+    console.log('Firebase Admin initialized');
   }
 } catch (err) {
   console.error('Firebase Admin Init Error:', err);
