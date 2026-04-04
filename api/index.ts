@@ -4,12 +4,11 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import admin from 'firebase-admin';
 
-// Load environment variables
+// 1. Configuração Inicial
 dotenv.config();
-
 const app = express();
 
-// Initialize Firebase Admin
+// 2. Inicialização do Firebase Admin (Sem duplicidade)
 try {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (serviceAccount && admin.apps.length === 0) {
@@ -17,13 +16,13 @@ try {
     admin.initializeApp({
       credential: admin.credential.cert(parsedAccount)
     });
-    console.log('Firebase Admin initialized');
+    console.log('Firebase Admin OK');
   }
 } catch (err) {
-  console.error('Firebase Admin Init Error:', err);
+  console.error('Firebase Admin Error:', err);
 }
 
-// Initialize Supabase Admin
+// 3. Inicialização do Supabase Admin
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseAdmin = (supabaseUrl && supabaseServiceRoleKey) 
@@ -32,12 +31,12 @@ const supabaseAdmin = (supabaseUrl && supabaseServiceRoleKey)
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
-// Health check
+// 4. Rotas da API
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// Webhook handler
+// Webhook do Stripe
 app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'] as string;
   try {
@@ -58,7 +57,7 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
 app.use(express.json());
 
-// Admin Auth Middleware
+// Middleware de Autenticação Admin
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !supabaseAdmin) return res.status(401).json({ error: 'Unauthorized' });
@@ -72,7 +71,7 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
   } catch (err) { res.status(401).json({ error: 'Invalid token' }); }
 };
 
-// Admin API: List Users
+// API Admin: Listar Usuários
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
@@ -82,7 +81,7 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// Admin API: Create User
+// API Admin: Criar Usuário
 app.post('/api/admin/users', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   const { email, password, full_name } = req.body;
@@ -93,7 +92,7 @@ app.post('/api/admin/users', adminAuth, async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// Admin API: Delete User
+// API Admin: Deletar Usuário
 app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
@@ -103,21 +102,7 @@ app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// Admin API: Send Broadcast
-app.post('/api/admin/broadcast', adminAuth, async (req, res) => {
-  if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
-  const { title, message, type } = req.body;
-  try {
-    const { data } = await supabaseAdmin.auth.admin.listUsers();
-    const userIds = (data?.users || []).map(u => u.id);
-    if (type === 'both' || type === 'in-app') {
-      await supabaseAdmin.from('notifications').insert(userIds.map(uid => ({ user_id: uid, title, message, read: false })));
-    }
-    res.json({ success: true, count: userIds.length });
-  } catch (error: any) { res.status(500).json({ error: error.message }); }
-});
-
-// API: Create Checkout Session
+// API: Checkout do Stripe
 app.post('/api/create-checkout-session', async (req, res) => {
   const { productId, userId } = req.body;
   if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase Admin not configured' });
@@ -136,4 +121,5 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
+// Exportar para Vercel
 export default app;
