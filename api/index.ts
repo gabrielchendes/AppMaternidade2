@@ -6,10 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import admin from 'firebase-admin';
 
-// We will import Vite dynamically only in development
-// import { createServer as createViteServer } from 'vite';
-
-console.log('SERVER.TS IS STARTING UP...');
+console.log('PRODUCTION API IS STARTING UP...');
 dotenv.config();
 
 // Debug: Log buffer
@@ -637,32 +634,12 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-    
-    // Explicit fallback for SPA in development if Vite middleware doesn't catch it
-    app.use('*', async (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      // If it looks like a file (has an extension), don't serve index.html
-      if (req.path.includes('.') && !req.path.endsWith('.html')) return next();
-      
-      try {
-        const html = await vite.transformIndexHtml(req.originalUrl, await fs.promises.readFile(path.join(process.cwd(), 'index.html'), 'utf-8'));
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
-      } catch (e) {
-        next(e);
-      }
-    });
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
+  // Production static serving
+  const distPath = path.join(process.cwd(), 'dist');
+  if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'API route not found' });
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

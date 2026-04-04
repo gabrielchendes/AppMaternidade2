@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx api/index.ts",
+    "dev": "tsx server.ts",
     "start": "tsx api/index.ts",
     "build": "vite build",
     "preview": "vite preview",
@@ -30,8 +30,7 @@
     "sonner": "^2.0.7",
     "stripe": "^21.0.1",
     "tailwind-merge": "^3.5.0",
-    "tsx": "^4.21.0",
-    "vite": "^6.2.0"
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -40,6 +39,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
   }
 }
