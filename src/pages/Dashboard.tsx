@@ -247,7 +247,7 @@ export default function Dashboard({ user }: DashboardProps) {
               
               <div className="space-y-3">
                 <a 
-                  href={`https://wa.me/${(import.meta as any).env.VITE_SUPPORT_WHATSAPP || '5531997433488'}`} 
+                  href={`https://wa.me/${settings.support_whatsapp}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white font-bold py-3 px-6 rounded-xl transition-all active:scale-95"
@@ -259,7 +259,7 @@ export default function Dashboard({ user }: DashboardProps) {
                 </a>
                 
                 <a 
-                  href={`mailto:${(import.meta as any).env.VITE_SUPPORT_EMAIL || 'gabrielchendes@hotmail.com'}`} 
+                  href={`mailto:${settings.support_email}`} 
                   className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white font-medium py-2 px-6 rounded-xl transition-all text-xs"
                 >
                   Suporte via E-mail

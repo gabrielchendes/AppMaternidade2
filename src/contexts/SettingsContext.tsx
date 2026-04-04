@@ -47,9 +47,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         .from('app_settings')
         .select('*')
         .eq('id', 1)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
       if (data) {
         setSettings(data);
         applyTheme(data);
