@@ -58,6 +58,14 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+console.log('Supabase Config Check:', {
+  hasUrl: !!supabaseUrl,
+  urlPrefix: supabaseUrl.substring(0, 15) + '...',
+  hasKey: !!supabaseServiceRoleKey,
+  keyPrefix: supabaseServiceRoleKey.substring(0, 10) + '...'
+});
+
 const supabaseAdmin = (supabaseUrl && supabaseServiceRoleKey) 
   ? createClient(supabaseUrl, supabaseServiceRoleKey) 
   : null;

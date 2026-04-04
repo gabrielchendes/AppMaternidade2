@@ -58,6 +58,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         .eq('id', 1)
         .maybeSingle();
 
+      if (error) {
+        console.error('Supabase error fetching settings:', error);
+      }
+
       if (data) {
         setSettings(data);
         applyTheme(data);
