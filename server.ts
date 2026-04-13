@@ -2,7 +2,6 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import admin from 'firebase-admin';
@@ -39,7 +38,6 @@ try {
   console.error('Error initializing Firebase Admin:', err);
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseAdmin = (supabaseUrl && supabaseServiceRoleKey) 
@@ -59,27 +57,6 @@ async function startServer() {
     res.json({ status: 'ok', env: 'development', time: new Date().toISOString() });
   });
 
-  const webhookHandler = async (req: express.Request, res: express.Response) => {
-    if (req.method === 'GET') return res.send('Webhook endpoint active');
-    const sig = req.headers['stripe-signature'] as string;
-    try {
-      const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || '');
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const userId = session.metadata?.userId;
-        const productId = session.metadata?.productId;
-        if (userId && productId && supabaseAdmin) {
-          await supabaseAdmin.from('purchases').insert({ user_id: userId, product_id: productId });
-        }
-      }
-      res.json({ received: true });
-    } catch (err: any) {
-      res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-  };
-
-  app.post('/api/webhook', express.raw({ type: 'application/json' }), webhookHandler);
-
   app.post('/api/external/grant-access', express.json(), async (req, res) => {
     const secret = req.headers['x-internal-secret'];
     if (secret !== process.env.INTERNAL_API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
@@ -92,6 +69,38 @@ async function startServer() {
     res.status(400).json({ error: 'Missing data' });
   });
 
+  app.post('/api/auth/direct', express.json(), async (req, res) => {
+    const { email } = req.body;
+    if (!email || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+
+    try {
+      // Check if user exists
+      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (listError) throw listError;
+
+      const user = (users as any[]).find(u => u.email?.toLowerCase() === email.toLowerCase());
+      if (!user) {
+        return res.status(404).json({ error: 'Usuário não encontrado. Entre em contato com o suporte.' });
+      }
+
+      // Generate a temporary random password for this login session
+      // This avoids all redirect issues with magic links in proxied environments
+      const tempPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
+      
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+        password: tempPassword
+      });
+
+      if (updateError) throw updateError;
+
+      // Return the temporary password to the frontend
+      res.json({ success: true, tempPassword });
+    } catch (err: any) {
+      console.error('Direct login error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.use(express.json());
 
   const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -101,7 +110,11 @@ async function startServer() {
       const token = authHeader.split(' ')[1];
       const { data, error } = await supabaseAdmin.auth.getUser(token);
       if (error || !data.user) return res.status(403).json({ error: 'Forbidden' });
-      const adminEmail = 'gabrielchendes@gmail.com';
+      
+      // Fetch admin email from settings
+      const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
+      const adminEmail = settings?.admin_email || 'gabrielchendes@gmail.com';
+      
       if (data.user.email?.toLowerCase() !== adminEmail.toLowerCase()) return res.status(403).json({ error: 'Access denied' });
       next();
     } catch (err) { res.status(401).json({ error: 'Invalid token' }); }
@@ -114,26 +127,32 @@ async function startServer() {
     res.json(users);
   });
 
+  app.post('/api/admin/update-password', adminAuth, async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+    
+    try {
+      const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
+      const adminEmail = settings?.admin_email || 'gabrielchendes@gmail.com';
+      
+      const { data: { users } } = await supabaseAdmin.auth.admin.listUsers();
+      const adminUser = users.find((u: any) => u.email?.toLowerCase() === adminEmail.toLowerCase());
+      
+      if (!adminUser) return res.status(404).json({ error: 'Admin user not found' });
+
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(adminUser.id, {
+        password: newPassword
+      });
+
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // (Other admin routes omitted for brevity in this dev server, but you can add them back if needed)
   // For now, let's just make sure the core works.
-
-  app.post('/api/create-checkout-session', async (req, res) => {
-    const { productId, userId } = req.body;
-    if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase Admin not configured' });
-    try {
-      const { data: product } = await supabaseAdmin.from('products').select('title, price').eq('id', productId).single();
-      if (!product) return res.status(404).json({ error: 'Product not found' });
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [{ price_data: { currency: 'brl', product_data: { name: product.title }, unit_amount: product.price || 9700 }, quantity: 1 }],
-        mode: 'payment',
-        success_url: `${process.env.APP_URL}/?success=true`,
-        cancel_url: `${process.env.APP_URL}/?canceled=true`,
-        metadata: { userId, productId },
-      });
-      res.json({ url: session.url });
-    } catch (error: any) { res.status(500).json({ error: error.message }); }
-  });
 
   // Vite middleware for development
   const vite = await createViteServer({

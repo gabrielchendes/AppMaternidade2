@@ -1,306 +1,292 @@
-# Configuração do Supabase
+# Configuração do Supabase - Maternidade Premium
 
-Para que o aplicativo funcione, você precisa criar as seguintes tabelas no seu projeto Supabase:
-
-## 1. Tabela `products`
-```sql
-create table products (
-  id uuid default gen_random_uuid() primary key,
-  title text not null,
-  description text,
-  cover_url text,
-  pdf_url text,
-  price integer default 9700,
-  is_free boolean default false,
-  is_active boolean default true,
-  is_bonus boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-```
-
-## 2. Tabela `purchases`
-```sql
-create table purchases (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  product_id uuid references products(id) on delete cascade not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(user_id, product_id)
-);
-```
-
-## 3. Storage
-Crie um bucket chamado `contents` e torne-o público para leitura ou configure políticas de RLS.
-Para este app, assumimos que os PDFs estão no bucket `contents`.
-
-## 4. Políticas de Segurança (RLS)
-Habilite o RLS nas tabelas e execute estes comandos:
+Copie e cole o código abaixo no **SQL Editor** do seu projeto Supabase para criar todas as tabelas, políticas e triggers necessárias.
 
 ```sql
--- Habilitar RLS
-alter table products enable row level security;
-alter table purchases enable row level security;
-
--- Política para produtos (Leitura pública)
-create policy "Produtos são visíveis para todos"
-on products for select
-using (true);
-
--- Política para compras (Usuários leem apenas suas próprias compras)
-create policy "Usuários podem ver suas próprias compras"
-on purchases for select
-to authenticated
-using (auth.uid() = user_id);
-
--- 3. Tabela `community_posts`
-create table community_posts (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  user_email text not null,
-  user_name text,
-  content text not null,
-  image_url text,
-  likes_count integer default 0,
-  comments_count integer default 0,
-  reply_to_id uuid references community_posts(id) on delete set null,
-  reply_to_content text,
-  reply_to_user_name text,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 1. Tabela `app_settings` (Configurações Globais)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+    id BIGINT PRIMARY KEY DEFAULT 1,
+    admin_email TEXT DEFAULT 'gabrielchendes@gmail.com',
+    app_name TEXT DEFAULT 'Maternidade Premium',
+    app_description TEXT DEFAULT 'Sua jornada na maternidade começa aqui.',
+    primary_color TEXT DEFAULT '#ec4899',
+    secondary_color TEXT DEFAULT '#be185d',
+    logo_url TEXT,
+    favicon_url TEXT,
+    pwa_icon_url TEXT,
+    support_whatsapp TEXT DEFAULT '5531997433488',
+    support_email TEXT DEFAULT 'gabrielchendes@hotmail.com',
+    auth_method TEXT DEFAULT 'passwordless',
+    show_support_login BOOLEAN DEFAULT true,
+    show_support_app BOOLEAN DEFAULT true,
+    support_whatsapp_enabled BOOLEAN DEFAULT true,
+    support_email_enabled BOOLEAN DEFAULT true,
+    login_display_type TEXT DEFAULT 'title',
+    custom_texts JSONB DEFAULT '{
+        "auth.welcome": "Bem-vinda de volta!",
+        "auth.subtitle": "Acesse sua área exclusiva para mamães",
+        "community.title": "Comunidade",
+        "community.subtitle": "Compartilhe sua jornada com outras mães",
+        "courses.title": "Meus Cursos",
+        "courses.subtitle": "Continue seu aprendizado"
+    }'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT one_row CHECK (id = 1)
 );
 
--- 4. Tabela `post_likes`
-create table post_likes (
-  user_id uuid references auth.users(id) on delete cascade not null,
-  post_id uuid references community_posts(id) on delete cascade not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  primary key (user_id, post_id)
+-- 2. Tabela `profiles` (Perfis de Usuário)
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    full_name TEXT,
+    avatar_url TEXT,
+    is_admin BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. Tabela `post_comments`
-create table post_comments (
-  id uuid default gen_random_uuid() primary key,
-  post_id uuid references community_posts(id) on delete cascade not null,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  user_name text not null,
-  content text not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 3. Tabela `courses` (Cursos)
+CREATE TABLE IF NOT EXISTS public.courses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    description TEXT,
+    cover_url TEXT,
+    price INTEGER DEFAULT 0,
+    is_free BOOLEAN DEFAULT false,
+    is_bonus BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    category TEXT,
+    pdf_url TEXT,
+    checkout_url TEXT,
+    hotmart_product_id TEXT,
+    tenant_id TEXT DEFAULT 'default',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Habilitar RLS
-alter table community_posts enable row level security;
-alter table post_likes enable row level security;
-alter table post_comments enable row level security;
+-- 4. Tabela `modules` (Módulos dos Cursos)
+CREATE TABLE IF NOT EXISTS public.modules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    order_index INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Políticas para posts
-create policy "Posts são visíveis para todos" on community_posts for select using (true);
-create policy "Usuários podem inserir seus próprios posts" on community_posts for insert to authenticated with check (auth.uid() = user_id);
-create policy "Usuários podem deletar seus próprios posts" on community_posts for delete to authenticated using (auth.uid() = user_id);
+-- 5. Tabela `chapters` (Aulas/Capítulos)
+CREATE TABLE IF NOT EXISTS public.chapters (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    module_id UUID REFERENCES public.modules(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text')),
+    video_url TEXT,
+    pdf_url TEXT,
+    rich_text TEXT,
+    duration_minutes INTEGER DEFAULT 0,
+    order_index INTEGER DEFAULT 0,
+    is_preview BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Políticas para likes
-create policy "Likes são visíveis para todos" on post_likes for select using (true);
-create policy "Usuários podem dar like" on post_likes for insert to authenticated with check (auth.uid() = user_id);
-create policy "Usuários podem remover like" on post_likes for delete to authenticated using (auth.uid() = user_id);
+-- 6. Tabela `products` (Legado - para compatibilidade)
+CREATE TABLE IF NOT EXISTS public.products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    description TEXT,
+    cover_url TEXT,
+    price INTEGER DEFAULT 0,
+    is_free BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    pdf_url TEXT,
+    hotmart_product_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Políticas para comentários
-create policy "Comentários são visíveis para todos" on post_comments for select using (true);
-create policy "Usuários podem comentar" on post_comments for insert to authenticated with check (auth.uid() = user_id);
-create policy "Usuários podem deletar seus próprios comentários" on post_comments for delete to authenticated using (auth.uid() = user_id);
+-- 7. Tabela `purchases` (Compras/Acessos)
+CREATE TABLE IF NOT EXISTS public.purchases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL,
+    transaction_id TEXT,
+    status TEXT DEFAULT 'approved',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 6. Triggers para Contagem Automática (IMPORTANTE - VERSÃO CORRIGIDA)
--- Execute este SQL para garantir que as colunas existam e os contadores funcionem
+-- 8. Tabelas da Comunidade
+CREATE TABLE IF NOT EXISTS public.community_posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_name TEXT,
+    user_email TEXT,
+    user_avatar_url TEXT,
+    content TEXT NOT NULL,
+    image_url TEXT,
+    likes_count INTEGER DEFAULT 0,
+    comments_count INTEGER DEFAULT 0,
+    reply_to_id UUID REFERENCES public.community_posts(id) ON DELETE SET NULL,
+    reply_to_content TEXT,
+    reply_to_user_name TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- Garantir que as colunas existam (caso a tabela tenha sido criada antes)
-do $$ 
-begin
-  if not exists (select from pg_attribute where attrelid = 'public.community_posts'::regclass and attname = 'likes_count') then
-    alter table public.community_posts add column likes_count integer default 0;
-  end if;
-  if not exists (select from pg_attribute where attrelid = 'public.community_posts'::regclass and attname = 'comments_count') then
-    alter table public.community_posts add column comments_count integer default 0;
-  end if;
-end $$;
+CREATE TABLE IF NOT EXISTS public.post_likes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id UUID REFERENCES public.community_posts(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(post_id, user_id)
+);
 
--- Função para atualizar contagem de curtidas
-create or replace function handle_post_likes_count()
-returns trigger as $$
-begin
-  if (TG_OP = 'INSERT') then
-    update community_posts set likes_count = coalesce(likes_count, 0) + 1 where id = new.post_id;
-  elsif (TG_OP = 'DELETE') then
-    -- Só atualiza se o post ainda existir (evita erro no delete cascade do post)
-    update community_posts set likes_count = greatest(0, coalesce(likes_count, 0) - 1) where id = old.post_id;
-  end if;
-  return coalesce(new, old);
-end;
-$$ language plpgsql security definer;
-
--- Trigger para curtidas
-drop trigger if exists on_post_like on post_likes;
-create trigger on_post_like
-after insert or delete on post_likes
-for each row execute function handle_post_likes_count();
-
--- Função para atualizar contagem de comentários
-create or replace function handle_post_comments_count()
-returns trigger as $$
-begin
-  if (TG_OP = 'INSERT') then
-    update community_posts set comments_count = coalesce(comments_count, 0) + 1 where id = new.post_id;
-  elsif (TG_OP = 'DELETE') then
-    -- Só atualiza se o post ainda existir (evita erro no delete cascade do post)
-    update community_posts set comments_count = greatest(0, coalesce(comments_count, 0) - 1) where id = old.post_id;
-  end if;
-  return coalesce(new, old);
-end;
-$$ language plpgsql security definer;
-
--- Trigger para comentários
-drop trigger if exists on_post_comment on post_comments;
-create trigger on_post_comment
-after insert or delete on post_comments
-for each row execute function handle_post_comments_count();
-
--- 7. Storage (Imagens da Comunidade)
--- Crie o bucket manualmente no painel do Supabase chamado `community_images` e torne-o público.
--- Ou execute este SQL para configurar as permissões (ajuste se necessário):
-
-create policy "Imagens da comunidade são públicas"
-on storage.objects for select
-using ( bucket_id = 'community_images' );
-
-create policy "Usuários autenticados podem fazer upload de imagens"
-on storage.objects for insert
-to authenticated
-with check ( bucket_id = 'community_images' );
-
-create policy "Usuários podem deletar suas próprias imagens"
-on storage.objects for delete
-to authenticated
-using ( bucket_id = 'community_images' AND (storage.foldername(name))[1] = auth.uid()::text );
-
--- 7. Storage (Avatares de Perfil)
--- Crie o bucket manualmente no painel do Supabase chamado `avatars` e torne-o público.
-
-create policy "Avatares são públicos"
-on storage.objects for select
-using ( bucket_id = 'avatars' );
-
-create policy "Usuários podem fazer upload de seu próprio avatar"
-on storage.objects for insert
-to authenticated
-with check ( bucket_id = 'avatars' );
-
-create policy "Usuários podem atualizar seu próprio avatar"
-on storage.objects for update
-to authenticated
-using ( bucket_id = 'avatars' );
+CREATE TABLE IF NOT EXISTS public.post_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id UUID REFERENCES public.community_posts(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_name TEXT,
+    user_avatar_url TEXT,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- 9. Tabela `notifications`
-create table notifications (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  title text not null,
-  message text not null,
-  read boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 10. Tabela `push_tokens`
-create table push_tokens (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users(id) on delete cascade not null,
-  token text not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(user_id, token)
+CREATE TABLE IF NOT EXISTS public.push_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    token TEXT UNIQUE NOT NULL,
+    platform TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Habilitar RLS
-alter table notifications enable row level security;
-alter table push_tokens enable row level security;
-
--- Políticas para notificações
-create policy "Usuários podem ver suas próprias notificações" on notifications for select to authenticated using (auth.uid() = user_id);
-create policy "Usuários podem atualizar suas próprias notificações" on notifications for update to authenticated using (auth.uid() = user_id);
-
--- Políticas para push_tokens
-create policy "Usuários podem gerenciar seus próprios tokens" on push_tokens for all to authenticated using (auth.uid() = user_id);
-
-
-
--- Trigger para criar perfil automaticamente no signup
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-
-  return new;
-end;
-$$ language plpgsql security definer;
-
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-
--- 12. Políticas de Administrador (Ajuste o email conforme necessário)
--- Substitua 'gabrielchendes@gmail.com' pelo seu email de admin real
-
--- Admin pode gerenciar produtos
-create policy "Admin pode gerenciar produtos" on products for all to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
-
--- Admin pode deletar qualquer post
-create policy "Admin pode deletar qualquer post" on community_posts for delete to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
-
--- Admin pode deletar qualquer comentário
-create policy "Admin pode deletar qualquer comentário" on post_comments for delete to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
-
--- Admin pode enviar notificações para qualquer um
-create policy "Admin pode gerenciar todas as notificações" on notifications for all to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
-
--- Admin pode ver todos os tokens (para broadcast)
-create policy "Admin pode ver todos os tokens" on push_tokens for select to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
-
--- 13. Tabela `app_settings`
--- Esta tabela armazena as configurações globais do SaaS (Nome, Cores, Logo, etc.)
-create table app_settings (
-  id integer primary key default 1,
-  app_name text default 'Maternidade Premium',
-  app_description text default 'Acesse sua área exclusiva',
-  primary_color text default '#ec4899',
-  secondary_color text default '#be185d',
-  logo_url text,
-  favicon_url text,
-  pwa_icon_url text,
-  support_whatsapp text default '5531997433488',
-  support_email text default 'gabrielchendes@hotmail.com',
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  constraint one_row check (id = 1)
+-- 11. Tabela `user_progress`
+CREATE TABLE IF NOT EXISTS public.user_progress (
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    chapter_id UUID REFERENCES public.chapters(id) ON DELETE CASCADE,
+    completed BOOLEAN DEFAULT true,
+    completed_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, chapter_id)
 );
 
--- Inserir valores padrão
-insert into app_settings (id, app_name) values (1, 'Maternidade Premium') on conflict (id) do nothing;
+-- ==========================================
+-- POLÍTICAS DE SEGURANÇA (RLS)
+-- ==========================================
 
--- Habilitar RLS
-alter table app_settings enable row level security;
+-- Habilitar RLS em todas as tabelas
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chapters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.post_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.post_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_progress ENABLE ROW LEVEL SECURITY;
 
--- Política de Leitura Pública
-create policy "Configurações são visíveis para todos" on app_settings for select using (true);
+-- Função para verificar se o usuário é admin (baseado no email em app_settings)
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN (
+    SELECT (auth.jwt() ->> 'email' = admin_email)
+    FROM public.app_settings
+    WHERE id = 1
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Política de Escrita para Admin
-create policy "Admin pode gerenciar configurações" on app_settings for all to authenticated 
-using (auth.jwt() ->> 'email' = 'gabrielchendes@gmail.com');
+-- Políticas para app_settings
+CREATE POLICY "Permitir leitura para todos" ON public.app_settings FOR SELECT USING (true);
+CREATE POLICY "Apenas admin pode atualizar" ON public.app_settings FOR UPDATE USING (public.is_admin());
 
-Execute este SQL para criar alguns produtos de exemplo:
+-- Políticas para profiles
+CREATE POLICY "Usuários podem ver seu próprio perfil" ON public.profiles FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Usuários podem atualizar seu próprio perfil" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Admin pode ver todos os perfis" ON public.profiles FOR SELECT USING (public.is_admin());
 
-```sql
-insert into products (title, description, cover_url, pdf_url, price, is_free)
-values 
-('Guia do Recém-Nascido', 'Tudo o que você precisa saber sobre os primeiros 30 dias do seu bebê.', 'https://picsum.photos/seed/baby1/800/450', 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 9700, false),
-('Amamentação Sem Dor', 'Técnicas e dicas para uma amamentação tranquila e prazerosa.', 'https://picsum.photos/seed/baby2/800/450', 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 14700, false),
-('Sono do Bebê', 'Métodos gentis para ajudar seu bebê a dormir a noite toda.', 'https://picsum.photos/seed/baby3/800/450', 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 19700, false),
-('Introdução Alimentar', 'Receitas e orientações para a transição para alimentos sólidos.', 'https://picsum.photos/seed/baby4/800/450', 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 8700, false),
-('E-book Gratuito: Primeiros Passos', 'Um guia rápido para começar sua jornada na maternidade.', 'https://picsum.photos/seed/baby5/800/450', 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 0, true);
+-- Políticas para courses, modules, chapters
+CREATE POLICY "Todos podem ver cursos ativos" ON public.courses FOR SELECT USING (is_active = true OR public.is_admin());
+CREATE POLICY "Admin total em cursos" ON public.courses FOR ALL USING (public.is_admin());
+CREATE POLICY "Todos podem ver módulos" ON public.modules FOR SELECT USING (true);
+CREATE POLICY "Admin total em módulos" ON public.modules FOR ALL USING (public.is_admin());
+CREATE POLICY "Todos podem ver capítulos" ON public.chapters FOR SELECT USING (true);
+CREATE POLICY "Admin total em capítulos" ON public.chapters FOR ALL USING (public.is_admin());
+
+-- Políticas para community_posts
+CREATE POLICY "Todos podem ver posts" ON public.community_posts FOR SELECT USING (true);
+CREATE POLICY "Usuários autenticados podem postar" ON public.community_posts FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "Dono ou Admin pode deletar post" ON public.community_posts FOR DELETE USING (auth.uid() = user_id OR public.is_admin());
+
+-- Políticas para post_likes e post_comments
+CREATE POLICY "Todos podem ver likes e comentários" ON public.post_likes FOR SELECT USING (true);
+CREATE POLICY "Todos podem ver comentários" ON public.post_comments FOR SELECT USING (true);
+CREATE POLICY "Usuários autenticados podem dar like" ON public.post_likes FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "Usuários autenticados podem comentar" ON public.post_comments FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "Dono pode remover seu like" ON public.post_likes FOR DELETE USING (auth.uid() = user_id);
+
+-- Políticas para purchases
+CREATE POLICY "Usuários veem suas próprias compras" ON public.purchases FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
+CREATE POLICY "Admin total em compras" ON public.purchases FOR ALL USING (public.is_admin());
+
+-- Políticas para user_progress
+CREATE POLICY "Usuários gerenciam seu próprio progresso" ON public.user_progress FOR ALL USING (auth.uid() = user_id);
+
+-- ==========================================
+-- TRIGGERS PARA CONTADORES
+-- ==========================================
+
+-- Função para atualizar contagem de likes
+CREATE OR REPLACE FUNCTION public.handle_post_likes_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    UPDATE public.community_posts SET likes_count = likes_count + 1 WHERE id = NEW.post_id;
+  ELSIF (TG_OP = 'DELETE') THEN
+    UPDATE public.community_posts SET likes_count = likes_count - 1 WHERE id = OLD.post_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER on_post_like AFTER INSERT OR DELETE ON public.post_likes FOR EACH ROW EXECUTE FUNCTION public.handle_post_likes_count();
+
+-- Função para atualizar contagem de comentários
+CREATE OR REPLACE FUNCTION public.handle_post_comments_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (TG_OP = 'INSERT') THEN
+    UPDATE public.community_posts SET comments_count = comments_count + 1 WHERE id = NEW.post_id;
+  ELSIF (TG_OP = 'DELETE') THEN
+    UPDATE public.community_posts SET comments_count = comments_count - 1 WHERE id = OLD.post_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER on_post_comment AFTER INSERT OR DELETE ON public.post_comments FOR EACH ROW EXECUTE FUNCTION public.handle_post_comments_count();
+
+-- 12. Configuração de Buckets de Storage
+-- Nota: Execute estes comandos se o seu projeto permitir criação de buckets via SQL, 
+-- caso contrário, crie manualmente no painel do Supabase com os nomes abaixo.
+
+INSERT INTO storage.buckets (id, name, public) VALUES ('course_content', 'course_content', true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public) VALUES ('course_covers', 'course_covers', true) ON CONFLICT (id) DO NOTHING;
+
+-- Políticas de Storage
+CREATE POLICY "Qualquer um pode ver conteúdo de cursos" ON storage.objects FOR SELECT USING (bucket_id IN ('course_content', 'course_covers'));
+CREATE POLICY "Apenas admin pode fazer upload" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
+CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
 ```

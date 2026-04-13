@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
-import { supabase, Product } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
 import BottomNav from '../components/BottomNav';
 import Carousel from '../components/Carousel';
@@ -8,12 +8,15 @@ import ProductCard from '../components/ProductCard';
 import Profile from '../components/Profile';
 import Community from '../components/Community';
 import AdminPanel from '../components/AdminPanel';
+import CourseViewer from '../components/CourseViewer';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, FileText } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
 import { useSettings } from '../contexts/SettingsContext';
+import { useI18n } from '../contexts/I18nContext';
+import { Course } from '../types/lms';
 
 interface DashboardProps {
   user: User;
@@ -21,20 +24,19 @@ interface DashboardProps {
 
 export default function Dashboard({ user }: DashboardProps) {
   const { settings } = useSettings();
-  console.log('Supabase client initialized:', !!supabase);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [purchases, setPurchases] = useState<string[]>([]); // Array of product IDs
+  const { t } = useI18n();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
+  const [purchases, setPurchases] = useState<string[]>([]);
+  const [userProgress, setUserProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [buying, setBuying] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>('home');
 
   useEffect(() => {
-    console.log('Dashboard mounted for user:', user.id);
-    
     fetchData();
     
-    // Setup push notifications
     const setupPush = async () => {
       const granted = await requestNotificationPermission(user.id);
       if (granted) {
@@ -42,45 +44,55 @@ export default function Dashboard({ user }: DashboardProps) {
       }
     };
     setupPush();
-    
-    // Check for success or canceled parameters
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('success')) {
-      toast.success('Compra realizada com sucesso! O acesso está sendo liberado...');
-      
-      // Create internal notification
-      createNotification(user.id, 'Compra Aprovada! 🚀', 'O seu acesso ao curso foi liberado com sucesso. Aproveite o conteúdo!');
-      
-      // Retry fetching data after a short delay to allow webhook to process
-      const timer = setTimeout(() => {
-        fetchData();
-        toast.success('Acesso liberado! Aproveite o conteúdo.');
-      }, 3000);
-
-      // Remove params from URL without refreshing
-      window.history.replaceState({}, '', window.location.pathname);
-      return () => clearTimeout(timer);
-    } else if (params.get('canceled')) {
-      toast.error('A compra foi cancelada.');
-      window.history.replaceState({}, '', window.location.pathname);
-    }
   }, [user.id]);
 
   const fetchData = async () => {
     try {
-      const [productsRes, purchasesRes] = await Promise.all([
+      const [coursesRes, productsRes, purchasesRes, progressRes] = await Promise.all([
+        supabase.from('courses').select('*').eq('is_active', true),
         supabase.from('products').select('*').eq('is_active', true),
-        supabase.from('purchases').select('product_id').eq('user_id', user.id)
+        supabase.from('purchases').select('product_id').eq('user_id', user.id),
+        supabase.from('user_progress').select('*').eq('user_id', user.id)
       ]);
 
+      if (coursesRes.error) throw coursesRes.error;
       if (productsRes.error) throw productsRes.error;
       if (purchasesRes.error) throw purchasesRes.error;
+      if (progressRes.error) throw progressRes.error;
 
-      console.log('Fetched products:', productsRes.data?.length);
-      console.log('Fetched purchases for user:', user.id, purchasesRes.data);
+      // Merge courses and products (legacy)
+      const allCourses: Course[] = [
+        ...(coursesRes.data || []),
+        ...(productsRes.data || []).map(p => ({
+          ...p,
+          tenant_id: p.tenant_id || 'default-tenant'
+        }))
+      ];
 
-      setProducts(productsRes.data || []);
+      // Remove duplicates by ID (preferring 'courses' table if same ID exists)
+      const uniqueCourses = allCourses.reduce((acc: Course[], curr) => {
+        if (!acc.find(c => c.id === curr.id)) {
+          acc.push(curr);
+        }
+        return acc;
+      }, []);
+
+      setCourses(uniqueCourses);
       setPurchases(purchasesRes.data?.map(p => p.product_id) || []);
+      setUserProgress(progressRes.data || []);
+
+      // Fetch stats for each course
+      const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
+      if (chaptersData) {
+        const stats: Record<string, { lessons: number, materials: number }> = {};
+        chaptersData.forEach((ch: any) => {
+          const courseId = ch.modules.course_id;
+          if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
+          if (ch.content_type === 'video') stats[courseId].lessons++;
+          else stats[courseId].materials++;
+        });
+        setCourseStats(stats);
+      }
     } catch (error: any) {
       console.error('Error fetching data:', error);
       toast.error('Erro ao carregar conteúdos');
@@ -89,183 +101,194 @@ export default function Dashboard({ user }: DashboardProps) {
     }
   };
 
-  const handleOpenProduct = (product: Product) => {
-    setSelectedProduct(product);
+  const handleOpenCourse = (course: Course) => {
+    if (isUnlocked(course)) {
+      // If it's a legacy product with a PDF URL but no chapters/modules, open the PDF
+      if (course.pdf_url && !viewingCourseId) {
+        window.open(course.pdf_url, '_blank');
+        return;
+      }
+      setViewingCourseId(course.id);
+    } else {
+      setSelectedCourse(course);
+    }
   };
 
   const handleSimulatePurchase = async () => {
-    if (!selectedProduct) return;
-    setBuying(true);
-
-    try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          productId: selectedProduct.id,
-          userId: user.id,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.error) throw new Error(data.error);
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error('Não foi possível gerar o link de pagamento. Verifique se as chaves da Stripe estão configuradas corretamente no menu Secrets.');
-      }
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao processar compra');
-    } finally {
-      setBuying(false);
-    }
-  };
-
-  const handleViewPdf = () => {
-    if (!selectedProduct?.pdf_url) {
-      toast.error('PDF não disponível');
+    if (!selectedCourse) return;
+    
+    if (selectedCourse.checkout_url) {
+      window.location.href = selectedCourse.checkout_url;
       return;
     }
-    // Abrir na mesma aba é o que o usuário solicitou
-    window.location.href = selectedProduct.pdf_url;
+
+    // Fallback if no checkout URL is set
+    toast.error('Este curso ainda não possui um link de compra configurado.');
   };
 
-  const isUnlocked = (product: Product) => {
-    return product.is_free || product.is_bonus || purchases.includes(product.id);
+  const isUnlocked = (course: Course) => {
+    return course.is_free || course.is_bonus || purchases.includes(course.id);
+  };
+
+  const getCourseProgress = (courseId: string) => {
+    // This would ideally be calculated based on total chapters in the course
+    // For now, we'll return a placeholder or calculate if we have chapters data
+    return 0; 
   };
 
   if (loading) {
     return (
-      <div className="pt-32 px-12 space-y-12">
-        {[1, 2].map(i => (
-          <div key={i} className="space-y-4">
-            <div className="h-8 w-48 bg-white/5 rounded animate-pulse" />
-            <div className="flex gap-4 overflow-hidden">
-              {[1, 2, 3, 4, 5].map(j => (
-                <div key={j} className="w-64 aspect-[16/9] bg-white/5 rounded-md animate-pulse shrink-0" />
-              ))}
-            </div>
-          </div>
-        ))}
+      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary" size={48} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-20 bg-[#0f0f0f]">
       <Navbar user={user} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === 'home' ? (
         <>
           {/* Hero Section */}
-          <div className="relative h-[70vh] w-full overflow-hidden mb-[-100px]">
+          <div className="relative h-[85vh] w-full overflow-hidden mb-[-150px]">
             <img
               src="https://picsum.photos/seed/maternity-hero/1920/1080"
-              className="w-full h-full object-cover opacity-60"
+              className="w-full h-full object-cover opacity-50 scale-105"
               alt="Hero"
               referrerPolicy="no-referrer"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f0f] via-[#0f0f0f]/40 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#0f0f0f] via-transparent to-transparent" />
             
-            <div className="absolute bottom-40 left-0 right-0 md:left-12 md:right-auto px-6 md:px-0 flex flex-col items-center md:items-start text-center md:text-left space-y-6">
-              <h1 className="text-3xl sm:text-5xl md:text-7xl font-black tracking-tight leading-none">
-                JORNADA DA <br /> <span className="text-primary">MATERNIDADE</span>
-              </h1>
-              <p className="text-base md:text-lg text-gray-300 leading-relaxed max-w-md md:max-w-2xl">
+            <div className="absolute bottom-60 left-0 right-0 md:left-16 md:right-auto px-6 md:px-0 flex flex-col items-center md:items-start text-center md:text-left space-y-8">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 px-4 py-1.5 bg-primary/20 backdrop-blur-md rounded-full border border-primary/30"
+              >
+                <Sparkles className="text-primary" size={16} />
+                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Conteúdo Exclusivo</span>
+              </motion.div>
+              
+              <motion.h1 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="text-4xl sm:text-6xl md:text-8xl font-black tracking-tighter leading-[0.9] text-white"
+              >
+                JORNADA DA <br /> <span className="text-primary italic">MATERNIDADE</span>
+              </motion.h1>
+              
+              <motion.p 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="text-base md:text-xl text-gray-400 leading-relaxed max-w-md md:max-w-2xl font-medium"
+              >
                 O guia definitivo para mães de primeira viagem. Aprenda tudo sobre os primeiros meses, 
                 cuidados essenciais e bem-estar emocional.
-              </p>
-              <div className="flex items-center gap-4 pt-4">
-              </div>
+              </motion.p>
+
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="flex items-center gap-4 pt-4"
+              >
+              </motion.div>
             </div>
           </div>
 
           {/* Content Sections */}
-          <div className="relative z-10 space-y-4">
+          <div className="relative z-10 space-y-12 pb-20">
             <Carousel title="Meus Cursos 📚">
-              {products.filter(p => isUnlocked(p) && !p.is_bonus).length > 0 ? (
-                products.filter(p => isUnlocked(p) && !p.is_bonus).map(product => (
+              {courses.filter(p => isUnlocked(p) && !p.is_bonus).length > 0 ? (
+                courses.filter(p => isUnlocked(p) && !p.is_bonus).map(course => (
                   <ProductCard
-                    key={product.id}
-                    product={product}
+                    key={course.id}
+                    product={course}
                     isUnlocked={true}
-                    onOpen={handleOpenProduct}
+                    progress={getCourseProgress(course.id)}
+                    stats={courseStats[course.id]}
+                    onOpen={handleOpenCourse}
                   />
                 ))
               ) : (
-                <div className="w-full py-12 flex flex-col items-center justify-center text-gray-500 border border-dashed border-white/10 rounded-xl mx-12">
-                  <p>Você ainda não possui cursos liberados.</p>
+                <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                  <Star size={40} className="mb-4 opacity-20" />
+                  <p className="font-bold">Você ainda não possui cursos liberados.</p>
                 </div>
               )}
             </Carousel>
 
-            <Carousel title="Meus bônus 🎁">
-              {products.filter(p => p.is_bonus).length > 0 ? (
-                products.filter(p => p.is_bonus).map(product => (
+            {courses.filter(p => p.is_bonus && isUnlocked(p)).length > 0 && (
+              <Carousel title="Meus Bônus 🎁">
+                {courses.filter(p => p.is_bonus && isUnlocked(p)).map(course => (
                   <ProductCard
-                    key={product.id}
-                    product={product}
-                    isUnlocked={isUnlocked(product)}
-                    onOpen={handleOpenProduct}
+                    key={course.id}
+                    product={course}
+                    isUnlocked={true}
+                    progress={getCourseProgress(course.id)}
+                    stats={courseStats[course.id]}
+                    onOpen={handleOpenCourse}
                   />
-                ))
-              ) : (
-                <div className="w-full py-12 flex flex-col items-center justify-center text-gray-500 border border-dashed border-white/10 rounded-xl mx-12">
-                  <p>Nenhum bônus disponível no momento.</p>
-                </div>
-              )}
-            </Carousel>
+                ))}
+              </Carousel>
+            )}
 
-            <Carousel title="Avance na sua jornada 🚀">
-              {products.filter(p => !isUnlocked(p) && !p.is_bonus).length > 0 ? (
-                products.filter(p => !isUnlocked(p) && !p.is_bonus).map(product => (
+            <Carousel title="Novos Lançamentos 🚀">
+              {courses.filter(p => !isUnlocked(p)).length > 0 ? (
+                courses.filter(p => !isUnlocked(p)).map(course => (
                   <ProductCard
-                    key={product.id}
-                    product={product}
+                    key={course.id}
+                    product={course}
                     isUnlocked={false}
-                    onOpen={handleOpenProduct}
+                    stats={courseStats[course.id]}
+                    onOpen={handleOpenCourse}
                   />
                 ))
               ) : (
-                <div className="w-full py-12 flex flex-col items-center justify-center text-gray-500 border border-dashed border-white/10 rounded-xl mx-12">
-                  <p>Você já possui todos os cursos disponíveis!</p>
+                <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                  <p className="font-bold">Você já possui todos os cursos disponíveis!</p>
                 </div>
               )}
             </Carousel>
-          </div>
 
-          {/* Support Section - Only on Home */}
-          <div className="mt-20 mb-32 px-12 flex flex-col items-center text-center space-y-4">
-            <div className="p-4 bg-zinc-900 rounded-2xl border border-white/10 max-w-sm w-full">
-              <h3 className="font-bold text-lg mb-2">Precisa de ajuda?</h3>
-              <p className="text-sm text-gray-400 mb-4">Fale com nosso suporte exclusivo para alunas.</p>
-              
-              <div className="space-y-3">
-                <a 
-                  href={`https://wa.me/${settings.support_whatsapp}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white font-bold py-3 px-6 rounded-xl transition-all active:scale-95"
-                >
-                  <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
-                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.438 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
-                  </svg>
-                  SUPORTE PRIORITÁRIO
-                </a>
-                
-                <a 
-                  href={`mailto:${settings.support_email}`} 
-                  className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white font-medium py-2 px-6 rounded-xl transition-all text-xs"
-                >
-                  Suporte via E-mail
-                </a>
+            {settings.show_support_app && (
+              <div className="px-6 md:px-16 pt-12 pb-20">
+                <div className="bg-zinc-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div className="space-y-2 text-center md:text-left">
+                    <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter italic">
+                      Precisa de <span className="text-primary">Suporte?</span>
+                    </h3>
+                    <p className="text-gray-500 font-medium max-w-md">
+                      Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-4">
+                    {settings.support_whatsapp_enabled && settings.support_whatsapp && (
+                      <a 
+                        href={`https://wa.me/${settings.support_whatsapp}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-2xl shadow-xl shadow-green-500/20 transition-all active:scale-95"
+                      >
+                        <Phone size={20} /> WHATSAPP
+                      </a>
+                    )}
+                    {settings.support_email_enabled && settings.support_email && (
+                      <a 
+                        href={`mailto:${settings.support_email}`}
+                        className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-black rounded-2xl border border-white/10 transition-all active:scale-95"
+                      >
+                        <MailIcon size={20} /> EMAIL
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </>
       ) : activeTab === 'community' ? (
@@ -282,27 +305,27 @@ export default function Dashboard({ user }: DashboardProps) {
         </div>
       )}
 
-      {/* Product Detail Modal */}
+      {/* Course Detail / Purchase Modal */}
       <AnimatePresence>
-        {selectedProduct && (
+        {selectedCourse && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setSelectedProduct(null)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-sm"
+              onClick={() => setSelectedCourse(null)}
+              className="absolute inset-0 bg-black/95 backdrop-blur-md"
             />
             
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-4xl bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10"
+              className="relative w-full max-w-5xl bg-zinc-900 rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
             >
               <button
-                onClick={() => setSelectedProduct(null)}
-                className="absolute top-4 right-4 z-10 p-2 bg-black/50 hover:bg-black/80 rounded-full transition-colors"
+                onClick={() => setSelectedCourse(null)}
+                className="absolute top-6 right-6 z-10 p-3 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"
               >
                 <X size={24} />
               </button>
@@ -310,61 +333,45 @@ export default function Dashboard({ user }: DashboardProps) {
               <div className="grid md:grid-cols-2">
                 <div className="aspect-video md:aspect-auto relative">
                   <img
-                    src={selectedProduct.cover_url || `https://picsum.photos/seed/${selectedProduct.id}/800/600`}
+                    src={selectedCourse.cover_url || `https://picsum.photos/seed/${selectedCourse.id}/1200/800`}
                     className="w-full h-full object-cover"
-                    alt={selectedProduct.title}
+                    alt={selectedCourse.title}
                     referrerPolicy="no-referrer"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent md:hidden" />
                 </div>
 
-                <div className="p-8 flex flex-col gap-6">
-                  <div>
-                    <div className="flex items-center gap-2 text-primary font-bold text-xs tracking-widest uppercase mb-2">
-                      {isUnlocked(selectedProduct) ? 'CONTEÚDO LIBERADO' : 'CONTEÚDO PREMIUM'}
+                <div className="p-10 md:p-14 flex flex-col gap-8">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-primary font-black text-[10px] tracking-[0.2em] uppercase">
+                      <Star size={12} className="fill-primary" /> CONTEÚDO PREMIUM
                     </div>
-                    <h2 className="text-3xl font-bold leading-tight">{selectedProduct.title}</h2>
-                    {!isUnlocked(selectedProduct) && !selectedProduct.is_bonus && (
-                      <div className="mt-2 text-2xl font-bold text-white">
-                        R$ {(selectedProduct.price / 100).toFixed(2).replace('.', ',')}
+                    <h2 className="text-4xl md:text-5xl font-black leading-[0.9] text-white">{selectedCourse.title}</h2>
+                    <div className="flex items-center gap-4">
+                      <div className="text-3xl font-black text-white">
+                        R$ {(selectedCourse.price / 100).toFixed(2).replace('.', ',')}
                       </div>
-                    )}
+                      <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-black text-gray-500 uppercase tracking-widest border border-white/10">
+                        Acesso Vitalício
+                      </span>
+                    </div>
                   </div>
 
-                  <p className="text-gray-400 leading-relaxed">
-                    {selectedProduct.description || 'Este conteúdo exclusivo oferece insights valiosos e ferramentas práticas para sua jornada na maternidade. Desenvolvido por especialistas para garantir o melhor para você e seu bebê.'}
+                  <p className="text-gray-400 leading-relaxed text-lg font-medium">
+                    {selectedCourse.description || 'Este conteúdo exclusivo oferece insights valiosos e ferramentas práticas para sua jornada na maternidade. Desenvolvido por especialistas para garantir o melhor para você e seu bebê.'}
                   </p>
 
-                  <div className="mt-auto pt-6 border-t border-white/10">
-                    {isUnlocked(selectedProduct) ? (
-                      <button
-                        onClick={handleViewPdf}
-                        className="w-full bg-white text-black font-bold py-4 rounded-xl flex items-center justify-center gap-3 hover:bg-gray-200 transition-all active:scale-[0.98]"
-                      >
-                        <FileText size={24} />
-                        Visualizar o curso
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleSimulatePurchase}
-                        disabled={buying}
-                        className="w-full bg-primary-hover text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 hover:bg-primary-hover transition-all active:scale-[0.98] disabled:opacity-50"
-                      >
-                        {buying ? (
-                          <Loader2 className="animate-spin" size={24} />
-                        ) : (
-                          <>
-                            <ShoppingBag size={24} />
-                            Liberar Acesso
-                          </>
-                        )}
-                      </button>
-                    )}
-                    {!isUnlocked(selectedProduct) && !selectedProduct.is_bonus && (
-                      <p className="text-center text-[10px] text-gray-500 mt-4">
-                        Pagamento único. Acesso vitalício aos conteúdos e atualizações.
-                      </p>
-                    )}
+                  <div className="mt-auto pt-8 border-t border-white/5 space-y-6">
+                    <button
+                      onClick={handleSimulatePurchase}
+                      className="w-full bg-primary hover:bg-primary-hover text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 shadow-2xl shadow-primary/30 transition-all active:scale-[0.98]"
+                    >
+                      <ShoppingBag size={24} />
+                      LIBERAR ACESSO AGORA
+                    </button>
+                    <p className="text-center text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                      Pagamento 100% Seguro • Acesso Imediato
+                    </p>
                   </div>
                 </div>
               </div>
@@ -372,6 +379,15 @@ export default function Dashboard({ user }: DashboardProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Course Viewer Modal */}
+      {viewingCourseId && (
+        <CourseViewer 
+          courseId={viewingCourseId} 
+          userId={user.id} 
+          onClose={() => setViewingCourseId(null)} 
+        />
+      )}
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />
     </div>

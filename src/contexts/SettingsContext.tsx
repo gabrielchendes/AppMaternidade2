@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 
 export interface AppSettings {
   app_name: string;
+  admin_email: string;
   app_description: string;
   primary_color: string;
   secondary_color: string;
@@ -11,10 +12,18 @@ export interface AppSettings {
   pwa_icon_url: string | null;
   support_whatsapp: string;
   support_email: string;
+  auth_method: 'password' | 'passwordless';
+  show_support_login: boolean;
+  show_support_app: boolean;
+  support_whatsapp_enabled: boolean;
+  support_email_enabled: boolean;
+  login_display_type: 'title' | 'logo';
+  custom_texts: { [key: string]: string };
 }
 
 const defaultSettings: AppSettings = {
-  app_name: 'Maternidade Premium',
+  app_name: 'AppMaternidade',
+  admin_email: 'gabrielchendes@gmail.com',
   app_description: 'Acesse sua área exclusiva',
   primary_color: '#ec4899',
   secondary_color: '#be185d',
@@ -23,6 +32,20 @@ const defaultSettings: AppSettings = {
   pwa_icon_url: null,
   support_whatsapp: '5531997433488',
   support_email: 'gabrielchendes@hotmail.com',
+  auth_method: 'passwordless',
+  show_support_login: true,
+  show_support_app: true,
+  support_whatsapp_enabled: true,
+  support_email_enabled: true,
+  login_display_type: 'title',
+  custom_texts: {
+    'auth.welcome': 'Bem-vinda de volta!',
+    'auth.subtitle': 'Acesse sua área exclusiva para mamães',
+    'community.title': 'Comunidade',
+    'community.subtitle': 'Compartilhe sua jornada com outras mães',
+    'courses.title': 'Meus Cursos',
+    'courses.subtitle': 'Continue seu aprendizado',
+  }
 };
 
 interface SettingsContextType {

@@ -4,6 +4,8 @@ import App from './App.tsx';
 import './index.css';
 import { Toaster } from 'sonner';
 import { SettingsProvider } from './contexts/SettingsContext';
+import { I18nProvider } from './contexts/I18nContext';
+import { TenantProvider } from './contexts/TenantContext';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -20,9 +22,13 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <SettingsProvider>
-      <App />
-      <Toaster position="top-center" richColors theme="dark" />
-    </SettingsProvider>
+    <TenantProvider>
+      <SettingsProvider>
+        <I18nProvider>
+          <App />
+          <Toaster position="top-center" richColors theme="dark" />
+        </I18nProvider>
+      </SettingsProvider>
+    </TenantProvider>
   </StrictMode>,
 );
