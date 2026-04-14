@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Search,
   CheckCircle2,
+  Clock,
   AlertCircle,
   Lock as LockIcon
 } from 'lucide-react';
@@ -59,6 +60,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [sendingNotification, setSendingNotification] = useState(false);
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  // User management states
+  const [showUserCreator, setShowUserCreator] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -179,6 +188,71 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     }
   };
 
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail || !newUserPassword) {
+      toast.error('Preencha todos os campos');
+      return;
+    }
+
+    setCreatingUser(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          email: newUserEmail,
+          password: newUserPassword,
+          fullName: newUserName
+        })
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      toast.success('Usuário criado com sucesso!');
+      setShowUserCreator(false);
+      setNewUserEmail('');
+      setNewUserPassword('');
+      setNewUserName('');
+      fetchData();
+    } catch (err: any) {
+      toast.error('Erro ao criar usuário: ' + err.message);
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este usuário? Esta ação é irreversível.')) return;
+
+    setDeletingUser(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
+
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+
+      toast.success('Usuário excluído com sucesso!');
+      setSelectedUserForCourses(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Erro ao excluir usuário: ' + err.message);
+    } finally {
+      setDeletingUser(false);
+    }
+  };
+
   const handleSendNotification = async () => {
     if (!notificationTitle || !notificationBody) {
       toast.error('Preencha o título e a mensagem');
@@ -207,9 +281,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         finalUserIds = finalUserIds.filter(id => !ownerIds.has(id));
       }
 
-      // 3. Send notifications (simulated or real via edge function)
-      // For now, we'll just create records in a notifications table if it exists
-      // or just show success
+      // 3. Send notifications
+      const notifications = finalUserIds.map(uid => ({
+        user_id: uid,
+        title: notificationTitle,
+        message: notificationBody,
+      }));
+
+      const { error: notifyError } = await supabase.from('notifications').insert(notifications);
+      if (notifyError) throw notifyError;
+
       toast.success(`Notificação enviada para ${finalUserIds.length} usuários!`);
       setNotificationTitle('');
       setNotificationBody('');
@@ -370,10 +451,15 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <input 
                           type="text" 
                           placeholder="Buscar usuários..." 
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
                           className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-white focus:border-primary outline-none transition-all"
                         />
                       </div>
-                      <button className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-primary/20">
+                      <button 
+                        onClick={() => setShowUserCreator(true)}
+                        className="flex items-center gap-2 bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-primary/20"
+                      >
                         <Plus size={20} /> Novo Usuário
                       </button>
                     </div>
@@ -384,24 +470,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           <tr>
                             <th className="px-6 py-4">Usuário</th>
                             <th className="px-6 py-4">Email</th>
-                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4">Último Acesso</th>
                             <th className="px-6 py-4">Ações</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
-                          {allUsers.map((u, i) => (
+                          {allUsers.filter(u => 
+                            u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            u.user_metadata?.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+                          ).map((u, i) => (
                             <tr key={i} className="hover:bg-white/5 transition-colors group">
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
                                   <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs font-bold">
                                     {u.email?.[0].toUpperCase()}
                                   </div>
-                                  <span className="font-bold text-sm text-white">{u.full_name || 'Sem nome'}</span>
+                                  <span className="font-bold text-sm text-white">{u.user_metadata?.full_name || 'Sem nome'}</span>
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-sm text-gray-400">{u.email}</td>
-                              <td className="px-6 py-4">
-                                <span className="px-2 py-1 bg-green-500/10 text-green-500 text-[10px] font-black rounded-md uppercase">Ativo</span>
+                              <td className="px-6 py-4 text-xs text-gray-500">
+                                {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('pt-BR') : 'Nunca'}
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex gap-2">
@@ -412,10 +501,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     }}
                                     className="p-2 hover:bg-white/10 rounded-lg text-primary hover:text-primary-hover transition-all flex items-center gap-2 text-xs font-bold"
                                   >
-                                    <BookOpen size={16} /> Cursos
-                                  </button>
-                                  <button className="p-2 hover:bg-white/10 rounded-lg text-gray-500 hover:text-white transition-all">
-                                    <Edit3 size={16} />
+                                    <Eye size={16} /> Detalhes
                                   </button>
                                 </div>
                               </td>
@@ -888,7 +974,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         </div>
       )}
 
-      {/* User Courses Modal */}
+      {/* User Detail Modal */}
       {selectedUserForCourses && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <motion.div 
@@ -897,63 +983,158 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl"
           >
             <div className="p-6 border-b border-white/10 flex justify-between items-center bg-black/20">
-              <div>
-                <h3 className="font-bold text-white">Gerenciar Cursos</h3>
-                <p className="text-xs text-gray-500">{selectedUserForCourses.email}</p>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xl">
+                  {selectedUserForCourses.email?.[0].toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-lg">{selectedUserForCourses.user_metadata?.full_name || 'Sem nome'}</h3>
+                  <p className="text-xs text-gray-500">{selectedUserForCourses.email}</p>
+                </div>
               </div>
-              <button onClick={() => setSelectedUserForCourses(null)} className="text-gray-500 hover:text-white"><X size={20} /></button>
+              <button onClick={() => setSelectedUserForCourses(null)} className="text-gray-500 hover:text-white p-2 hover:bg-white/5 rounded-lg transition-all"><X size={20} /></button>
             </div>
             
-            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
-              {courses.map(course => {
-                const isUnlocked = userPurchases.includes(course.id);
-                return (
-                  <div key={course.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5 hover:border-white/10 transition-all">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-black">
-                        <img src={course.cover_url} className="w-full h-full object-cover opacity-50" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-white">{course.title}</h4>
-                        <p className="text-[10px] text-gray-500 uppercase font-black">{course.is_bonus ? 'Bônus' : 'Curso'}</p>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      onClick={() => toggleCourseAccess(selectedUserForCourses.id, course.id, isUnlocked)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                        isUnlocked 
-                          ? 'bg-green-500/10 text-green-500 hover:bg-red-500/10 hover:text-red-500 group' 
-                          : 'bg-white/5 text-gray-400 hover:bg-primary/10 hover:text-primary'
-                      }`}
-                    >
-                      {isUnlocked ? (
-                        <>
-                          <CheckCircle2 size={14} className="group-hover:hidden" />
-                          <X size={14} className="hidden group-hover:block" />
-                          <span className="group-hover:hidden">LIBERADO</span>
-                          <span className="hidden group-hover:block">BLOQUEAR</span>
-                        </>
-                      ) : (
-                        <>
-                          <LockIcon size={14} />
-                          <span>BLOQUEADO</span>
-                        </>
-                      )}
-                    </button>
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-white/5 rounded-xl border border-white/5">
+                  <div className="flex items-center gap-2 text-gray-500 mb-1">
+                    <Clock size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Último Acesso</span>
                   </div>
-                );
-              })}
+                  <p className="text-sm font-bold text-white">
+                    {selectedUserForCourses.last_sign_in_at ? new Date(selectedUserForCourses.last_sign_in_at).toLocaleString('pt-BR') : 'Nunca'}
+                  </p>
+                </div>
+                <div className="p-4 bg-white/5 rounded-xl border border-white/5">
+                  <div className="flex items-center gap-2 text-gray-500 mb-1">
+                    <BookOpen size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Cursos Liberados</span>
+                  </div>
+                  <p className="text-sm font-bold text-white">{userPurchases.length} cursos</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-xs font-black text-gray-500 uppercase tracking-widest">Gerenciar Acesso aos Cursos</h4>
+                <div className="max-h-[40vh] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                  {courses.map(course => {
+                    const isUnlocked = userPurchases.includes(course.id);
+                    return (
+                      <div key={course.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:border-white/10 transition-all">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-black shrink-0">
+                            <img src={course.cover_url} className="w-full h-full object-cover opacity-50" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-white truncate max-w-[200px]">{course.title}</h4>
+                            <p className="text-[10px] text-gray-500 uppercase font-black">{course.is_bonus ? 'Bônus' : 'Curso'}</p>
+                          </div>
+                        </div>
+                        
+                        <button 
+                          onClick={() => toggleCourseAccess(selectedUserForCourses.id, course.id, isUnlocked)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                            isUnlocked 
+                              ? 'bg-green-500/10 text-green-500 hover:bg-red-500/10 hover:text-red-500 group' 
+                              : 'bg-white/5 text-gray-400 hover:bg-primary/10 hover:text-primary'
+                          }`}
+                        >
+                          {isUnlocked ? (
+                            <>
+                              <CheckCircle2 size={12} className="group-hover:hidden" />
+                              <X size={12} className="hidden group-hover:block" />
+                              <span className="group-hover:hidden uppercase">LIBERADO</span>
+                              <span className="hidden group-hover:block uppercase">BLOQUEAR</span>
+                            </>
+                          ) : (
+                            <>
+                              <LockIcon size={12} />
+                              <span className="uppercase">BLOQUEADO</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
-            <div className="p-6 border-t border-white/10 bg-black/20 flex justify-end">
+            <div className="p-6 border-t border-white/10 bg-black/20 flex justify-between items-center">
+              <button 
+                onClick={() => handleDeleteUser(selectedUserForCourses.id)}
+                disabled={deletingUser}
+                className="flex items-center gap-2 text-red-500 hover:text-red-400 text-xs font-bold transition-all px-4 py-2 rounded-xl hover:bg-red-500/10"
+              >
+                {deletingUser ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+                Excluir Usuário
+              </button>
               <button 
                 onClick={() => setSelectedUserForCourses(null)}
-                className="bg-white/5 hover:bg-white/10 text-white px-6 py-2 rounded-xl font-bold transition-all"
+                className="bg-white/5 hover:bg-white/10 text-white px-6 py-2 rounded-xl font-bold transition-all text-sm"
               >
                 Fechar
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* User Creator Modal */}
+      {showUserCreator && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl"
+          >
+            <div className="p-6 border-b border-white/10 flex justify-between items-center">
+              <h3 className="font-bold text-white">Cadastrar Novo Usuário</h3>
+              <button onClick={() => setShowUserCreator(false)} className="text-gray-500 hover:text-white"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Nome Completo</label>
+                <input 
+                  type="text" 
+                  value={newUserName}
+                  onChange={e => setNewUserName(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary outline-none"
+                  placeholder="Nome do aluno"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">E-mail</label>
+                <input 
+                  type="email" 
+                  value={newUserEmail}
+                  onChange={e => setNewUserEmail(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary outline-none"
+                  placeholder="email@exemplo.com"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Senha Inicial</label>
+                <input 
+                  type="password" 
+                  value={newUserPassword}
+                  onChange={e => setNewUserPassword(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary outline-none"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={creatingUser}
+                className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+              >
+                {creatingUser ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
+                Cadastrar Usuário
+              </button>
+            </form>
           </motion.div>
         </div>
       )}

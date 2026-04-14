@@ -389,7 +389,7 @@ export default function Dashboard({ user }: DashboardProps) {
         />
       )}
 
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />
+      {!viewingCourseId && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />}
     </div>
   );
 }

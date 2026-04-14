@@ -127,6 +127,38 @@ async function startServer() {
     res.json(users);
   });
 
+  app.post('/api/admin/create-user', adminAuth, async (req, res) => {
+    const { email, password, fullName } = req.body;
+    if (!email || !password || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+
+    try {
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: fullName }
+      });
+
+      if (error) throw error;
+      res.json({ success: true, user: data.user });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
+    const { id } = req.params;
+    if (!id || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+
+    try {
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post('/api/admin/update-password', adminAuth, async (req, res) => {
     const { newPassword } = req.body;
     if (!newPassword || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });

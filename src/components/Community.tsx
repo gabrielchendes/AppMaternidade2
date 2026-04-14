@@ -1,18 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, CommunityPost, PostComment } from '../lib/supabase';
-import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight } from 'lucide-react';
+import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight, Edit3, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import imageCompression from 'browser-image-compression';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface CommunityProps {
   user: User;
 }
 
 export default function Community({ user }: CommunityProps) {
+  const { settings } = useSettings();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -27,6 +29,15 @@ export default function Community({ user }: CommunityProps) {
   
   const [selectedPostImage, setSelectedPostImage] = useState<string | null>(null);
   const [postToDelete, setPostToDelete] = useState<{ id: string; imageUrl?: string } | null>(null);
+  
+  // Admin features
+  const [editingPost, setEditingPost] = useState<CommunityPost | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [adminMode, setAdminMode] = useState(false);
+  const [manualAuthorName, setManualAuthorName] = useState('');
+  const [manualAvatarUrl, setManualAvatarUrl] = useState('');
+
+  const isAdmin = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase() || user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
@@ -194,8 +205,8 @@ export default function Community({ user }: CommunityProps) {
       const { data: newPost, error } = await supabase.from('community_posts').insert({
         user_id: user.id,
         user_email: user.email,
-        user_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-        user_avatar_url: user.user_metadata?.avatar_url || null,
+        user_name: adminMode && manualAuthorName ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
+        user_avatar_url: adminMode && manualAvatarUrl ? manualAvatarUrl : (user.user_metadata?.avatar_url || null),
         content: content,
         image_url: imageUrl || null,
         reply_to_id: replyingTo?.id || null,
@@ -213,12 +224,30 @@ export default function Community({ user }: CommunityProps) {
       setSelectedImage(null);
       setImagePreview(null);
       setReplyingTo(null);
+      setManualAuthorName('');
+      setManualAvatarUrl('');
       toast.success('Post enviado!');
     } catch (error: any) {
       console.error('Error creating post:', error);
       toast.error(error.message || 'Erro ao enviar post');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleUpdatePost = async () => {
+    if (!editingPost || !editContent.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('community_posts')
+        .update({ content: editContent })
+        .eq('id', editingPost.id);
+      if (error) throw error;
+      setPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, content: editContent } : p));
+      setEditingPost(null);
+      toast.success('Post atualizado');
+    } catch (error) {
+      toast.error('Erro ao atualizar post');
     }
   };
 
@@ -240,6 +269,8 @@ export default function Community({ user }: CommunityProps) {
       } else {
         await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
       }
+      // Refresh to ensure counts are correct
+      fetchPosts();
     } catch (error) {
       console.error('Error toggling like:', error);
       // Revert on error
@@ -281,6 +312,7 @@ export default function Community({ user }: CommunityProps) {
 
       if (error) throw error;
       fetchComments(postId);
+      fetchPosts();
     } catch (error) {
       console.error('Error adding comment:', error);
       toast.error('Erro ao comentar');
@@ -319,7 +351,41 @@ export default function Community({ user }: CommunityProps) {
 
       {/* Post Creation Card */}
       <div ref={inputAreaRef} className="bg-zinc-900 rounded-2xl border border-white/10 p-4 mb-6 shadow-xl">
+        {isAdmin && (
+          <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/5">
+            <div className="flex items-center gap-2 text-primary">
+              <ShieldCheck size={16} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Painel de Importação</span>
+            </div>
+            <button 
+              onClick={() => setAdminMode(!adminMode)}
+              className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${adminMode ? 'bg-primary text-white' : 'bg-white/5 text-gray-500'}`}
+            >
+              {adminMode ? 'MODO IMPORTAÇÃO ATIVO' : 'ATIVAR IMPORTAÇÃO'}
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleCreatePost} className="space-y-4">
+          {adminMode && (
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <input 
+                type="text" 
+                placeholder="Nome do Autor (ex: Maria Silva)"
+                value={manualAuthorName}
+                onChange={e => setManualAuthorName(e.target.value)}
+                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary"
+              />
+              <input 
+                type="text" 
+                placeholder="URL do Avatar (opcional)"
+                value={manualAvatarUrl}
+                onChange={e => setManualAvatarUrl(e.target.value)}
+                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary"
+              />
+            </div>
+          )}
+          
           <AnimatePresence>
             {replyingTo && (
               <motion.div 
@@ -439,14 +505,24 @@ export default function Community({ user }: CommunityProps) {
                     </p>
                   </div>
                 </div>
-                {post.user_id === user.id && (
-                  <button 
-                    onClick={() => setPostToDelete({ id: post.id, imageUrl: post.image_url })}
-                    className="text-gray-600 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <button 
+                      onClick={() => { setEditingPost(post); setEditContent(post.content); }}
+                      className="text-gray-600 hover:text-primary transition-colors p-1"
+                    >
+                      <Edit3 size={16} />
+                    </button>
+                  )}
+                  {(post.user_id === user.id || isAdmin) && (
+                    <button 
+                      onClick={() => setPostToDelete({ id: post.id, imageUrl: post.image_url })}
+                      className="text-gray-600 hover:text-red-500 transition-colors p-1"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Reply Context */}
@@ -647,6 +723,39 @@ export default function Community({ user }: CommunityProps) {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Post Modal */}
+      <AnimatePresence>
+        {editingPost && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-white/10 flex justify-between items-center">
+                <h3 className="font-bold text-white">Editar Publicação</h3>
+                <button onClick={() => setEditingPost(null)} className="text-gray-500 hover:text-white"><X size={20} /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <textarea 
+                  value={editContent}
+                  onChange={e => setEditContent(e.target.value)}
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary outline-none min-h-[150px] text-sm"
+                  placeholder="Conteúdo do post..."
+                />
+                <button 
+                  onClick={handleUpdatePost}
+                  className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-primary/20"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

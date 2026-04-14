@@ -151,7 +151,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose }: Cou
       // 1. Save Course
       const courseData = {
         title: course.title,
-        description: course.description,
+        description: course.description || '',
         cover_url: course.cover_url,
         category: course.category,
         is_active: course.is_active,
@@ -159,7 +159,8 @@ export default function CourseEditor({ courseId: initialCourseId, onClose }: Cou
         is_bonus: course.is_bonus,
         price: (course.is_free || course.is_bonus) ? 0 : course.price,
         checkout_url: (course.is_free || course.is_bonus) ? null : course.checkout_url,
-        hotmart_product_id: (course.is_free || course.is_bonus) ? null : course.hotmart_product_id
+        hotmart_product_id: (course.is_free || course.is_bonus) ? null : course.hotmart_product_id,
+        tenant_id: 'default'
       };
 
       let currentCourseId = courseId;
@@ -226,7 +227,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose }: Cou
       const isFree = course.is_bonus ? true : course.is_free;
       const courseData = {
         title: course.title,
-        description: course.description,
+        description: course.description || '',
         category: course.category,
         cover_url: course.cover_url,
         is_active: course.is_active,
@@ -234,7 +235,8 @@ export default function CourseEditor({ courseId: initialCourseId, onClose }: Cou
         is_bonus: course.is_bonus,
         price: isFree ? 0 : course.price,
         checkout_url: isFree ? null : course.checkout_url,
-        hotmart_product_id: isFree ? null : course.hotmart_product_id
+        hotmart_product_id: isFree ? null : course.hotmart_product_id,
+        tenant_id: 'default'
       };
 
       if (courseId) {

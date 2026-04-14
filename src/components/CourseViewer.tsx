@@ -130,8 +130,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
         .upsert({
           user_id: userId,
           chapter_id: chapterId,
-          completed: true,
-          completed_at: new Date().toISOString()
+          completed: true
         }, { onConflict: 'user_id,chapter_id' });
 
       if (error) {
@@ -377,16 +376,6 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               {activeChapter?.content_type === 'video' && activeChapter.video_url ? (
                 <>
                   {renderVideo()}
-                  <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all z-10">
-                    <a 
-                      href={activeChapter.video_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="bg-black/60 backdrop-blur-md text-white p-2 rounded-lg flex items-center gap-2 text-[10px] font-bold hover:bg-primary transition-all"
-                    >
-                      <Globe size={14} /> ABRIR EM NOVA ABA
-                    </a>
-                  </div>
                 </>
               ) : activeChapter?.content_type === 'pdf' ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 text-center">

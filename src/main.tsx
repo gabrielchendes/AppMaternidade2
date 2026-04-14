@@ -7,18 +7,20 @@ import { SettingsProvider } from './contexts/SettingsContext';
 import { I18nProvider } from './contexts/I18nContext';
 import { TenantProvider } from './contexts/TenantContext';
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(
-      (registration) => {
-        console.log('SW registered: ', registration);
-      },
-      (registrationError) => {
-        console.log('SW registration failed: ', registrationError);
-      }
-    );
-  });
-}
+import { registerSW } from 'virtual:pwa-register';
+
+registerSW({ 
+  immediate: true,
+  onNeedRefresh() {
+    console.log('Nova versão do app disponível. Atualizando...');
+    window.location.reload();
+  },
+  onOfflineReady() {
+    console.log('App pronto para uso offline');
+  }
+});
+
+console.log('Nova versão do app carregada');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
