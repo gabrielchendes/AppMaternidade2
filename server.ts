@@ -21,9 +21,15 @@ let firebaseAdminApp: any = null;
 let firebaseAdmin: any = null;
 try {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount) {
+  if (serviceAccount && serviceAccount !== 'undefined') {
     firebaseAdmin = (admin as any).default || admin;
-    const parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+    let parsedAccount;
+    try {
+      parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+    } catch (parseErr) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT. Ensure it is a valid JSON string.');
+      throw parseErr;
+    }
     
     if (firebaseAdmin.apps.length === 0) {
       firebaseAdminApp = firebaseAdmin.initializeApp({
@@ -195,6 +201,14 @@ async function startServer() {
   
   app.use('*', async (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
+    
+    // Evitar que arquivos de assets (js, css, etc) retornem o index.html (SPA fallback)
+    // Isso previne o erro "unsupported MIME type ('text/html')" quando um asset não é encontrado
+    const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|otf)$/.test(req.path);
+    if (isAsset) {
+      return res.status(404).send('Not found');
+    }
+
     try {
       const html = await vite.transformIndexHtml(req.originalUrl, await fs.promises.readFile(path.join(process.cwd(), 'index.html'), 'utf-8'));
       res.status(200).set({ 'Content-Type': 'text/html' }).end(html);

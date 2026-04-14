@@ -78,7 +78,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     try {
       if (activeTab === 'users') {
         const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch('/api/admin/users', {
+        const response = await window.fetch('/api/admin/users', {
           headers: { 'Authorization': `Bearer ${session?.access_token}` }
         });
         const data = await response.json();
@@ -198,7 +198,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setCreatingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/admin/create-user', {
+      const response = await window.fetch('/api/admin/create-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,7 +233,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setDeletingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`/api/admin/users/${userId}`, {
+      const response = await window.fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session?.access_token}`
@@ -311,7 +311,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setUpdatingPassword(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/admin/update-password', {
+      const response = await window.fetch('/api/admin/update-password', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

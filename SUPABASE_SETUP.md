@@ -3,6 +3,17 @@
 Copie e cole o código abaixo no **SQL Editor** do seu projeto Supabase para criar todas as tabelas, políticas e triggers necessárias.
 
 ```sql
+-- 0. Tabela `tenants` (Multi-tenancy)
+CREATE TABLE IF NOT EXISTS public.tenants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    subdomain TEXT UNIQUE NOT NULL,
+    logo_url TEXT,
+    primary_color TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 1. Tabela `app_settings` (Configurações Globais)
 CREATE TABLE IF NOT EXISTS public.app_settings (
     id BIGINT PRIMARY KEY DEFAULT 1,
@@ -182,6 +193,7 @@ CREATE TABLE IF NOT EXISTS public.user_progress (
 -- ==========================================
 
 -- Habilitar RLS em todas as tabelas
+ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
@@ -195,6 +207,9 @@ ALTER TABLE public.post_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_progress ENABLE ROW LEVEL SECURITY;
+
+-- Políticas para tenants
+CREATE POLICY "Permitir leitura pública de tenants" ON public.tenants FOR SELECT USING (true);
 
 -- Função para verificar se o usuário é admin (baseado no email em app_settings)
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -277,6 +292,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER on_post_comment AFTER INSERT OR DELETE ON public.post_comments FOR EACH ROW EXECUTE FUNCTION public.handle_post_comments_count();
+
+-- Inserir tenant padrão
+INSERT INTO public.tenants (name, subdomain, primary_color)
+VALUES ('Maternidade Premium', 'app', '#ec4899')
+ON CONFLICT (subdomain) DO NOTHING;
 
 -- 12. Configuração de Buckets de Storage
 -- Nota: Execute estes comandos se o seu projeto permitir criação de buckets via SQL, 

@@ -43,7 +43,7 @@ export default function AuthForm() {
         if (error) throw error;
       } else {
         // Direct login for passwordless using temporary password
-        const response = await fetch('/api/auth/direct', {
+        const response = await window.fetch('/api/auth/direct', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })

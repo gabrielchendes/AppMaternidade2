@@ -13,24 +13,36 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: 'auto',
+        devOptions: {
+          enabled: true,
+        },
         workbox: {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/.*\.supabase\.co\/.*/,
+              handler: 'NetworkOnly'
+            }
+          ]
         },
         manifest: {
           name: 'Maternidade Premium',
           short_name: 'Maternidade',
           description: 'Plataforma de cursos para maternidade',
-          theme_color: '#000000',
+          theme_color: '#0f0f0f',
+          background_color: '#0f0f0f',
+          display: 'standalone',
+          start_url: '/',
           icons: [
             {
-              src: 'pwa-192x192.png',
+              src: 'https://picsum.photos/seed/maternity/192/192',
               sizes: '192x192',
               type: 'image/png'
             },
             {
-              src: 'pwa-512x512.png',
+              src: 'https://picsum.photos/seed/maternity/512/512',
               sizes: '512x512',
               type: 'image/png'
             }
@@ -43,7 +55,7 @@ export default defineConfig(({mode}) => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
     server: {

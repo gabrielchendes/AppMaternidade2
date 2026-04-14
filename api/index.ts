@@ -11,8 +11,14 @@ const app = express();
 // 2. Inicialização do Firebase Admin
 try {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount && admin.apps.length === 0) {
-    const parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+  if (serviceAccount && serviceAccount !== 'undefined' && admin.apps.length === 0) {
+    let parsedAccount;
+    try {
+      parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+    } catch (parseErr) {
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT in API. Ensure it is a valid JSON string.');
+      throw parseErr;
+    }
     admin.initializeApp({
       credential: admin.credential.cert(parsedAccount)
     });
