@@ -7,18 +7,38 @@ export interface AppSettings {
   app_description: string;
   primary_color: string;
   secondary_color: string;
+  background_color: string;
   logo_url: string | null;
   favicon_url: string | null;
   pwa_icon_url: string | null;
   support_whatsapp: string;
   support_email: string;
+  support_whatsapp_message: string;
   auth_method: 'password' | 'passwordless';
   show_support_login: boolean;
   show_support_app: boolean;
   support_whatsapp_enabled: boolean;
   support_email_enabled: boolean;
-  login_display_type: 'title' | 'logo';
+  support_whatsapp_floating_enabled: boolean;
+  support_whatsapp_floating_community_enabled: boolean;
+  support_whatsapp_floating_profile_enabled: boolean;
+  support_whatsapp_home_enabled: boolean;
+  support_email_home_enabled: boolean;
+  support_whatsapp_community_enabled: boolean;
+  support_email_community_enabled: boolean;
+  support_whatsapp_profile_enabled: boolean;
+  support_email_profile_enabled: boolean;
+  support_whatsapp_login_enabled: boolean;
+  support_email_login_enabled: boolean;
+  support_whatsapp_app_enabled: boolean;
+  support_email_app_enabled: boolean;
+  support_whatsapp_course_enabled: boolean;
+  support_email_course_enabled: boolean;
+  support_whatsapp_floating_course_enabled: boolean;
+  login_display_type: 'title' | 'logo' | 'both';
   custom_texts: { [key: string]: string };
+  banner_images: string[];
+  banner_interval: number;
 }
 
 const defaultSettings: AppSettings = {
@@ -27,16 +47,34 @@ const defaultSettings: AppSettings = {
   app_description: 'Acesse sua área exclusiva',
   primary_color: '#ec4899',
   secondary_color: '#be185d',
+  background_color: '#0f0f0f',
   logo_url: null,
   favicon_url: null,
   pwa_icon_url: null,
   support_whatsapp: '5531997433488',
   support_email: 'gabrielchendes@hotmail.com',
+  support_whatsapp_message: 'Olá, gostaria de tirar uma dúvida sobre o curso.',
   auth_method: 'passwordless',
   show_support_login: true,
   show_support_app: true,
   support_whatsapp_enabled: true,
   support_email_enabled: true,
+  support_whatsapp_floating_enabled: true,
+  support_whatsapp_floating_community_enabled: true,
+  support_whatsapp_floating_profile_enabled: true,
+  support_whatsapp_home_enabled: true,
+  support_email_home_enabled: true,
+  support_whatsapp_community_enabled: true,
+  support_email_community_enabled: true,
+  support_whatsapp_profile_enabled: true,
+  support_email_profile_enabled: true,
+  support_whatsapp_login_enabled: true,
+  support_email_login_enabled: true,
+  support_whatsapp_app_enabled: true,
+  support_email_app_enabled: true,
+  support_whatsapp_course_enabled: true,
+  support_email_course_enabled: true,
+  support_whatsapp_floating_course_enabled: true,
   login_display_type: 'title',
   custom_texts: {
     'auth.welcome': 'Bem-vinda de volta!',
@@ -45,7 +83,18 @@ const defaultSettings: AppSettings = {
     'community.subtitle': 'Compartilhe sua jornada com outras mães',
     'courses.title': 'Meus Cursos',
     'courses.subtitle': 'Continue seu aprendizado',
-  }
+    'admin.courses.paid': 'Meus Cursos',
+    'admin.courses.free': 'Novos Lançamentos',
+    'admin.courses.bonus': 'Meus Bônus',
+    'admin.security.error_length': 'A senha deve ter pelo menos 4 caracteres',
+    'admin.security.error_mismatch': 'As senhas não coincidem',
+    'admin.security.success': 'Senha do administrador atualizada com sucesso!',
+  },
+  banner_images: [
+    'https://picsum.photos/seed/maternity-banner-1/1200/600',
+    'https://picsum.photos/seed/maternity-banner-2/1200/600'
+  ],
+  banner_interval: 5000
 };
 
 interface SettingsContextType {
@@ -101,6 +150,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // Apply colors to CSS variables
     document.documentElement.style.setProperty('--primary', s.primary_color);
     document.documentElement.style.setProperty('--primary-hover', s.secondary_color);
+    document.documentElement.style.setProperty('--bg-main', s.background_color || '#0f0f0f');
     
     // Update title
     document.title = s.app_name;

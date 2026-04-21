@@ -14,15 +14,26 @@ try {
   if (serviceAccount && serviceAccount !== 'undefined' && admin.apps.length === 0) {
     let parsedAccount;
     try {
-      parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+      if (typeof serviceAccount === 'string') {
+        if (serviceAccount.trim() === 'undefined' || serviceAccount.trim() === '') {
+          throw new Error('FIREBASE_SERVICE_ACCOUNT is "undefined" or empty string');
+        }
+        console.log("Parsing FIREBASE_SERVICE_ACCOUNT in API...");
+        parsedAccount = JSON.parse(serviceAccount);
+      } else {
+        parsedAccount = serviceAccount;
+      }
     } catch (parseErr) {
-      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT in API. Ensure it is a valid JSON string.');
-      throw parseErr;
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT in API. Ensure it is a valid JSON string:', parseErr);
+      parsedAccount = null;
     }
-    admin.initializeApp({
-      credential: admin.credential.cert(parsedAccount)
-    });
-    console.log('Firebase Admin initialized');
+    
+    if (parsedAccount && admin.apps.length === 0) {
+      admin.initializeApp({
+        credential: admin.credential.cert(parsedAccount)
+      });
+      console.log('Firebase Admin initialized');
+    }
   }
 } catch (err) {
   console.error('Firebase Admin Init Error:', err);
@@ -94,7 +105,7 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
     if (error) throw error;
-    res.json(users);
+    res.json(users || []);
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
@@ -180,7 +191,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   const { productId, userId } = req.body;
   if (!supabaseAdmin) return res.status(500).json({ error: 'Supabase Admin not configured' });
   try {
-    const { data: product } = await supabaseAdmin.from('products').select('title, price').eq('id', productId).single();
+    const { data: product } = await supabaseAdmin.from('courses').select('title, price').eq('id', productId).single();
     if (!product) return res.status(404).json({ error: 'Product not found' });
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],

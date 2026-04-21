@@ -8,7 +8,7 @@ export async function createNotification(userId: string, title: string, message:
     const { error } = await supabase.from('notifications').insert({
       user_id: userId,
       title,
-      message,
+      body: message,
     });
     if (error) throw error;
     return true;
@@ -37,7 +37,7 @@ export async function sendBroadcastNotification(title: string, message: string) 
     const notifications = allUserIds.map(uid => ({
       user_id: uid,
       title,
-      message,
+      body: message,
     }));
 
     const { error } = await supabase.from('notifications').insert(notifications);

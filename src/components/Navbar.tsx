@@ -1,8 +1,11 @@
+import { memo } from 'react';
 import { LogOut, User as UserIcon, Bell, Shield } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import NotificationBell from './NotificationBell';
+import { useSettings } from '../contexts/SettingsContext';
+import { useI18n } from '../contexts/I18nContext';
 
 interface NavbarProps {
   user: User;
@@ -10,13 +13,15 @@ interface NavbarProps {
   onTabChange: (tab: 'home' | 'profile' | 'community' | 'admin') => void;
 }
 
-export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
-  const isAdmin = user.email === 'gabrielchendes@gmail.com';
+const Navbar = memo(({ user, activeTab, onTabChange }: NavbarProps) => {
+  const { settings } = useSettings();
+  const { t } = useI18n();
+  const isAdmin = user.email === settings?.admin_email || user.email === 'gabrielchendes@gmail.com';
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) toast.error('Erro ao sair');
-    else toast.success('Até logo!');
+    if (error) toast.error(t('auth.logout_error') || 'Erro ao sair');
+    else toast.success(t('auth.logout_success') || 'Até logo!');
   };
 
   return (
@@ -30,7 +35,7 @@ export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
               activeTab === 'home' ? 'text-primary' : 'text-gray-400 hover:text-white'
             }`}
           >
-            Início
+            {settings?.custom_texts?.['nav.home'] || 'Início'}
           </button>
           <button
             onClick={() => onTabChange('community')}
@@ -38,7 +43,7 @@ export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
               activeTab === 'community' ? 'text-primary' : 'text-gray-400 hover:text-white'
             }`}
           >
-            Comunidade
+            {settings?.custom_texts?.['nav.community'] || 'Comunidade'}
           </button>
           <button
             onClick={() => onTabChange('profile')}
@@ -46,7 +51,7 @@ export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
               activeTab === 'profile' ? 'text-primary' : 'text-gray-400 hover:text-white'
             }`}
           >
-            Perfil
+            {settings?.custom_texts?.['nav.profile'] || 'Perfil'}
           </button>
           {isAdmin && (
             <button
@@ -55,7 +60,7 @@ export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
                 activeTab === 'admin' ? 'text-primary' : 'text-gray-400 hover:text-white'
               }`}
             >
-              <Shield size={16} /> Admin
+              <Shield size={16} /> {settings?.custom_texts?.['nav.admin'] || 'Admin'}
             </button>
           )}
         </div>
@@ -79,12 +84,14 @@ export default function Navbar({ user, activeTab, onTabChange }: NavbarProps) {
         <button
           onClick={handleLogout}
           className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded-full border border-white/5 transition-all text-[10px] font-bold uppercase tracking-wider active:scale-95"
-          title="Sair"
+          title={t('global.logout') || "Sair"}
         >
           <LogOut size={14} />
-          <span>Sair</span>
+          <span>{t('global.logout') || "Sair"}</span>
         </button>
       </div>
     </nav>
   );
-}
+});
+
+export default Navbar;

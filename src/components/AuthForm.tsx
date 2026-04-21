@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
+import { safeParse, safeFetch } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 type LoginMethod = 'passwordless' | 'password';
@@ -43,15 +44,15 @@ export default function AuthForm() {
         if (error) throw error;
       } else {
         // Direct login for passwordless using temporary password
-        const response = await window.fetch('/api/auth/direct', {
+        console.log('🔎 Chamando API Auth Direct');
+        const data = await safeFetch('/api/auth/direct', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
         });
-        const data = await response.json();
         
-        if (!response.ok) {
-          throw new Error(data.error || 'Erro ao realizar login direto');
+        if (!data || data.error) {
+          throw new Error(data?.error || 'Erro ao realizar login direto');
         }
 
         if (data.tempPassword) {
@@ -128,14 +129,15 @@ export default function AuthForm() {
   return (
     <div className="w-full max-w-md p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
       <div className="text-center mb-8">
-        {settings.login_display_type === 'logo' && settings.logo_url ? (
+        {(settings.login_display_type === 'logo' || settings.login_display_type === 'both') && settings.logo_url && (
           <img 
             src={settings.logo_url} 
             alt={settings.app_name} 
             className="h-16 mx-auto mb-4 object-contain"
             referrerPolicy="no-referrer"
           />
-        ) : (
+        )}
+        {(settings.login_display_type === 'title' || settings.login_display_type === 'both') && (
           <h1 className="text-3xl font-bold text-primary italic mb-2">
             {settings.app_name}
           </h1>
@@ -209,22 +211,22 @@ export default function AuthForm() {
                 {t('auth.support_box')}
               </p>
               <div className="flex flex-col gap-2">
-                {settings.support_whatsapp_enabled && settings.support_whatsapp && (
+                {settings.support_whatsapp_login_enabled && settings.support_whatsapp && (
                   <a 
                     href={`https://wa.me/${settings.support_whatsapp}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-lg text-xs font-bold transition-all"
                   >
-                    <Phone size={14} /> WhatsApp
+                    <Phone size={14} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WhatsApp'}
                   </a>
                 )}
-                {settings.support_email_enabled && settings.support_email && (
+                {settings.support_email_login_enabled && settings.support_email && (
                   <a 
                     href={`mailto:${settings.support_email}`}
                     className="flex items-center justify-center gap-2 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all"
                   >
-                    <Mail size={14} /> E-mail
+                    <Mail size={14} /> {settings.custom_texts?.['auth.email_label'] || 'E-mail'}
                   </a>
                 )}
               </div>

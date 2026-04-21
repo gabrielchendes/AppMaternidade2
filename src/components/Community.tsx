@@ -8,13 +8,16 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import imageCompression from 'browser-image-compression';
 import { useSettings } from '../contexts/SettingsContext';
+import { useI18n } from '../contexts/I18nContext';
 
 interface CommunityProps {
   user: User;
+  isImportMode?: boolean;
 }
 
-export default function Community({ user }: CommunityProps) {
+export default function Community({ user, isImportMode = false }: CommunityProps) {
   const { settings } = useSettings();
+  const { t } = useI18n();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -33,13 +36,18 @@ export default function Community({ user }: CommunityProps) {
   // Admin features
   const [editingPost, setEditingPost] = useState<CommunityPost | null>(null);
   const [editContent, setEditContent] = useState('');
-  const [adminMode, setAdminMode] = useState(false);
+  const [adminMode, setAdminMode] = useState(isImportMode);
+  const [personaActive, setPersonaActive] = useState(false);
   const [manualAuthorName, setManualAuthorName] = useState('');
   const [manualAvatarUrl, setManualAvatarUrl] = useState('');
+  const [manualAvatarFile, setManualAvatarFile] = useState<File | null>(null);
+  const [manualAvatarPreview, setManualAvatarPreview] = useState<string | null>(null);
+  const [commentToDelete, setCommentToDelete] = useState<{ id: string; postId: string } | null>(null);
 
   const isAdmin = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase() || user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const manualAvatarInputRef = useRef<HTMLInputElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,6 +89,7 @@ export default function Community({ user }: CommunityProps) {
 
   const fetchPosts = async () => {
     try {
+      console.log('🔎 Query Supabase: community_posts (select)');
       const { data, error } = await supabase
         .from('community_posts')
         .select('*')
@@ -98,6 +107,7 @@ export default function Community({ user }: CommunityProps) {
 
   const fetchUserLikes = async () => {
     try {
+      console.log('🔎 Query Supabase: post_likes (select)');
       const { data, error } = await supabase
         .from('post_likes')
         .select('post_id')
@@ -112,6 +122,7 @@ export default function Community({ user }: CommunityProps) {
 
   const fetchComments = async (postId: string) => {
     try {
+      console.log('🔎 Query Supabase: post_comments (select)');
       const { data, error } = await supabase
         .from('post_comments')
         .select('*')
@@ -163,6 +174,72 @@ export default function Community({ user }: CommunityProps) {
     }
   };
 
+  const handleManualAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setManualAvatarFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setManualAvatarPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadManualAvatar = async (): Promise<string> => {
+    if (!manualAvatarFile) return manualAvatarUrl;
+    
+    try {
+      const options = {
+        maxSizeMB: 0.05,
+        maxWidthOrHeight: 400,
+        useWebWorker: true,
+      };
+      const compressedFile = await imageCompression(manualAvatarFile, options);
+      
+      const fileExt = manualAvatarFile.name.split('.').pop();
+      const fileName = `avatar-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('community_images')
+        .upload(filePath, compressedFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('community_images')
+        .getPublicUrl(filePath);
+      
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading manual avatar:', error);
+      return manualAvatarUrl;
+    }
+  };
+
+  const handleDeleteComment = async () => {
+    if (!commentToDelete) return;
+    const { id: commentId, postId } = commentToDelete;
+
+    try {
+      const { error } = await supabase.from('post_comments').delete().eq('id', commentId);
+      if (error) throw error;
+
+      setComments(prev => ({
+        ...prev,
+        [postId]: prev[postId].filter(c => c.id !== commentId)
+      }));
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: Math.max(0, p.comments_count - 1) } : p));
+      toast.success('Comentário excluído');
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+      toast.error('Erro ao excluir comentário');
+    } finally {
+      setCommentToDelete(null);
+    }
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = newPostContent.trim();
@@ -170,8 +247,13 @@ export default function Community({ user }: CommunityProps) {
 
     setSending(true);
     let imageUrl = '';
+    let finalAvatarUrl = manualAvatarUrl;
 
     try {
+      if (adminMode && manualAvatarFile) {
+        finalAvatarUrl = await uploadManualAvatar();
+      }
+
       if (selectedImage) {
         // Slightly better quality for posts (target ~100KB)
         const options = {
@@ -202,11 +284,12 @@ export default function Community({ user }: CommunityProps) {
         imageUrl = publicUrl;
       }
 
+      console.log('🔎 Query Supabase: community_posts (insert)');
       const { data: newPost, error } = await supabase.from('community_posts').insert({
         user_id: user.id,
         user_email: user.email,
-        user_name: adminMode && manualAuthorName ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
-        user_avatar_url: adminMode && manualAvatarUrl ? manualAvatarUrl : (user.user_metadata?.avatar_url || null),
+        user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
+        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
         content: content,
         image_url: imageUrl || null,
         reply_to_id: replyingTo?.id || null,
@@ -224,8 +307,7 @@ export default function Community({ user }: CommunityProps) {
       setSelectedImage(null);
       setImagePreview(null);
       setReplyingTo(null);
-      setManualAuthorName('');
-      setManualAvatarUrl('');
+      // Don't reset manual name/avatar if in admin mode to allow multiple posts as same person
       toast.success('Post enviado!');
     } catch (error: any) {
       console.error('Error creating post:', error);
@@ -238,6 +320,7 @@ export default function Community({ user }: CommunityProps) {
   const handleUpdatePost = async () => {
     if (!editingPost || !editContent.trim()) return;
     try {
+      console.log('🔎 Query Supabase: community_posts (update)');
       const { error } = await supabase
         .from('community_posts')
         .update({ content: editContent })
@@ -265,8 +348,10 @@ export default function Community({ user }: CommunityProps) {
 
     try {
       if (isLiked) {
+        console.log('🔎 Query Supabase: post_likes (delete)');
         await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
       } else {
+        console.log('🔎 Query Supabase: post_likes (insert)');
         await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
       }
       // Refresh to ensure counts are correct
@@ -283,12 +368,17 @@ export default function Community({ user }: CommunityProps) {
     const content = newComment[postId]?.trim();
     if (!content) return;
 
+    let finalAvatarUrl = manualAvatarUrl;
+    if (adminMode && manualAvatarFile) {
+      finalAvatarUrl = await uploadManualAvatar();
+    }
+
     const tempComment: PostComment = {
       id: Math.random().toString(),
       post_id: postId,
       user_id: user.id,
-      user_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-      user_avatar_url: user.user_metadata?.avatar_url || null,
+      user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
+      user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
       content: content,
       created_at: new Date().toISOString(),
     };
@@ -302,11 +392,12 @@ export default function Community({ user }: CommunityProps) {
     setNewComment(prev => ({ ...prev, [postId]: '' }));
 
     try {
+      console.log('🔎 Query Supabase: post_comments (insert)');
       const { error } = await supabase.from('post_comments').insert({
         post_id: postId,
         user_id: user.id,
-        user_name: user.user_metadata?.full_name || user.email?.split('@')[0],
-        user_avatar_url: user.user_metadata?.avatar_url || null,
+        user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
+        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
         content: content,
       });
 
@@ -336,7 +427,7 @@ export default function Community({ user }: CommunityProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="animate-spin text-primary" size={32} />
+        <Loader2 className={`animate-spin ${isImportMode ? 'text-blue-500' : 'text-primary'}`} size={32} />
       </div>
     );
   }
@@ -345,46 +436,109 @@ export default function Community({ user }: CommunityProps) {
     <div className="flex flex-col min-h-[calc(100vh-100px)] max-w-2xl mx-auto px-4 pb-20">
       {/* Header - Even higher */}
       <div className="py-1 text-center border-b border-white/5 mb-2">
-        <h2 className="text-lg font-bold">Comunidade</h2>
-        <p className="text-gray-400 text-[10px]">Compartilhe sua jornada com outras mães</p>
+        <h2 className="text-lg font-bold">{t('community.title') || 'Comunidade'}</h2>
+        <p className="text-gray-400 text-[10px]">{t('community.subtitle') || 'Compartilhe sua jornada com outras mães'}</p>
       </div>
 
       {/* Post Creation Card */}
       <div ref={inputAreaRef} className="bg-zinc-900 rounded-2xl border border-white/10 p-4 mb-6 shadow-xl">
-        {isAdmin && (
-          <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/5">
-            <div className="flex items-center gap-2 text-primary">
-              <ShieldCheck size={16} />
-              <span className="text-[10px] font-black uppercase tracking-widest">Painel de Importação</span>
+        {isAdmin && isImportMode && (
+          <div className="flex flex-col gap-4 mb-4 pb-4 border-b border-white/5">
+            <div className="flex items-center justify-between">
+              <div className={`flex items-center gap-2 ${isImportMode ? 'text-blue-500' : 'text-primary'}`}>
+                <ShieldCheck size={16} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Painel de Importação</span>
+              </div>
             </div>
-            <button 
-              onClick={() => setAdminMode(!adminMode)}
-              className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${adminMode ? 'bg-primary text-white' : 'bg-white/5 text-gray-500'}`}
-            >
-              {adminMode ? 'MODO IMPORTAÇÃO ATIVO' : 'ATIVAR IMPORTAÇÃO'}
-            </button>
+
+            <AnimatePresence>
+              {adminMode && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="bg-black/20 rounded-2xl p-4 border border-white/5 space-y-4"
+                >
+                  {!personaActive ? (
+                    <>
+                      <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">Configurar Perfil de Importação</p>
+                      <div className="flex items-center gap-4">
+                        <div 
+                          className="relative w-16 h-16 rounded-full bg-zinc-800 border-2 border-white/10 flex items-center justify-center overflow-hidden cursor-pointer group shrink-0"
+                          onClick={() => manualAvatarInputRef.current?.click()}
+                        >
+                          {manualAvatarPreview ? (
+                            <img src={manualAvatarPreview} className="w-full h-full object-cover" />
+                          ) : (
+                            <UserIcon size={24} className="text-gray-600" />
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <ImageIcon size={16} className="text-white" />
+                          </div>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <input 
+                            type="text" 
+                            placeholder="Nome do Autor (ex: Maria Silva)"
+                            value={manualAuthorName}
+                            onChange={e => setManualAuthorName(e.target.value)}
+                            className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-${isImportMode ? 'blue-500' : 'primary'}`}
+                          />
+                          <button 
+                            onClick={() => {
+                              if (!manualAuthorName.trim()) {
+                                toast.error('Informe um nome para a persona');
+                                return;
+                              }
+                              setPersonaActive(true);
+                              toast.success(`Agora postando como ${manualAuthorName}`);
+                            }}
+                            className={`w-full ${isImportMode ? 'bg-blue-500/20 hover:bg-blue-500/40 text-blue-500' : 'bg-primary/20 hover:bg-primary/40 text-primary'} text-[10px] font-black py-2 rounded-lg transition-all`}
+                          >
+                            CONFIRMAR PERSONA
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full bg-zinc-800 border ${isImportMode ? 'border-blue-500/30' : 'border-primary/30'} overflow-hidden`}>
+                          {manualAvatarPreview ? (
+                            <img src={manualAvatarPreview} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-600">
+                              <UserIcon size={20} />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Postando como</p>
+                          <p className="text-sm font-bold text-white">{manualAuthorName}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setPersonaActive(false)}
+                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-[10px] font-black rounded-lg transition-all"
+                      >
+                        TROCAR PERSONA
+                      </button>
+                    </div>
+                  )}
+                  <input 
+                    type="file" 
+                    ref={manualAvatarInputRef} 
+                    onChange={handleManualAvatarSelect} 
+                    accept="image/*" 
+                    className="hidden" 
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
         <form onSubmit={handleCreatePost} className="space-y-4">
-          {adminMode && (
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <input 
-                type="text" 
-                placeholder="Nome do Autor (ex: Maria Silva)"
-                value={manualAuthorName}
-                onChange={e => setManualAuthorName(e.target.value)}
-                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary"
-              />
-              <input 
-                type="text" 
-                placeholder="URL do Avatar (opcional)"
-                value={manualAvatarUrl}
-                onChange={e => setManualAvatarUrl(e.target.value)}
-                className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-primary"
-              />
-            </div>
-          )}
           
           <AnimatePresence>
             {replyingTo && (
@@ -392,7 +546,7 @@ export default function Community({ user }: CommunityProps) {
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="bg-white/5 rounded-xl p-3 border-l-4 border-primary relative mb-2"
+                className={`bg-white/5 rounded-xl p-3 border-l-4 ${isImportMode ? 'border-blue-500' : 'border-primary'} relative mb-2`}
               >
                 <button 
                   onClick={() => setReplyingTo(null)}
@@ -400,28 +554,37 @@ export default function Community({ user }: CommunityProps) {
                 >
                   <X size={16} />
                 </button>
-                <p className="text-[10px] text-primary font-bold mb-1 uppercase tracking-wider">Respondendo a {replyingTo.user_name}</p>
+                <p className={`text-[10px] ${isImportMode ? 'text-blue-500' : 'text-primary'} font-bold mb-1 uppercase tracking-wider`}>Respondendo a {replyingTo.user_name}</p>
                 <p className="text-xs text-gray-400 line-clamp-2 italic">"{replyingTo.content}"</p>
               </motion.div>
             )}
           </AnimatePresence>
 
-          <div className="flex gap-3">
-            <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/5 shrink-0 overflow-hidden">
-              {user.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                <UserIcon size={20} />
+            <div className="flex gap-3">
+              {(!isImportMode || (isImportMode && personaActive)) && (
+                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/5 shrink-0 overflow-hidden">
+                  {(adminMode && personaActive) ? (
+                    manualAvatarPreview ? (
+                      <img src={manualAvatarPreview} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <UserIcon size={20} />
+                    )
+                  ) : user.user_metadata?.avatar_url ? (
+                    <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <UserIcon size={20} />
+                  )}
+                </div>
               )}
+              <textarea
+                value={newPostContent}
+                onChange={(e) => setNewPostContent(e.target.value)}
+                placeholder={(adminMode && personaActive) ? `Postar como ${manualAuthorName}` : (adminMode ? t('community.admin_placeholder') || "Configure uma persona acima para postar..." : t('community.input_placeholder') || "O que você está pensando?")}
+                disabled={adminMode && !personaActive}
+                className="w-full bg-transparent border-none focus:ring-0 text-base resize-none placeholder:text-gray-600 min-h-[60px] disabled:opacity-50"
+                style={{ fontSize: '16px' }} // Fix mobile zoom
+              />
             </div>
-            <textarea
-              value={newPostContent}
-              onChange={(e) => setNewPostContent(e.target.value)}
-              placeholder="O que você está pensando?"
-              className="w-full bg-transparent border-none focus:ring-0 text-base resize-none placeholder:text-gray-600 min-h-[60px]"
-              style={{ fontSize: '16px' }} // Fix mobile zoom
-            />
-          </div>
 
           <AnimatePresence>
             {imagePreview && (
@@ -463,10 +626,10 @@ export default function Community({ user }: CommunityProps) {
             <button
               type="submit"
               disabled={(!newPostContent.trim() && !selectedImage) || sending}
-              className="bg-primary-hover hover:bg-primary-hover text-white px-6 py-2 rounded-full font-bold text-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+              className={`${isImportMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-primary hover:bg-primary-hover'} text-white px-6 py-2 rounded-full font-bold text-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2`}
             >
               {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-              Publicar
+              {t('community.post') || 'Publicar'}
             </button>
           </div>
         </form>
@@ -476,8 +639,8 @@ export default function Community({ user }: CommunityProps) {
       <div className="space-y-6">
         {posts.length === 0 ? (
           <div className="text-center py-20 text-gray-500">
-            <p className="text-lg font-medium">Ainda não há publicações.</p>
-            <p className="text-sm">Comece compartilhando algo com a comunidade!</p>
+            <p className="text-lg font-medium">{t('community.empty_title') || 'Ainda não há publicações.'}</p>
+            <p className="text-sm">{t('community.empty_subtitle') || 'Comece compartilhando algo com a comunidade!'}</p>
           </div>
         ) : (
           posts.map((post) => (
@@ -509,7 +672,7 @@ export default function Community({ user }: CommunityProps) {
                   {isAdmin && (
                     <button 
                       onClick={() => { setEditingPost(post); setEditContent(post.content); }}
-                      className="text-gray-600 hover:text-primary transition-colors p-1"
+                      className={`text-gray-600 hover:${isImportMode ? 'text-blue-500' : 'text-primary'} transition-colors p-1`}
                     >
                       <Edit3 size={16} />
                     </button>
@@ -528,8 +691,8 @@ export default function Community({ user }: CommunityProps) {
               {/* Reply Context */}
               {post.reply_to_id && (
                 <div className="px-4 pb-2">
-                  <div className="bg-white/5 rounded-xl p-3 border-l-4 border-primary/50">
-                    <p className="text-[10px] text-primary/70 font-bold mb-1 uppercase tracking-wider">Em resposta a {post.reply_to_user_name}</p>
+                  <div className={`bg-white/5 rounded-xl p-3 border-l-4 ${isImportMode ? 'border-blue-500/50' : 'border-primary/50'}`}>
+                    <p className={`text-[10px] ${isImportMode ? 'text-blue-500/70' : 'text-primary/70'} font-bold mb-1 uppercase tracking-wider`}>Em resposta a {post.reply_to_user_name}</p>
                     <p className="text-xs text-gray-500 line-clamp-1 italic">"{post.reply_to_content}"</p>
                   </div>
                 </div>
@@ -548,6 +711,7 @@ export default function Community({ user }: CommunityProps) {
                 >
                   <img 
                     src={post.image_url} 
+                    loading="lazy"
                     className="w-full max-h-[500px] object-contain" 
                     alt="Post" 
                     referrerPolicy="no-referrer"
@@ -560,7 +724,7 @@ export default function Community({ user }: CommunityProps) {
                 <button 
                   onClick={() => handleLike(post.id)}
                   className={`flex items-center gap-2 text-sm font-bold transition-all active:scale-95 ${
-                    likedPosts.includes(post.id) ? 'text-primary' : 'text-gray-400 hover:text-white'
+                    likedPosts.includes(post.id) ? (isImportMode ? 'text-blue-500' : 'text-primary') : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   <Heart size={20} className={likedPosts.includes(post.id) ? 'fill-current' : ''} />
@@ -583,7 +747,7 @@ export default function Community({ user }: CommunityProps) {
                   className="flex items-center gap-2 text-gray-400 hover:text-white text-sm font-bold transition-all active:scale-95 ml-auto"
                 >
                   <CornerUpRight size={20} />
-                  <span className="hidden sm:inline">Responder</span>
+                  <span className="hidden sm:inline">{t('community.reply') || 'Responder'}</span>
                 </button>
               </div>
 
@@ -600,7 +764,7 @@ export default function Community({ user }: CommunityProps) {
                       {/* Comment List */}
                       <div className="space-y-3">
                         {comments[post.id]?.map((comment) => (
-                          <div key={comment.id} className="flex gap-3">
+                          <div key={comment.id} className="flex gap-3 items-start group/comment">
                             <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden">
                               {comment.user_avatar_url ? (
                                 <img src={comment.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -608,39 +772,66 @@ export default function Community({ user }: CommunityProps) {
                                 <UserIcon size={14} />
                               )}
                             </div>
-                            <div className="bg-zinc-800 rounded-2xl px-3 py-2 max-w-[85%]">
-                              <h5 className="font-bold text-[11px] text-primary">{comment.user_name}</h5>
-                              <p className="text-xs text-gray-300">{comment.content}</p>
+                            <div className="flex-1 flex items-center gap-2">
+                              <div className="bg-zinc-800 rounded-2xl px-3 py-2 max-w-[90%] relative">
+                                <div className="flex items-center justify-between gap-4 mb-0.5">
+                                  <h5 className={`font-bold text-[11px] ${isImportMode ? 'text-blue-500' : 'text-primary'}`}>{comment.user_name}</h5>
+                                  <span className="text-[9px] text-gray-500">
+                                    {format(new Date(comment.created_at), "HH:mm", { locale: ptBR })}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-300">{comment.content}</p>
+                              </div>
+                              {(comment.user_id === user.id || isAdmin) && (
+                                <button 
+                                  onClick={() => setCommentToDelete({ id: comment.id, postId: post.id })}
+                                  className="text-gray-600 hover:text-red-500 transition-all p-2 shrink-0"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))}
                       </div>
 
                       {/* Add Comment Input */}
-                      <div className="flex gap-3 pt-2">
-                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden">
-                          {user.user_metadata?.avatar_url ? (
-                            <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          ) : (
-                            <UserIcon size={14} />
+                      <div className="space-y-3 pt-2">
+                        <div className="flex gap-3">
+                          {(!isImportMode || (isImportMode && personaActive)) && (
+                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden">
+                              {(adminMode && personaActive) ? (
+                                manualAvatarPreview ? (
+                                  <img src={manualAvatarPreview} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <UserIcon size={14} />
+                                )
+                              ) : user.user_metadata?.avatar_url ? (
+                                <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                <UserIcon size={14} />
+                              )}
+                            </div>
                           )}
-                        </div>
-                        <div className="relative flex-1">
-                          <input
-                            type="text"
-                            value={newComment[post.id] || ''}
-                            onChange={(e) => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddComment(post.id)}
-                            placeholder="Escreva um comentário..."
-                            className="w-full bg-zinc-800 border border-white/10 rounded-full px-4 py-2 pr-10 text-xs focus:outline-none focus:border-primary"
-                            style={{ fontSize: '16px' }}
-                          />
-                          <button 
-                            onClick={() => handleAddComment(post.id)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-primary"
-                          >
-                            <Send size={16} />
-                          </button>
+                          <div className="relative flex-1">
+                            <input
+                              type="text"
+                              value={newComment[post.id] || ''}
+                              onChange={(e) => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))}
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddComment(post.id)}
+                              placeholder={(adminMode && personaActive) ? `Comentar como ${manualAuthorName}` : (adminMode ? "Configure uma persona acima..." : "Escreva um comentário...")}
+                              disabled={adminMode && !personaActive}
+                              className={`w-full bg-zinc-800 border border-white/10 rounded-full px-4 py-2 pr-10 text-xs focus:outline-none focus:border-${isImportMode ? 'blue-500' : 'primary'} disabled:opacity-50`}
+                              style={{ fontSize: '16px' }}
+                            />
+                            <button 
+                              onClick={() => handleAddComment(post.id)}
+                              disabled={adminMode && !personaActive}
+                              className={`absolute right-2 top-1/2 -translate-y-1/2 ${isImportMode ? 'text-blue-500 hover:text-blue-600' : 'text-primary hover:text-primary-hover'} disabled:opacity-50`}
+                            >
+                              <Send size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -687,7 +878,7 @@ export default function Community({ user }: CommunityProps) {
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>
-        {postToDelete && (
+        {(postToDelete || commentToDelete) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -703,19 +894,21 @@ export default function Community({ user }: CommunityProps) {
               <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center text-red-500 mb-4 mx-auto">
                 <Trash2 size={24} />
               </div>
-              <h3 className="text-xl font-bold text-center mb-2">Excluir Publicação?</h3>
+              <h3 className="text-xl font-bold text-center mb-2">
+                {postToDelete ? 'Excluir Publicação?' : 'Excluir Comentário?'}
+              </h3>
               <p className="text-gray-400 text-center text-sm mb-6">
-                Esta ação não pode ser desfeita. A publicação e sua imagem serão removidas permanentemente.
+                Esta ação não pode ser desfeita. {postToDelete ? 'A publicação e sua imagem serão removidas permanentemente.' : 'O comentário será removido permanentemente.'}
               </p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setPostToDelete(null)}
+                  onClick={() => { setPostToDelete(null); setCommentToDelete(null); }}
                   className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold transition-all"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={handleDeletePost}
+                  onClick={postToDelete ? handleDeletePost : handleDeleteComment}
                   className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-all"
                 >
                   Excluir
@@ -744,12 +937,12 @@ export default function Community({ user }: CommunityProps) {
                 <textarea 
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-primary outline-none min-h-[150px] text-sm"
+                  className={`w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-${isImportMode ? 'blue-500' : 'primary'} outline-none min-h-[150px] text-sm`}
                   placeholder="Conteúdo do post..."
                 />
                 <button 
                   onClick={handleUpdatePost}
-                  className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-primary/20"
+                  className={`w-full ${isImportMode ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-primary hover:bg-primary-hover shadow-primary/20'} text-white font-bold py-4 rounded-xl transition-all shadow-lg`}
                 >
                   Salvar Alterações
                 </button>

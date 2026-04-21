@@ -1,9 +1,9 @@
 import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { supabase } from './supabase';
 import { toast } from 'sonner';
 
-// Firebase configuration (Replace with your own config from Firebase Console)
+// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDjl30PtezVKv0eJvEnNJopGCHGGQGLiAg",
   authDomain: "app-maternidade.firebaseapp.com",
@@ -15,35 +15,86 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
+
+// Helper to check messaging support (Messaging requires Service Workers, which are disabled in Private/Incognito modes)
+async function getMessagingInstance() {
+  if (typeof window === 'undefined') return null;
+  
+  // Check if browser supports messaging (checks for Service Workers and Push API)
+  const supported = await isSupported();
+  if (!supported) {
+    console.log('⚠️ Firebase Messaging is not supported in this browser or private mode.');
+    return null;
+  }
+  
+  try {
+    return getMessaging(app);
+  } catch (error) {
+    console.error('❌ Failed to initialize messaging:', error);
+    return null;
+  }
+}
 
 /**
  * Requests permission for push notifications and saves the token to Supabase
  */
 export async function requestNotificationPermission(userId: string) {
-  if (!messaging) return;
+  const messaging = await getMessagingInstance();
+  
+  if (!messaging) {
+    console.log('Firebase Messaging not available.');
+    return false;
+  }
 
   try {
-    const permission = await Notification.requestPermission();
+    console.log('🔔 Notification Setup - User:', userId);
+    
+    let permission = Notification.permission;
+    
+    // If permission is not already granted, request it
+    if (permission !== 'granted') {
+      console.log('🔔 Requesting permission via browser dialog...');
+      permission = await Notification.requestPermission();
+    }
+
+    console.log('🔔 Final permission status:', permission);
+    
     if (permission === 'granted') {
+      // Get token - this will use the service worker registered in public/firebase-messaging-sw.js
       const token = await getToken(messaging, {
-        vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ' // Get this from Firebase Console > Project Settings > Cloud Messaging
+        vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ' 
       });
 
       if (token) {
-        // Save token to Supabase
-        const { error } = await supabase.from('push_tokens').upsert({
+        console.log('🔑 Push Token generated:', token);
+        
+        // 1. Subscribe to the 'all' topic via backend
+        try {
+          await fetch('/api/admin/subscribe-topic', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, topic: 'all' })
+          });
+          console.log('📡 Subscribed to "all" topic');
+        } catch (e) {
+          console.error('❌ Failed to subscribe to topic:', e);
+        }
+
+        // 2. Fallback: Save to Supabase (only as a backup)
+        await supabase.from('push_tokens').upsert({
           user_id: userId,
           token: token
         }, { onConflict: 'user_id, token' });
 
-        if (error) throw error;
-        console.log('Push token saved successfully');
         return true;
+      } else {
+        console.warn('⚠️ No token returned from Firebase');
       }
+    } else {
+      console.warn('⚠️ Notification permission was denied or dismissed');
     }
   } catch (error) {
-    console.error('Error requesting notification permission:', error);
+    console.error('❌ Fatal error in push notification setup:', error);
   }
   return false;
 }
@@ -51,7 +102,8 @@ export async function requestNotificationPermission(userId: string) {
 /**
  * Listens for foreground messages
  */
-export function onForegroundMessage() {
+export async function onForegroundMessage() {
+  const messaging = await getMessagingInstance();
   if (!messaging) return;
 
   onMessage(messaging, (payload) => {

@@ -1,5 +1,7 @@
+import { memo } from 'react';
 import { Home, User, MessageSquare, Shield } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface BottomNavProps {
   activeTab: 'home' | 'profile' | 'community' | 'admin';
@@ -7,8 +9,9 @@ interface BottomNavProps {
   userEmail?: string;
 }
 
-export default function BottomNav({ activeTab, onTabChange, userEmail }: BottomNavProps) {
-  const isAdmin = userEmail === 'gabrielchendes@gmail.com';
+const BottomNav = memo(({ activeTab, onTabChange, userEmail }: BottomNavProps) => {
+  const { settings } = useSettings();
+  const isAdmin = userEmail === settings?.admin_email || userEmail === 'gabrielchendes@gmail.com';
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-lg border-t border-white/10 px-6 py-3 flex items-center justify-between">
@@ -20,7 +23,7 @@ export default function BottomNav({ activeTab, onTabChange, userEmail }: BottomN
         )}
       >
         <Home size={20} />
-        <span className="text-[10px] font-medium">Início</span>
+        <span className="text-[10px] font-medium">{settings?.custom_texts?.['nav.home'] || 'Início'}</span>
       </button>
       <button 
         onClick={() => onTabChange('community')}
@@ -30,7 +33,7 @@ export default function BottomNav({ activeTab, onTabChange, userEmail }: BottomN
         )}
       >
         <MessageSquare size={20} />
-        <span className="text-[10px] font-medium">Comunidade</span>
+        <span className="text-[10px] font-medium">{settings?.custom_texts?.['nav.community'] || 'Comunidade'}</span>
       </button>
       <button 
         onClick={() => onTabChange('profile')}
@@ -40,7 +43,7 @@ export default function BottomNav({ activeTab, onTabChange, userEmail }: BottomN
         )}
       >
         <User size={20} />
-        <span className="text-[10px] font-medium">Perfil</span>
+        <span className="text-[10px] font-medium">{settings?.custom_texts?.['nav.profile'] || 'Perfil'}</span>
       </button>
       {isAdmin && (
         <button 
@@ -51,9 +54,11 @@ export default function BottomNav({ activeTab, onTabChange, userEmail }: BottomN
           )}
         >
           <Shield size={20} />
-          <span className="text-[10px] font-medium">Admin</span>
+          <span className="text-[10px] font-medium">{settings?.custom_texts?.['nav.admin'] || 'Admin'}</span>
         </button>
       )}
     </div>
   );
-}
+});
+
+export default BottomNav;

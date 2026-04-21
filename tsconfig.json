@@ -23,5 +23,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "types": ["vite/client", "vite-plugin-pwa/client"]
-  }
+  },
+  "exclude": ["supabase", "node_modules", "dist"]
 }

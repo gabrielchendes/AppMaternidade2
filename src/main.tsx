@@ -14,11 +14,18 @@ registerSW({
   onNeedRefresh() {
     console.log('Nova versão detectada.');
 
-    const lastUpdate = sessionStorage.getItem('pwa-updated');
+    let lastUpdate: string | null = null;
+    try {
+      lastUpdate = sessionStorage.getItem('pwa-updated');
+    } catch (e) {
+      console.warn('Erro ao acessar sessionStorage:', e);
+    }
+    
     const now = Date.now();
+    const lastUpdateTime = lastUpdate ? Number(lastUpdate) : 0;
 
-    // Permitir atualização se nunca atualizou ou se passou 1 minuto
-    if (!lastUpdate || now - Number(lastUpdate) > 60000) {
+    // Permitir atualização se nunca atualizou ou se passou 1 minuto e o valor é válido
+    if (!lastUpdate || (isNaN(lastUpdateTime) || now - lastUpdateTime > 60000)) {
       console.log('Atualizando app...');
       sessionStorage.setItem('pwa-updated', now.toString());
       window.location.reload();
@@ -38,7 +45,7 @@ if ('serviceWorker' in navigator) {
       // Se o script do SW estiver retornando erro de MIME (HTML em vez de JS), desregistra
       // Isso acontece quando o arquivo sw.js antigo não existe mais e o servidor retorna index.html
       if (reg.active?.scriptURL) {
-        window.fetch(reg.active.scriptURL).then(res => {
+        fetch(reg.active.scriptURL).then(res => {
           const contentType = res.headers.get('content-type');
 
           if (contentType && contentType.includes('text/html')) {

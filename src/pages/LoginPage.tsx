@@ -1,5 +1,6 @@
 import AuthForm from '../components/AuthForm';
 import { useSettings } from '../contexts/SettingsContext';
+import FloatingWhatsApp from '../components/FloatingWhatsApp';
 
 export default function LoginPage() {
   const { settings } = useSettings();
@@ -16,12 +17,13 @@ export default function LoginPage() {
         <AuthForm />
         
         <div className="mt-8 flex flex-col items-center gap-6">
-          <p className="text-gray-500 text-xs max-w-xs text-center leading-relaxed">
-            Ao entrar, você concorda com nossos Termos de Uso e Política de Privacidade.
-            {settings.app_name} © {new Date().getFullYear()}
+          <p className="text-gray-500 text-xs max-w-sm text-center leading-relaxed">
+            {settings.custom_texts?.['auth.disclaimer'] || `Ao entrar, você concorda com nossos Termos de Uso e Política de Privacidade. ${settings.app_name} © ${new Date().getFullYear()}`}
           </p>
         </div>
       </div>
+
+      <FloatingWhatsApp page="login" />
     </div>
   );
 }

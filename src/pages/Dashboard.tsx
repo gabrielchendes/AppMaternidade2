@@ -1,22 +1,66 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
 import BottomNav from '../components/BottomNav';
+import BannerCarousel from '../components/BannerCarousel';
 import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
 import Profile from '../components/Profile';
 import Community from '../components/Community';
 import AdminPanel from '../components/AdminPanel';
 import CourseViewer from '../components/CourseViewer';
+import FloatingWhatsApp from '../components/FloatingWhatsApp';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
+
+const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community' | 'profile', settings: any, t: any }) => {
+  const whatsappEnabled = settings[`support_whatsapp_${page}_enabled` as keyof typeof settings];
+  const emailEnabled = settings[`support_email_${page}_enabled` as keyof typeof settings];
+
+  if (!whatsappEnabled && !emailEnabled) return null;
+
+  return (
+    <div className="px-6 md:px-16 pt-12 pb-20">
+      <div className="bg-zinc-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
+        <div className="space-y-2 text-center md:text-left">
+          <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter italic">
+            {settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
+          </h3>
+          <p className="text-gray-500 font-medium max-w-md">
+            {settings.custom_texts?.['auth.support_description'] || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-4">
+          {whatsappEnabled && settings.support_whatsapp && (
+            <a 
+              href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}${settings.support_whatsapp_message ? `?text=${encodeURIComponent(settings.support_whatsapp_message)}` : ''}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-2xl shadow-xl shadow-green-500/20 transition-all active:scale-95"
+            >
+              <Phone size={20} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
+            </a>
+          )}
+          {emailEnabled && settings.support_email && (
+            <a 
+              href={`mailto:${settings.support_email}`}
+              className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-black rounded-2xl border border-white/10 transition-all active:scale-95"
+            >
+              <MailIcon size={20} /> {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 interface DashboardProps {
   user: User;
@@ -26,6 +70,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const { settings } = useSettings();
   const { t } = useI18n();
   const [courses, setCourses] = useState<Course[]>([]);
+  const [courseChapters, setCourseChapters] = useState<Record<string, string[]>>({});
   const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
   const [purchases, setPurchases] = useState<string[]>([]);
   const [userProgress, setUserProgress] = useState<any[]>([]);
@@ -37,61 +82,94 @@ export default function Dashboard({ user }: DashboardProps) {
   useEffect(() => {
     fetchData();
     
-    const setupPush = async () => {
-      const granted = await requestNotificationPermission(user.id);
-      if (granted) {
+    // Preload banner images
+    if (settings.banner_images?.length) {
+      settings.banner_images.slice(0, 3).forEach((url: string) => {
+        const img = new Image();
+        img.src = url;
+      });
+    }
+
+    // Low-friction registration check
+    const checkPushStatus = async () => {
+      if (typeof window === 'undefined' || !('Notification' in window)) return;
+      
+      // If already granted, ensure token is saved/refreshed in Supabase
+      if (Notification.permission === 'granted') {
         onForegroundMessage();
-      }
+        await requestNotificationPermission(user.id);
+      } 
+      // If default, we don't force anymore, just wait for a natural interaction
     };
-    setupPush();
+
+    // Run once on load
+    checkPushStatus();
+    
+    // Optional: Re-check if user changes permission in browser settings
+    const interval = setInterval(checkPushStatus, 10000);
+    return () => clearInterval(interval);
   }, [user.id]);
 
   const fetchData = async () => {
     try {
-      const [coursesRes, productsRes, purchasesRes, progressRes] = await Promise.all([
+      console.log('🔎 Query Supabase: courses, purchases, user_progress, course_packages');
+      const [coursesRes, purchasesRes, progressRes, packagesRes] = await Promise.all([
         supabase.from('courses').select('*').eq('is_active', true),
-        supabase.from('products').select('*').eq('is_active', true),
         supabase.from('purchases').select('product_id').eq('user_id', user.id),
-        supabase.from('user_progress').select('*').eq('user_id', user.id)
+        supabase.from('user_progress').select('*').eq('user_id', user.id),
+        supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)')
       ]);
 
       if (coursesRes.error) throw coursesRes.error;
-      if (productsRes.error) throw productsRes.error;
       if (purchasesRes.error) throw purchasesRes.error;
       if (progressRes.error) throw progressRes.error;
 
-      // Merge courses and products (legacy)
-      const allCourses: Course[] = [
-        ...(coursesRes.data || []),
-        ...(productsRes.data || []).map(p => ({
-          ...p,
-          tenant_id: p.tenant_id || 'default-tenant'
-        }))
-      ];
+      const basePurchases = purchasesRes.data?.map(p => p.product_id) || [];
+      const unlockedByPackages = new Set<string>();
+      const courseToPackageCheckout: Record<string, string> = {};
 
-      // Remove duplicates by ID (preferring 'courses' table if same ID exists)
-      const uniqueCourses = allCourses.reduce((acc: Course[], curr) => {
-        if (!acc.find(c => c.id === curr.id)) {
-          acc.push(curr);
+      // Logic: If user has a purchase with a Hotmart ID that matches a package, unlock all courses in that package
+      packagesRes.data?.forEach(pkg => {
+        // Map courses to their package checkout URL (preferring packages with checkout URLs)
+        if (pkg.hotmart_checkout_url) {
+          pkg.package_courses?.forEach((pc: any) => {
+            if (!courseToPackageCheckout[pc.course_id]) {
+              courseToPackageCheckout[pc.course_id] = pkg.hotmart_checkout_url!;
+            }
+          });
         }
-        return acc;
-      }, []);
 
-      setCourses(uniqueCourses);
-      setPurchases(purchasesRes.data?.map(p => p.product_id) || []);
+        if (pkg.hotmart_product_id && basePurchases.includes(pkg.hotmart_product_id)) {
+          pkg.package_courses?.forEach((pc: any) => {
+            unlockedByPackages.add(pc.course_id);
+          });
+        }
+      });
+
+      setCourses(coursesRes.data?.map(c => ({
+        ...c,
+        checkout_url: courseToPackageCheckout[c.id] || c.checkout_url // Fallback to course's own checkout if package doesn't have one
+      })) || []);
+      setPurchases([...basePurchases, ...Array.from(unlockedByPackages)]);
       setUserProgress(progressRes.data || []);
 
-      // Fetch stats for each course
+      // Fetch stats and chapter mappings for each course
+      console.log('🔎 Query Supabase: chapters (select)');
       const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
       if (chaptersData) {
         const stats: Record<string, { lessons: number, materials: number }> = {};
+        const chapterMap: Record<string, string[]> = {};
         chaptersData.forEach((ch: any) => {
           const courseId = ch.modules.course_id;
           if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
+          if (!chapterMap[courseId]) chapterMap[courseId] = [];
+          
+          chapterMap[courseId].push(ch.id);
           if (ch.content_type === 'video') stats[courseId].lessons++;
           else stats[courseId].materials++;
         });
         setCourseStats(stats);
+        setCourseChapters(chapterMap);
       }
     } catch (error: any) {
       console.error('Error fetching data:', error);
@@ -101,20 +179,29 @@ export default function Dashboard({ user }: DashboardProps) {
     }
   };
 
-  const handleOpenCourse = (course: Course) => {
+  const isUnlocked = useCallback((course: Course) => {
+    return course.is_free || course.is_bonus || purchases.includes(course.id);
+  }, [purchases]);
+
+  const handleOpenCourse = useCallback(async (course: Course) => {
     if (isUnlocked(course)) {
-      // If it's a legacy product with a PDF URL but no chapters/modules, open the PDF
-      if (course.pdf_url && !viewingCourseId) {
+      // Check if the course has modules or chapters in the stats
+      const hasContent = (courseStats[course.id]?.lessons || 0) + (courseStats[course.id]?.materials || 0) > 0;
+      
+      // If it's pure PDF (no internal lessons/modules) and has a PDF URL, open it directly
+      if (course.pdf_url && !hasContent && !viewingCourseId) {
         window.open(course.pdf_url, '_blank');
         return;
       }
+      
+      // Otherwise, open the viewer (even if empty, it will handle it)
       setViewingCourseId(course.id);
     } else {
       setSelectedCourse(course);
     }
-  };
+  }, [viewingCourseId, isUnlocked, courseStats]);
 
-  const handleSimulatePurchase = async () => {
+  const handleSimulatePurchase = useCallback(async () => {
     if (!selectedCourse) return;
     
     if (selectedCourse.checkout_url) {
@@ -122,87 +209,56 @@ export default function Dashboard({ user }: DashboardProps) {
       return;
     }
 
-    // Fallback if no checkout URL is set
     toast.error('Este curso ainda não possui um link de compra configurado.');
-  };
+  }, [selectedCourse]);
 
-  const isUnlocked = (course: Course) => {
-    return course.is_free || course.is_bonus || purchases.includes(course.id);
-  };
-
-  const getCourseProgress = (courseId: string) => {
-    // This would ideally be calculated based on total chapters in the course
-    // For now, we'll return a placeholder or calculate if we have chapters data
-    return 0; 
-  };
+  const getCourseProgress = useCallback((courseId: string) => {
+    const chaptersInCourse = courseChapters[courseId] || [];
+    if (chaptersInCourse.length === 0) return 0;
+    
+    // Filter progress to only include completions for this course's chapters
+    const completedCount = userProgress.filter(p => 
+      p.completed && chaptersInCourse.includes(p.chapter_id)
+    ).length;
+    
+    return Math.min(100, Math.round((completedCount / chaptersInCourse.length) * 100));
+  }, [courseChapters, userProgress]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
-        <Loader2 className="animate-spin text-primary" size={48} />
+      <div className="min-h-screen bg-bg-main flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary" size={32} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-20 bg-[#0f0f0f]">
+    <div className="min-h-screen pb-20 bg-bg-main">
+      <AnimatePresence>
+        {viewingCourseId && (
+          <CourseViewer 
+            courseId={viewingCourseId} 
+            userId={user.id} 
+            onClose={() => setViewingCourseId(null)} 
+          />
+        )}
+      </AnimatePresence>
+
       <Navbar user={user} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === 'home' ? (
         <>
-          {/* Hero Section */}
-          <div className="relative h-[85vh] w-full overflow-hidden mb-[-150px]">
-            <img
-              src="https://picsum.photos/seed/maternity-hero/1920/1080"
-              className="w-full h-full object-cover opacity-50 scale-105"
-              alt="Hero"
-              referrerPolicy="no-referrer"
+          {/* Banner Section */}
+          <div className="w-full pb-12">
+            <BannerCarousel 
+              images={settings.banner_images || []} 
+              interval={settings.banner_interval || 5000} 
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f0f] via-[#0f0f0f]/40 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#0f0f0f] via-transparent to-transparent" />
-            
-            <div className="absolute bottom-60 left-0 right-0 md:left-16 md:right-auto px-6 md:px-0 flex flex-col items-center md:items-start text-center md:text-left space-y-8">
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-2 px-4 py-1.5 bg-primary/20 backdrop-blur-md rounded-full border border-primary/30"
-              >
-                <Sparkles className="text-primary" size={16} />
-                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">Conteúdo Exclusivo</span>
-              </motion.div>
-              
-              <motion.h1 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="text-4xl sm:text-6xl md:text-8xl font-black tracking-tighter leading-[0.9] text-white"
-              >
-                JORNADA DA <br /> <span className="text-primary italic">MATERNIDADE</span>
-              </motion.h1>
-              
-              <motion.p 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="text-base md:text-xl text-gray-400 leading-relaxed max-w-md md:max-w-2xl font-medium"
-              >
-                O guia definitivo para mães de primeira viagem. Aprenda tudo sobre os primeiros meses, 
-                cuidados essenciais e bem-estar emocional.
-              </motion.p>
-
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="flex items-center gap-4 pt-4"
-              >
-              </motion.div>
-            </div>
           </div>
 
           {/* Content Sections */}
           <div className="relative z-10 space-y-12 pb-20">
-            <Carousel title="Meus Cursos 📚">
+            <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || 'Meus Cursos'}>
               {courses.filter(p => isUnlocked(p) && !p.is_bonus).length > 0 ? (
                 courses.filter(p => isUnlocked(p) && !p.is_bonus).map(course => (
                   <ProductCard
@@ -215,15 +271,33 @@ export default function Dashboard({ user }: DashboardProps) {
                   />
                 ))
               ) : (
+                <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
+                  <Book size={32} className="mb-4 opacity-20" />
+                  <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
+                </div>
+              )}
+            </Carousel>
+
+            <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || 'Produtos Principais'}>
+              {courses.filter(p => !isUnlocked(p)).length > 0 ? (
+                courses.filter(p => !isUnlocked(p)).map(course => (
+                  <ProductCard
+                    key={course.id}
+                    product={course}
+                    isUnlocked={false}
+                    stats={courseStats[course.id]}
+                    onOpen={handleOpenCourse}
+                  />
+                ))
+              ) : (
                 <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
-                  <Star size={40} className="mb-4 opacity-20" />
-                  <p className="font-bold">Você ainda não possui cursos liberados.</p>
+                  <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
                 </div>
               )}
             </Carousel>
 
             {courses.filter(p => p.is_bonus && isUnlocked(p)).length > 0 && (
-              <Carousel title="Meus Bônus 🎁">
+              <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || 'Meus Bônus'}>
                 {courses.filter(p => p.is_bonus && isUnlocked(p)).map(course => (
                   <ProductCard
                     key={course.id}
@@ -237,63 +311,13 @@ export default function Dashboard({ user }: DashboardProps) {
               </Carousel>
             )}
 
-            <Carousel title="Novos Lançamentos 🚀">
-              {courses.filter(p => !isUnlocked(p)).length > 0 ? (
-                courses.filter(p => !isUnlocked(p)).map(course => (
-                  <ProductCard
-                    key={course.id}
-                    product={course}
-                    isUnlocked={false}
-                    stats={courseStats[course.id]}
-                    onOpen={handleOpenCourse}
-                  />
-                ))
-              ) : (
-                <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
-                  <p className="font-bold">Você já possui todos os cursos disponíveis!</p>
-                </div>
-              )}
-            </Carousel>
-
-            {settings.show_support_app && (
-              <div className="px-6 md:px-16 pt-12 pb-20">
-                <div className="bg-zinc-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
-                  <div className="space-y-2 text-center md:text-left">
-                    <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter italic">
-                      Precisa de <span className="text-primary">Suporte?</span>
-                    </h3>
-                    <p className="text-gray-500 font-medium max-w-md">
-                      Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {settings.support_whatsapp_enabled && settings.support_whatsapp && (
-                      <a 
-                        href={`https://wa.me/${settings.support_whatsapp}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-2xl shadow-xl shadow-green-500/20 transition-all active:scale-95"
-                      >
-                        <Phone size={20} /> WHATSAPP
-                      </a>
-                    )}
-                    {settings.support_email_enabled && settings.support_email && (
-                      <a 
-                        href={`mailto:${settings.support_email}`}
-                        className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-black rounded-2xl border border-white/10 transition-all active:scale-95"
-                      >
-                        <MailIcon size={20} /> EMAIL
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            <SupportSection page="home" settings={settings} t={t} />
           </div>
         </>
       ) : activeTab === 'community' ? (
         <div className="pt-24">
           <Community user={user} />
+          <SupportSection page="community" settings={settings} t={t} />
         </div>
       ) : activeTab === 'admin' ? (
         <div className="pt-24">
@@ -302,6 +326,7 @@ export default function Dashboard({ user }: DashboardProps) {
       ) : (
         <div className="pt-24">
           <Profile user={user} />
+          <SupportSection page="profile" settings={settings} t={t} />
         </div>
       )}
 
@@ -342,9 +367,9 @@ export default function Dashboard({ user }: DashboardProps) {
                 </div>
 
                 <div className="p-10 md:p-14 flex flex-col gap-8">
-                  <div className="space-y-4">
+          <div className="space-y-4">
                     <div className="flex items-center gap-2 text-primary font-black text-[10px] tracking-[0.2em] uppercase">
-                      <Star size={12} className="fill-primary" /> CONTEÚDO PREMIUM
+                      <Star size={12} className="fill-primary" /> {t('course.premium_content') || 'CONTEÚDO PREMIUM'}
                     </div>
                     <h2 className="text-4xl md:text-5xl font-black leading-[0.9] text-white">{selectedCourse.title}</h2>
                     <div className="flex items-center gap-4">
@@ -352,13 +377,13 @@ export default function Dashboard({ user }: DashboardProps) {
                         R$ {(selectedCourse.price / 100).toFixed(2).replace('.', ',')}
                       </div>
                       <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-black text-gray-500 uppercase tracking-widest border border-white/10">
-                        Acesso Vitalício
+                        {t('course.lifetime_access') || 'Acesso Vitalício'}
                       </span>
                     </div>
                   </div>
 
                   <p className="text-gray-400 leading-relaxed text-lg font-medium">
-                    {selectedCourse.description || 'Este conteúdo exclusivo oferece insights valiosos e ferramentas práticas para sua jornada na maternidade. Desenvolvido por especialistas para garantir o melhor para você e seu bebê.'}
+                    {selectedCourse.description || t('course.default_description') || 'Este conteúdo exclusivo oferece insights valiosos e ferramentas práticas para sua jornada na maternidade.'}
                   </p>
 
                   <div className="mt-auto pt-8 border-t border-white/5 space-y-6">
@@ -367,10 +392,10 @@ export default function Dashboard({ user }: DashboardProps) {
                       className="w-full bg-primary hover:bg-primary-hover text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 shadow-2xl shadow-primary/30 transition-all active:scale-[0.98]"
                     >
                       <ShoppingBag size={24} />
-                      LIBERAR ACESSO AGORA
+                      {t('course.unlock_button') || 'LIBERAR ACESSO AGORA'}
                     </button>
                     <p className="text-center text-[10px] text-gray-600 font-bold uppercase tracking-widest">
-                      Pagamento 100% Seguro • Acesso Imediato
+                      {t('course.secure_payment') || 'Pagamento 100% Seguro • Acesso Imediato'}
                     </p>
                   </div>
                 </div>
@@ -380,16 +405,8 @@ export default function Dashboard({ user }: DashboardProps) {
         )}
       </AnimatePresence>
 
-      {/* Course Viewer Modal */}
-      {viewingCourseId && (
-        <CourseViewer 
-          courseId={viewingCourseId} 
-          userId={user.id} 
-          onClose={() => setViewingCourseId(null)} 
-        />
-      )}
-
       {!viewingCourseId && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />}
+      <FloatingWhatsApp page={activeTab as any} />
     </div>
   );
 }

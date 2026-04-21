@@ -33,14 +33,14 @@ export default function App() {
 
   if (settingsLoading || authLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
+      <div className="min-h-screen bg-bg-main flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white font-sans selection:bg-primary/30">
+    <div className="min-h-screen bg-bg-main text-white font-sans selection:bg-primary/30">
       {!user ? <LoginPage /> : <Dashboard user={user} />}
     </div>
   );

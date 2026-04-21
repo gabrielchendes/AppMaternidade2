@@ -25,17 +25,26 @@ try {
     firebaseAdmin = (admin as any).default || admin;
     let parsedAccount;
     try {
-      parsedAccount = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+      if (typeof serviceAccount === 'string') {
+        if (serviceAccount.trim() === 'undefined' || serviceAccount.trim() === '') {
+          throw new Error('FIREBASE_SERVICE_ACCOUNT is "undefined" or empty string');
+        }
+        console.log("Parsing FIREBASE_SERVICE_ACCOUNT...");
+        parsedAccount = JSON.parse(serviceAccount);
+      } else {
+        parsedAccount = serviceAccount;
+      }
     } catch (parseErr) {
-      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT. Ensure it is a valid JSON string.');
-      throw parseErr;
+      console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT. Ensure it is a valid JSON string:', parseErr);
+      // Don't throw here, just don't initialize firebaseAdminApp
+      parsedAccount = null;
     }
     
-    if (firebaseAdmin.apps.length === 0) {
+    if (parsedAccount && firebaseAdmin.apps.length === 0) {
       firebaseAdminApp = firebaseAdmin.initializeApp({
         credential: firebaseAdmin.credential.cert(parsedAccount)
       });
-    } else {
+    } else if (firebaseAdmin.apps.length > 0) {
       firebaseAdminApp = firebaseAdmin.apps[0];
     }
     console.log('Firebase Admin initialized successfully');
@@ -130,7 +139,7 @@ async function startServer() {
     if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
     if (error) return res.status(500).json({ error: error.message });
-    res.json(users);
+    res.json(users || []);
   });
 
   app.post('/api/admin/create-user', adminAuth, async (req, res) => {
@@ -146,6 +155,16 @@ async function startServer() {
       });
 
       if (error) throw error;
+      
+      // Also create a profile entry to avoid FK issues later
+      if (data.user) {
+        await supabaseAdmin.from('profiles').upsert({
+          id: data.user.id,
+          email: data.user.email,
+          full_name: fullName || email.split('@')[0]
+        });
+      }
+
       res.json({ success: true, user: data.user });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -157,10 +176,16 @@ async function startServer() {
     if (!id || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
 
     try {
+      // Clean up public data first to avoid FK violations
+      await supabaseAdmin.from('purchases').delete().eq('user_id', id);
+      await supabaseAdmin.from('notifications').delete().eq('user_id', id);
+      await supabaseAdmin.from('profiles').delete().eq('id', id);
+      
       const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {
+      console.error('Delete User Error:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -189,12 +214,180 @@ async function startServer() {
     }
   });
 
+  app.get('/api/admin/purchases', adminAuth, async (req, res) => {
+    if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
+    
+    try {
+      console.log('🔎 Querying purchases with joins...');
+      const { data: purchases, error } = await supabaseAdmin
+        .from('purchases')
+        .select(`
+          id,
+          created_at,
+          user_id,
+          product_id,
+          is_manual,
+          profiles!user_id(full_name, email),
+          courses!product_id(title, cover_url, price)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Supabase join error in purchases (Attempt 1):', error);
+        
+        // Fallback 1: Try without explicit hints if hints failed
+        const { data: altPurchases, error: altError } = await supabaseAdmin
+          .from('purchases')
+          .select('*, profiles:user_id(full_name, email), courses:product_id(title, price)')
+          .order('created_at', { ascending: false });
+
+        if (!altError) return res.json(altPurchases || []);
+
+        console.error('Supabase join error (Attempt 2):', altError);
+
+        // Fallback 2: fetch without joins if all join attempts fail
+        const { data: simplePurchases, error: simpleError } = await supabaseAdmin
+          .from('purchases')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (simpleError) throw simpleError;
+        return res.json(simplePurchases || []);
+      }
+      res.json(purchases || []);
+    } catch (err: any) {
+      console.error('API Purchases Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Route to subscribe a token to a topic
+  app.post('/api/admin/subscribe-topic', async (req, res) => {
+    const { token, topic } = req.body;
+    if (!token || !topic || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
+    
+    try {
+      await firebaseAdminApp.messaging().subscribeToTopic(token, topic);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/broadcast-notification', adminAuth, async (req, res) => {
+    const { title, message } = req.body;
+    
+    if (!title || !message || !supabaseAdmin) {
+      return res.status(400).json({ error: 'Missing data' });
+    }
+
+    try {
+      const { data: profiles, error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .select('id');
+
+      if (profileError) throw profileError;
+
+      if (profiles && profiles.length > 0) {
+        const notifications = profiles.map(p => ({
+          user_id: p.id,
+          title,
+          message,
+          body: message,
+          read: false
+        }));
+
+        for (let i = 0; i < notifications.length; i += 500) {
+          const batch = notifications.slice(i, i + 500);
+          await supabaseAdmin.from('notifications').insert(batch);
+        }
+      }
+
+      res.json({ success: true, count: profiles?.length || 0 });
+    } catch (err: any) {
+      console.error('Broadcast Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/send-push', adminAuth, async (req, res) => {
+    const { title, body } = req.body;
+    console.log('📬 Admin pushing to TOPIC: all');
+    
+    if (!title || !body) {
+      return res.status(400).json({ error: 'Missing title or body' });
+    }
+
+    if (!firebaseAdminApp) {
+      return res.status(500).json({ error: 'Firebase Admin not initialized.' });
+    }
+
+    try {
+      // Send to TOPIC instead of individual tokens
+      // This is much more efficient and "sends to all" regardless of DB state
+      const response = await firebaseAdminApp.messaging().send({
+        topic: 'all',
+        notification: { title, body },
+        webpush: {
+          fcmOptions: { link: '/' },
+          notification: {
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/badge-72x72.png'
+          }
+        }
+      });
+
+      console.log('✅ Send to topic response:', response);
+      res.json({ success: true, messageId: response });
+    } catch (err: any) {
+      console.error('Error sending push to topic:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/toggle-access', adminAuth, async (req, res) => {
+    const { userId, courseId, action } = req.body;
+    if (!userId || !courseId || !action || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+    
+    try {
+      if (action === 'grant') {
+        // 1. Ensure profile exists - vital for users without history
+        const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (userError) throw userError;
+        
+        await supabaseAdmin.from('profiles').upsert({
+          id: userId,
+          email: userData.user.email,
+          full_name: userData.user.user_metadata?.full_name || userData.user.email?.split('@')[0]
+        });
+
+        const { error: insertError } = await supabaseAdmin.from('purchases').insert({ 
+          user_id: userId, 
+          product_id: courseId,
+          is_manual: true // Mark as manual grant
+        });
+        if (insertError && insertError.code !== '23505') throw insertError; // Ignore if already exists
+      } else if (action === 'revoke') {
+        const { error } = await supabaseAdmin.from('purchases').delete().eq('user_id', userId).eq('product_id', courseId);
+        if (error) throw error;
+      }
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Toggle Access API Error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // (Other admin routes omitted for brevity in this dev server, but you can add them back if needed)
   // For now, let's just make sure the core works.
 
   // Vite middleware for development
   const vite = await createViteServer({
-    server: { middlewareMode: true },
+    server: { 
+      middlewareMode: true,
+      hmr: false
+    },
     appType: 'spa',
   });
   app.use(vite.middlewares);

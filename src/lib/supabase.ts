@@ -3,15 +3,30 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+if (!supabaseUrl || supabaseUrl === "undefined") {
+  console.warn("VITE_SUPABASE_URL is missing or undefined");
+}
+
+if (!supabaseAnonKey || supabaseAnonKey === "undefined") {
+  console.warn("VITE_SUPABASE_ANON_KEY is missing or undefined");
+}
+
+export const isSupabaseConfigured = !!(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  supabaseUrl !== 'undefined' && 
+  supabaseAnonKey !== 'undefined' &&
+  supabaseUrl !== '' &&
+  supabaseAnonKey !== ''
+);
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl!, supabaseAnonKey!)
   : (null as any);
 
-const supabaseServiceRoleKey = (process as any).env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseServiceRoleKey = typeof process !== 'undefined' ? process.env?.SUPABASE_SERVICE_ROLE_KEY : undefined;
 
-export const supabaseAdmin = (isSupabaseConfigured && supabaseServiceRoleKey)
+export const supabaseAdmin = (isSupabaseConfigured && supabaseServiceRoleKey && typeof window === 'undefined')
   ? createClient(supabaseUrl!, supabaseServiceRoleKey)
   : null;
 
@@ -69,8 +84,8 @@ export type Notification = {
   id: string;
   user_id: string;
   title: string;
-  message: string;
-  read: boolean;
+  body: string;
+  is_read: boolean;
   created_at: string;
 };
 
@@ -78,6 +93,22 @@ export type PushToken = {
   id: string;
   user_id: string;
   token: string;
+  created_at: string;
+};
+
+export type CoursePackage = {
+  id: string;
+  title: string;
+  hotmart_product_id?: string;
+  hotmart_checkout_url?: string;
+  description?: string;
+  created_at: string;
+  package_courses?: PackageCourse[];
+};
+
+export type PackageCourse = {
+  package_id: string;
+  course_id: string;
   created_at: string;
 };
 

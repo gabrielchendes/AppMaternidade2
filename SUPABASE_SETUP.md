@@ -22,16 +22,35 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     app_description TEXT DEFAULT 'Sua jornada na maternidade começa aqui.',
     primary_color TEXT DEFAULT '#ec4899',
     secondary_color TEXT DEFAULT '#be185d',
+    background_color TEXT DEFAULT '#0f0f0f',
     logo_url TEXT,
     favicon_url TEXT,
     pwa_icon_url TEXT,
     support_whatsapp TEXT DEFAULT '5531997433488',
     support_email TEXT DEFAULT 'gabrielchendes@hotmail.com',
+    support_whatsapp_message TEXT DEFAULT 'Olá, gostaria de tirar uma dúvida sobre o curso.',
     auth_method TEXT DEFAULT 'passwordless',
     show_support_login BOOLEAN DEFAULT true,
     show_support_app BOOLEAN DEFAULT true,
     support_whatsapp_enabled BOOLEAN DEFAULT true,
     support_email_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_community_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_profile_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_home_enabled BOOLEAN DEFAULT true,
+    support_email_home_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_community_enabled BOOLEAN DEFAULT true,
+    support_email_community_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_profile_enabled BOOLEAN DEFAULT true,
+    support_email_profile_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_login_enabled BOOLEAN DEFAULT true,
+    support_email_login_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_app_enabled BOOLEAN DEFAULT true,
+    support_email_app_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_course_enabled BOOLEAN DEFAULT true,
+    support_email_course_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true,
     login_display_type TEXT DEFAULT 'title',
     custom_texts JSONB DEFAULT '{
         "auth.welcome": "Bem-vinda de volta!",
@@ -39,8 +58,13 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
         "community.title": "Comunidade",
         "community.subtitle": "Compartilhe sua jornada com outras mães",
         "courses.title": "Meus Cursos",
-        "courses.subtitle": "Continue seu aprendizado"
+        "courses.subtitle": "Continue seu aprendizado",
+        "dashboard.courses_free": "Produtos Principais",
+        "dashboard.courses_paid": "Meus Treinamentos",
+        "dashboard.courses_bonus": "Meus Bônus"
     }'::jsonb,
+    banner_images TEXT[] DEFAULT ARRAY['https://picsum.photos/seed/maternity-banner-1/1200/600', 'https://picsum.photos/seed/maternity-banner-2/1200/600'],
+    banner_interval INTEGER DEFAULT 5000,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT one_row CHECK (id = 1)
@@ -94,6 +118,7 @@ CREATE TABLE IF NOT EXISTS public.chapters (
     content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text')),
     video_url TEXT,
     pdf_url TEXT,
+    cover_url TEXT,
     rich_text TEXT,
     duration_minutes INTEGER DEFAULT 0,
     order_index INTEGER DEFAULT 0,
@@ -118,8 +143,8 @@ CREATE TABLE IF NOT EXISTS public.products (
 -- 7. Tabela `purchases` (Compras/Acessos)
 CREATE TABLE IF NOT EXISTS public.purchases (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
     transaction_id TEXT,
     status TEXT DEFAULT 'approved',
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -166,7 +191,9 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    message TEXT, -- Alias para body para retrocompatibilidade
     is_read BOOLEAN DEFAULT false,
+    read BOOLEAN DEFAULT false, -- Alias para is_read para retrocompatibilidade
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -188,6 +215,25 @@ CREATE TABLE IF NOT EXISTS public.user_progress (
     PRIMARY KEY (user_id, chapter_id)
 );
 
+-- 12. Tabela `course_packages` (Pacotes de Cursos)
+CREATE TABLE IF NOT EXISTS public.course_packages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    hotmart_product_id TEXT,
+    hotmart_checkout_url TEXT,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    tenant_id TEXT DEFAULT 'default'
+);
+
+-- 13. Tabela `package_courses` (Relacionamento Pacote x Cursos)
+CREATE TABLE IF NOT EXISTS public.package_courses (
+    package_id UUID REFERENCES public.course_packages(id) ON DELETE CASCADE,
+    course_id UUID REFERENCES public.courses(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (package_id, course_id)
+);
+
 -- ==========================================
 -- POLÍTICAS DE SEGURANÇA (RLS)
 -- ==========================================
@@ -207,6 +253,8 @@ ALTER TABLE public.post_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.push_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_packages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.package_courses ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para tenants
 CREATE POLICY "Permitir leitura pública de tenants" ON public.tenants FOR SELECT USING (true);
@@ -240,6 +288,12 @@ CREATE POLICY "Admin total em módulos" ON public.modules FOR ALL USING (public.
 CREATE POLICY "Todos podem ver capítulos" ON public.chapters FOR SELECT USING (true);
 CREATE POLICY "Admin total em capítulos" ON public.chapters FOR ALL USING (public.is_admin());
 
+-- Políticas para Pacotes
+CREATE POLICY "Todos podem ver pacotes" ON public.course_packages FOR SELECT USING (true);
+CREATE POLICY "Admin total em pacotes" ON public.course_packages FOR ALL USING (public.is_admin());
+CREATE POLICY "Todos podem ver itens do pacote" ON public.package_courses FOR SELECT USING (true);
+CREATE POLICY "Admin total em itens do pacote" ON public.package_courses FOR ALL USING (public.is_admin());
+
 -- Políticas para community_posts
 CREATE POLICY "Todos podem ver posts" ON public.community_posts FOR SELECT USING (true);
 CREATE POLICY "Usuários autenticados podem postar" ON public.community_posts FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
@@ -259,9 +313,41 @@ CREATE POLICY "Admin total em compras" ON public.purchases FOR ALL USING (public
 -- Políticas para user_progress
 CREATE POLICY "Usuários gerenciam seu próprio progresso" ON public.user_progress FOR ALL USING (auth.uid() = user_id);
 
+-- Políticas para notifications
+DROP POLICY IF EXISTS "Usuários veem suas próprias notificações" ON public.notifications;
+CREATE POLICY "Usuários veem suas próprias notificações" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuários podem marcar como lido" ON public.notifications;
+CREATE POLICY "Usuários podem marcar como lido" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Admin total em notificações" ON public.notifications;
+CREATE POLICY "Admin total em notificações" ON public.notifications FOR ALL USING (public.is_admin());
+
+-- Políticas para push_tokens
+DROP POLICY IF EXISTS "Usuários gerenciam seus tokens" ON public.push_tokens;
+CREATE POLICY "Usuários gerenciam seus tokens" ON public.push_tokens FOR ALL USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Admin total em tokens" ON public.push_tokens;
+CREATE POLICY "Admin total em tokens" ON public.push_tokens FOR ALL USING (public.is_admin());
+
 -- ==========================================
--- TRIGGERS PARA CONTADORES
+-- TRIGGERS PARA PERFIS E CONTADORES
 -- ==========================================
+
+-- Função para criar perfil automaticamente
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, avatar_url)
+  VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'avatar_url');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger para criar perfil
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Função para atualizar contagem de likes
 CREATE OR REPLACE FUNCTION public.handle_post_likes_count()
@@ -297,6 +383,11 @@ CREATE TRIGGER on_post_comment AFTER INSERT OR DELETE ON public.post_comments FO
 INSERT INTO public.tenants (name, subdomain, primary_color)
 VALUES ('Maternidade Premium', 'app', '#ec4899')
 ON CONFLICT (subdomain) DO NOTHING;
+
+-- Inserir configurações iniciais
+INSERT INTO public.app_settings (id, admin_email, app_name)
+VALUES (1, 'gabrielchendes@gmail.com', 'Maternidade Premium')
+ON CONFLICT (id) DO NOTHING;
 
 -- 12. Configuração de Buckets de Storage
 -- Nota: Execute estes comandos se o seu projeto permitir criação de buckets via SQL, 

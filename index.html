@@ -2,31 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Shim for window.fetch to prevent "only a getter" errors from third-party libraries
+      (function() {
+        try {
+          var descriptor = Object.getOwnPropertyDescriptor(window, 'fetch') || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch');
+          if (descriptor && !descriptor.set && descriptor.configurable) {
+            var _fetch = window.fetch;
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return _fetch; },
+              set: function(v) { _fetch = v; },
+              configurable: true,
+              enumerable: true
+            });
+            console.log('Successfully shimmed window.fetch');
+          }
+        } catch (e) {
+          console.error('Failed to shim window.fetch:', e);
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Maternidade Premium</title>
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0f0f0f" />
   </head>
   <body>
-    <script>
-      // Fix for libraries that try to overwrite window.fetch
-      if (typeof window !== 'undefined' && window.fetch) {
-        try {
-          const originalFetch = window.fetch;
-          Object.defineProperty(window, 'fetch', {
-            configurable: false,
-            enumerable: true,
-            get: () => originalFetch,
-            set: (v) => { 
-              console.warn('Attempted to overwrite window.fetch with:', v);
-              // Do nothing, keep original fetch
-            }
-          });
-        } catch (e) {
-          // Already read-only or other issue
-        }
-      }
-    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

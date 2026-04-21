@@ -31,6 +31,7 @@ export interface Chapter {
   content_type: 'video' | 'pdf' | 'text';
   video_url?: string;
   pdf_url?: string;
+  cover_url?: string;
   rich_text?: string;
   duration_minutes?: number;
   order_index: number;
@@ -43,4 +44,14 @@ export interface UserProgress {
   chapter_id: string;
   completed: boolean;
   completed_at?: string;
+}
+
+export interface CoursePackage {
+  id: string;
+  title: string;
+  hotmart_product_id?: string;
+  hotmart_checkout_url?: string;
+  description?: string;
+  created_at: string;
+  package_courses?: { course_id: string }[];
 }

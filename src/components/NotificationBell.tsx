@@ -60,7 +60,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
 
       if (error) throw error;
       setNotifications(data || []);
-      setUnreadCount(data?.filter(n => !n.read).length || 0);
+      setUnreadCount(data?.filter(n => !n.is_read).length || 0);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -72,10 +72,10 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('id', id);
       if (error) throw error;
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -86,11 +86,11 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('user_id', user.id)
-        .eq('read', false);
+        .eq('is_read', false);
       if (error) throw error;
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(0);
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -167,16 +167,16 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                     {notifications.map((notification) => (
                       <div 
                         key={notification.id}
-                        className={`p-6 transition-all hover:bg-white/5 relative group ${!notification.read ? 'bg-primary/10' : ''}`}
+                        className={`p-6 transition-all hover:bg-white/5 relative group ${!notification.is_read ? 'bg-primary/10' : ''}`}
                       >
-                        {!notification.read && (
+                        {!notification.is_read && (
                           <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary shadow-[0_0_10px_rgba(236,72,153,0.5)]" />
                         )}
                         <div className="flex justify-between items-start gap-4 mb-2">
-                          <h4 className={`text-base font-black leading-tight ${!notification.read ? 'text-white' : 'text-gray-400'}`}>
+                          <h4 className={`text-base font-black leading-tight ${!notification.is_read ? 'text-white' : 'text-gray-400'}`}>
                             {notification.title}
                           </h4>
-                          {!notification.read && (
+                          {!notification.is_read && (
                             <button 
                               onClick={() => markAsRead(notification.id)}
                               className="p-2 bg-primary/20 text-primary rounded-full hover:bg-primary hover:text-white transition-all"
@@ -186,8 +186,8 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                             </button>
                           )}
                         </div>
-                        <p className={`text-sm leading-relaxed mb-3 ${!notification.read ? 'text-gray-200' : 'text-gray-500'}`}>
-                          {notification.message}
+                        <p className={`text-sm leading-relaxed mb-3 ${!notification.is_read ? 'text-gray-200' : 'text-gray-500'}`}>
+                          {notification.body}
                         </p>
                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                           <Info size={12} />

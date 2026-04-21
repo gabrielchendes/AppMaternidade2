@@ -1,4 +1,4 @@
-import { ReactNode, useRef } from 'react';
+import { ReactNode, useRef, memo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CarouselProps {
@@ -6,7 +6,7 @@ interface CarouselProps {
   children: ReactNode;
 }
 
-export default function Carousel({ title, children }: CarouselProps) {
+const Carousel = memo(({ title, children }: CarouselProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (direction: 'left' | 'right') => {
@@ -19,7 +19,9 @@ export default function Carousel({ title, children }: CarouselProps) {
 
   return (
     <div className="relative group/carousel mb-12">
-      <h2 className="text-xl font-bold mb-4 px-12 text-gray-100">{title}</h2>
+      <h2 className="text-2xl font-black mb-6 px-12 text-gray-200 uppercase tracking-tighter italic">
+        {title}
+      </h2>
 
       <div className="relative">
         {/* Left Arrow */}
@@ -48,4 +50,6 @@ export default function Carousel({ title, children }: CarouselProps) {
       </div>
     </div>
   );
-}
+});
+
+export default Carousel;
