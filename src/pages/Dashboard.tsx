@@ -21,8 +21,8 @@ import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
 
 const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community' | 'profile', settings: any, t: any }) => {
-  const whatsappEnabled = settings[`support_whatsapp_${page}_enabled` as keyof typeof settings];
-  const emailEnabled = settings[`support_email_${page}_enabled` as keyof typeof settings];
+  const whatsappEnabled = settings[`support_whatsapp_${page}_enabled` as keyof typeof settings] && settings.support_whatsapp;
+  const emailEnabled = settings[`support_email_${page}_enabled` as keyof typeof settings] && settings.support_email;
 
   if (!whatsappEnabled && !emailEnabled) return null;
 

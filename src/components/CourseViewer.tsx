@@ -242,8 +242,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
   };
 
   const SupportSection = () => {
-    const whatsappEnabled = settings.support_whatsapp_course_enabled;
-    const emailEnabled = settings.support_email_course_enabled;
+    const whatsappEnabled = settings.support_whatsapp_course_enabled && settings.support_whatsapp;
+    const emailEnabled = settings.support_email_course_enabled && settings.support_email;
 
     if (!whatsappEnabled && !emailEnabled) return null;
 
