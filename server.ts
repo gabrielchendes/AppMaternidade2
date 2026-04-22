@@ -340,6 +340,8 @@ async function startServer() {
           notification: {
             icon: '/firebase-logo.png',
             badge: '/firebase-logo.png',
+            tag: 'maternidade-premium',
+            renotify: true,
             data: { url: '/' }
           }
         }
