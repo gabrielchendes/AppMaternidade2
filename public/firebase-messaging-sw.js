@@ -1,12 +1,13 @@
 // Import and configure the Firebase SDK
 // These scripts are made available when the app is served or deployed on Firebase Hosting
 // If you're not using Firebase Hosting, you must import the scripts from a CDN
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
+
+console.log('[firebase-messaging-sw.js] SW Script loaded');
 
 // Initialize the Firebase app in the service worker by passing in
 // your app's Firebase config object.
-// https://firebase.google.com/docs/web/setup#config-object
 firebase.initializeApp({
   apiKey: "AIzaSyDjl30PtezVKv0eJvEnNJopGCHGGQGLiAg",
   authDomain: "app-maternidade.firebaseapp.com",
@@ -16,23 +17,21 @@ firebase.initializeApp({
   appId: "1:669118811483:web:0402740c397b1c7cb55e7e"
 });
 
-// Retrieve an instance of Firebase Messaging so that it can handle background
-// messages.
 const messaging = firebase.messaging();
 
-// Note: When sending messages with a 'notification' property, the FCM SDK 
-// automatically displays the notification when the app is in the background.
-// We only need onBackgroundMessage if we want to handle data-only messages
-// or perform custom logic. Removing the manual showNotification prevents
-// double notifications.
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
   
-  // Note: When the payload contains a 'notification' property, the browser 
-  // automatically displays a notification when the app is in the background.
-  // We DO NOT call self.registration.showNotification() here to avoid double notifications.
-  
-  // If you want to handle data-only messages, you can check for payload.data here.
+  if (!payload.notification) {
+    console.log('[firebase-messaging-sw.js] Message does not contain a notification field, possibly showing manual notification...');
+    const notificationTitle = payload.data?.title || 'Novo aviso';
+    const notificationOptions = {
+      body: payload.data?.body || 'Você tem uma nova mensagem.',
+      icon: '/icons/icon-192x192.png',
+      data: payload.data
+    };
+    self.registration.showNotification(notificationTitle, notificationOptions);
+  }
 });
 
 // Handle notification click

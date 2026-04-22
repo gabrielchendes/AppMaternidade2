@@ -52,17 +52,37 @@ export async function requestNotificationPermission(userId: string) {
     let permission = Notification.permission;
     
     // If permission is not already granted, request it
-    if (permission !== 'granted') {
+    if (permission === 'default') {
       console.log('🔔 Requesting permission via browser dialog...');
-      permission = await Notification.requestPermission();
+      try {
+        permission = await Notification.requestPermission();
+      } catch (err) {
+        console.error('❌ Notification.requestPermission() failed:', err);
+        // Fallback for older browsers
+        permission = await new Promise((resolve) => {
+          Notification.requestPermission((p) => resolve(p));
+        });
+      }
     }
 
     console.log('🔔 Final permission status:', permission);
     
     if (permission === 'granted') {
-      // Get token - this will use the service worker registered in public/firebase-messaging-sw.js
+      console.log('🔔 Permission granted, obtaining token...');
+      
+      // Register service worker manually to ensure it's pointing to the right file
+      let registration;
+      try {
+        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        console.log('👷 Service Worker registered for Messaging:', registration.scope);
+      } catch (swError) {
+        console.error('❌ Service Worker registration failed:', swError);
+      }
+
+      // Get token
       const token = await getToken(messaging, {
-        vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ' 
+        vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ',
+        serviceWorkerRegistration: registration
       });
 
       if (token) {

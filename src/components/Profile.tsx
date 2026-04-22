@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
-import { User, Lock, Mail, Save, Loader2, Camera } from 'lucide-react';
+import { User, Lock, Mail, Save, Loader2, Camera, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import imageCompression from 'browser-image-compression';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
+import { requestNotificationPermission } from '../lib/pushNotifications';
 
 interface ProfileProps {
   user: SupabaseUser;
@@ -23,6 +24,11 @@ export default function Profile({ user }: ProfileProps) {
   const [uploading, setUploading] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pushStatus, setPushStatus] = useState<{ supported: boolean, permission: string, tokenGenerated: boolean }>({
+    supported: 'Notification' in window,
+    permission: typeof Notification !== 'undefined' ? Notification.permission : 'not-supported',
+    tokenGenerated: false
+  });
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,6 +232,55 @@ export default function Profile({ user }: ProfileProps) {
             {t('profile.save_changes') || 'SALVAR ALTERAÇÕES'}
           </button>
         </form>
+      </section>
+
+      {/* Notificações Section */}
+      <section className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
+        <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-widest uppercase">
+          <Bell size={18} />
+          Notificações Push
+        </div>
+        <p className="text-xs text-gray-500 font-medium">
+          Receba avisos importantes, novas aulas e atualizações da comunidade diretamente no seu navegador.
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-black/40 rounded-xl p-3 border border-white/5">
+            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">Suporte</div>
+            <div className={`text-xs font-bold ${pushStatus.supported ? 'text-green-500' : 'text-red-500'}`}>
+              {pushStatus.supported ? 'DISPONÍVEL' : 'NÃO SUPORTADO'}
+            </div>
+          </div>
+          <div className="bg-black/40 rounded-xl p-3 border border-white/5">
+            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">Permissão</div>
+            <div className={`text-xs font-bold ${pushStatus.permission === 'granted' ? 'text-green-500' : pushStatus.permission === 'denied' ? 'text-red-500' : 'text-yellow-500'}`}>
+              {pushStatus.permission.toUpperCase()}
+            </div>
+          </div>
+        </div>
+        
+        <button
+          onClick={async () => {
+            const granted = await requestNotificationPermission(user.id);
+            setPushStatus(prev => ({ 
+              ...prev, 
+              permission: Notification.permission,
+              tokenGenerated: granted 
+            }));
+            
+            if (granted) {
+              toast.success('Notificações ativadas com sucesso!');
+            } else if (Notification.permission === 'denied') {
+              toast.error('Notificações bloqueadas no navegador. Redefina as permissões nas configurações do site.');
+            } else {
+              toast.error('Não foi possível ativar. Verifique se você está em uma aba segura (HTTPS).');
+            }
+          }}
+          className="w-full bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all active:scale-[0.98] uppercase tracking-widest text-xs"
+        >
+          <Bell size={18} />
+          {pushStatus.permission === 'granted' ? 'RE-SINCRONIZAR NOTIFICAÇÕES' : 'ATIVAR NOTIFICAÇÕES'}
+        </button>
       </section>
 
       {/* Segurança - Only show if auth method is password */}

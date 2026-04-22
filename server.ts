@@ -135,6 +135,14 @@ async function startServer() {
     } catch (err) { res.status(401).json({ error: 'Invalid token' }); }
   };
 
+  app.get('/api/admin/firebase-status', adminAuth, async (req, res) => {
+    res.json({ 
+      initialized: !!firebaseAdminApp,
+      hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      appsCount: firebaseAdmin?.apps?.length || 0
+    });
+  });
+
   app.get('/api/admin/users', adminAuth, async (req, res) => {
     if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers();
@@ -324,15 +332,15 @@ async function startServer() {
 
     try {
       // Send to TOPIC instead of individual tokens
-      // This is much more efficient and "sends to all" regardless of DB state
       const response = await firebaseAdminApp.messaging().send({
         topic: 'all',
         notification: { title, body },
         webpush: {
           fcmOptions: { link: '/' },
           notification: {
-            icon: '/icons/icon-192x192.png',
-            badge: '/icons/badge-72x72.png'
+            icon: '/firebase-logo.png',
+            badge: '/firebase-logo.png',
+            data: { url: '/' }
           }
         }
       });

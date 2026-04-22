@@ -18,6 +18,7 @@ import {
   Layout,
   Edit3,
   Eye,
+  ShieldAlert,
   ChevronRight,
   ChevronLeft,
   Search,
@@ -136,6 +137,26 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [notificationTitle, setNotificationTitle] = useState('');
   const [notificationBody, setNotificationBody] = useState('');
   const [sendingNotification, setSendingNotification] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState<{ initialized: boolean, hasServiceAccount: boolean } | null>(null);
+
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      checkFirebaseStatus();
+    }
+  }, [activeTab]);
+
+  const checkFirebaseStatus = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const status = await safeFetch('/api/admin/firebase-status', {
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+      });
+      if (status) setFirebaseStatus(status);
+    } catch (e) {
+      console.error('Error checking firebase status:', e);
+    }
+  };
+
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
   const [updatingPassword, setUpdatingPassword] = useState(false);
@@ -579,6 +600,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
         if (pushRes?.error) {
           console.warn('Push error:', pushRes.error);
+          toast.error('O Push Falhou: ' + (pushRes.error.message || pushRes.error));
         } else if (pushRes?.messageId) {
           console.log('✅ Push sent to global topic:', pushRes.messageId);
         }
@@ -1208,6 +1230,20 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Enviar Notificação Push</h3>
                       <p className="text-sm text-gray-500">Envie avisos e promoções diretamente para o celular das alunas.</p>
                     </div>
+
+                    {firebaseStatus && !firebaseStatus.initialized && (
+                      <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 flex items-start gap-4">
+                        <div className="p-2 bg-red-500 rounded-lg text-white">
+                          <ShieldAlert size={20} />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-red-500">Push Não Configurado</h4>
+                          <p className="text-xs text-red-500/80 leading-relaxed font-medium">
+                            O Firebase Admin não foi inicializado. Para enviar notificações push, você precisa configurar a variável de ambiente <code className="bg-red-500/20 px-1 rounded">FIREBASE_SERVICE_ACCOUNT</code> nas configurações.
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
                       <div className="space-y-2">

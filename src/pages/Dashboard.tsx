@@ -12,7 +12,7 @@ import AdminPanel from '../components/AdminPanel';
 import CourseViewer from '../components/CourseViewer';
 import FloatingWhatsApp from '../components/FloatingWhatsApp';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
@@ -90,16 +90,59 @@ export default function Dashboard({ user }: DashboardProps) {
       });
     }
 
+    // Attempt to trigger native permission on first interaction (browser requirement)
+    const handleFirstInteraction = async () => {
+      if (typeof window === 'undefined') return;
+
+      // Handle iOS specifically: Notification is often undefined in Safari unless PWA
+      if (!('Notification' in window)) {
+        console.log('⚠️ Notifications not supported in this browser (common in iOS Safari outside PWA)');
+        // If it's iOS, we should show a small tip
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        if (isIOS) {
+          toast.info('Dica: No iPhone, adicione à tela de início para receber notificações.', {
+            duration: 6000,
+          });
+        }
+        document.removeEventListener('click', handleFirstInteraction);
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        toast.error('Notificações bloqueadas! Para receber avisos, você precisa permitir nas configurações do seu navegador (ícone de cadeado).');
+      }
+
+      if (Notification.permission === 'default') {
+        console.log('🎯 Global click detected - triggering native prompt');
+        try {
+          // Calling it directly here to ensure user-gesture association
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            await requestNotificationPermission(user.id);
+          }
+        } catch (err) {
+          console.error('Failed to request permission:', err);
+        }
+      }
+      
+      document.removeEventListener('click', handleFirstInteraction);
+    };
+
+    if (typeof window !== 'undefined' && Notification.permission === 'default') {
+      document.addEventListener('click', handleFirstInteraction);
+    }
+
     // Low-friction registration check
     const checkPushStatus = async () => {
       if (typeof window === 'undefined' || !('Notification' in window)) return;
       
+      // Always try to listen for foreground messages if supported
+      onForegroundMessage();
+
       // If already granted, ensure token is saved/refreshed in Supabase
       if (Notification.permission === 'granted') {
-        onForegroundMessage();
         await requestNotificationPermission(user.id);
-      } 
-      // If default, we don't force anymore, just wait for a natural interaction
+      }
     };
 
     // Run once on load
