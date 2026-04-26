@@ -1,13 +1,9 @@
-// @ts-ignore
 import express from 'express';
-// @ts-ignore
-import * as path from 'path';
-// @ts-ignore
-import * as fs from 'fs';
+import path from 'path';
+import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import * as adminApp from 'firebase-admin/app';
-import * as adminMessaging from 'firebase-admin/messaging';
+import * as admin from 'firebase-admin';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -28,6 +24,16 @@ const API_PREFIX = '/api/v1';
 // Test Route (Public)
 app.get('/api/test', (req, res) => {
   res.json({ ok: true, message: 'Server is reachable', env: process.env.NODE_ENV });
+});
+
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    has_supabase_url: !!process.env.VITE_SUPABASE_URL,
+    has_supabase_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    has_firebase: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+    node_env: process.env.NODE_ENV,
+    firebase_len: (process.env.FIREBASE_SERVICE_ACCOUNT || '').length
+  });
 });
 
 // Debug: Log buffer (ephemeral in serverless)
@@ -58,8 +64,8 @@ const getSupabaseAdmin = () => {
 };
 
 // Lazy Initialization for Firebase Admin
-let firebaseAdminApp: any = null;
-const getFirebaseAdmin = (): any => {
+let firebaseAdminApp: admin.app.App | null = null;
+const getFirebaseAdmin = (): admin.app.App | null => {
   if (firebaseAdminApp) return firebaseAdminApp;
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -76,11 +82,11 @@ const getFirebaseAdmin = (): any => {
     }
     
     const parsedAccount = JSON.parse(cleanVal);
-    const apps = adminApp.getApps();
+    const apps = admin.apps || [];
     
     if (apps.length === 0) {
-      firebaseAdminApp = adminApp.initializeApp({
-        credential: adminApp.cert(parsedAccount)
+      firebaseAdminApp = admin.initializeApp({
+        credential: admin.credential.cert(parsedAccount)
       });
       console.log('✅ Firebase Admin initialized');
     } else {
@@ -102,38 +108,42 @@ app.use((req, res, next) => {
   next();
 });
 
-// Admin Auth Middleware
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
     const authHeader = req.headers.authorization;
     if (!authHeader || !supabaseAdmin) {
-      return res.status(401).json({ error: 'Unauthorized: Missing credentials or server configuration' });
+      return res.status(401).json({ error: 'Auth credentials missing' });
     }
 
     const token = authHeader.split(' ')[1];
-    if (!token || token === 'undefined' || token === 'null') {
-      return res.status(401).json({ error: 'Invalid token format' });
-    }
+    if (!token) return res.status(401).json({ error: 'Token missing' });
 
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !data.user) {
-      return res.status(403).json({ error: 'Forbidden: Invalid user session' });
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !user) {
+      return res.status(403).json({ error: 'Session invalid' });
     }
     
-    const userEmail = data.user.email?.toLowerCase();
+    const email = user.email?.toLowerCase();
+    
+    // Explicit admin check
+    if (email === 'gabrielchendes@gmail.com') {
+      (req as any).user = user;
+      return next();
+    }
+
     const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
-    const adminEmail = settings?.admin_email?.toLowerCase() || 'gabrielchendes@gmail.com';
+    const adminEmail = settings?.admin_email?.toLowerCase();
     
-    if (userEmail !== adminEmail) {
-      return res.status(403).json({ error: `Access denied: ${userEmail} is not authorized.` });
+    if (email === adminEmail) {
+      (req as any).user = user;
+      return next();
     }
 
-    (req as any).user = data.user;
-    next();
+    res.status(403).json({ error: 'Unauthorized access' });
   } catch (err: any) { 
-    console.error('🚨 adminAuth error:', err);
-    res.status(500).json({ error: 'Authentication crash: ' + (err.message || 'Unknown error') }); 
+    console.error('🚨 adminAuth failure:', err);
+    res.status(500).json({ error: 'Auth core failure' }); 
   }
 };
 
@@ -181,11 +191,11 @@ app.post('/api/external/grant-access', async (req, res) => {
 });
 
 app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
-  const firebaseAdminApp = getFirebaseAdmin();
+  const fApp = getFirebaseAdmin();
   res.json({ 
-    initialized: !!firebaseAdminApp,
+    initialized: !!fApp,
     hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-    appsCount: adminApp.getApps().length
+    appsCount: (admin.apps || []).length
   });
 });
 
@@ -240,7 +250,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
 
     let pushMessageId = null;
     if ((type === 'push' || type === 'both') && firebaseAdminApp) {
-      const messaging = adminMessaging.getMessaging(firebaseAdminApp);
+      const messaging = firebaseAdminApp.messaging();
       if (!isBroadcast && targetUserIds.length > 0) {
         const tokens: string[] = [];
         for (let i = 0; i < targetUserIds.length; i += 1000) {
@@ -428,10 +438,10 @@ app.post(`${API_PREFIX}/user-password-set`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
   const { token, topic } = req.body;
-  const firebaseAdminApp = getFirebaseAdmin();
-  if (!token || !topic || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
+  const fApp = getFirebaseAdmin();
+  if (!token || !topic || !fApp) return res.status(400).json({ error: 'Missing data or Firebase not ready' });
   try {
-    const messaging = adminMessaging.getMessaging(firebaseAdminApp);
+    const messaging = fApp.messaging();
     await messaging.subscribeToTopic(token, topic);
     res.json({ success: true });
   } catch (err: any) {
@@ -460,10 +470,10 @@ app.post(`${API_PREFIX}/msg-all`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
   const { title, body } = req.body;
-  const firebaseAdminApp = getFirebaseAdmin();
-  if (!title || !body || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
+  const fApp = getFirebaseAdmin();
+  if (!title || !body || !fApp) return res.status(400).json({ error: 'Missing data or Firebase not ready' });
   try {
-    const messaging = adminMessaging.getMessaging(firebaseAdminApp);
+    const messaging = fApp.messaging();
     const resp = await messaging.send({
       topic: 'all', notification: { title, body },
       webpush: { fcmOptions: { link: '/' }, notification: { icon: '/firebase-logo.svg', badge: '/firebase-logo.svg' } }
