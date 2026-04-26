@@ -111,39 +111,51 @@ app.use((req, res, next) => {
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !supabaseAdmin) {
-      return res.status(401).json({ error: 'Auth credentials missing' });
+    if (!supabaseAdmin) {
+      console.error('❌ server.ts: Supabase Admin not initialized');
+      return res.status(500).json({ error: 'Server data connection failure' });
     }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No authorization header' });
 
     const token = authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token missing' });
+    if (!token) return res.status(401).json({ error: 'Token format invalid' });
 
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
-    if (error || !user) {
-      return res.status(403).json({ error: 'Session invalid' });
-    }
+    // Try to get user. If this fails, the token is likely expired or invalid.
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
+    if (authError || !user) {
+      console.warn('⚠️ adminAuth: User session invalid', authError?.message);
+      return res.status(403).json({ error: 'Invalid or expired session' });
+    }
+
     const email = user.email?.toLowerCase();
     
-    // Explicit admin check
+    // Hardcoded safety fallback
     if (email === 'gabrielchendes@gmail.com') {
       (req as any).user = user;
       return next();
     }
 
+    // Dynamic admin check
     const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
     const adminEmail = settings?.admin_email?.toLowerCase();
     
-    if (email === adminEmail) {
+    if (email && email === adminEmail) {
       (req as any).user = user;
       return next();
     }
 
-    res.status(403).json({ error: 'Unauthorized access' });
+    console.warn(`🛑 adminAuth: Unauthorized access attempt by ${email}`);
+    res.status(403).json({ error: 'You do not have administrative privileges' });
   } catch (err: any) { 
-    console.error('🚨 adminAuth failure:', err);
-    res.status(500).json({ error: 'Auth core failure' }); 
+    console.error('🔥 adminAuth CRASH:', err);
+    res.status(500).json({ 
+      error: 'Internal Authorization Error', 
+      details: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    }); 
   }
 };
 
