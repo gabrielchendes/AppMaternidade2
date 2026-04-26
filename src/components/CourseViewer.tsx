@@ -143,7 +143,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
       if (targetState) {
         toast.success(t('course.lesson_completed') || 'Aula concluída!');
       } else {
-        toast.info('Aula marcada como não concluída');
+        toast.info(t('course.lesson_unmarked') || 'Aula marcada como não concluída');
       }
     } catch (err) {
       console.error('Error toggling progress:', err);
@@ -254,7 +254,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
             <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">
               {t('auth.support_box')}
             </h3>
-            <p className="text-gray-500 text-sm font-medium">Nossa equipe está pronta para te ajudar.</p>
+            <p className="text-gray-500 text-sm font-medium">{t('course.support_description') || 'Nossa equipe está pronta para te ajudar.'}</p>
           </div>
           <div className="flex flex-wrap justify-center gap-3">
             {whatsappEnabled && settings.support_whatsapp && (
@@ -283,14 +283,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
 
   if (loading) return (
     <div className="fixed inset-0 bg-bg-main flex flex-col items-center justify-center z-[200]">
-      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
-      <p className="text-gray-500 text-xs font-black uppercase tracking-widest animate-pulse">Carregando Conteúdo...</p>
-      <button 
-        onClick={onClose}
-        className="mt-8 px-6 py-2 bg-white/5 hover:bg-white/10 text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/10 transition-all"
-      >
-        Cancelar
-      </button>
+      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
     </div>
   );
 
@@ -346,12 +339,12 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                   <p className="text-gray-400 text-lg max-w-2xl font-medium">{course?.description}</p>
                   <div className="flex items-center gap-8 pt-6">
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Seu Progresso</span>
+                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{t('course.your_progress') || 'Seu Progresso'}</span>
                       <span className="text-3xl font-black text-primary italic leading-none">{calculateProgress()}%</span>
                     </div>
                     <div className="w-px h-10 bg-white/10" />
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Aulas</span>
+                      <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{t('course.lessons') || 'Aulas'}</span>
                       <span className="text-3xl font-black text-white italic leading-none">{chapters.length}</span>
                     </div>
                   </div>
@@ -363,7 +356,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                   <div key={module.id} className="space-y-6">
                     <div className="flex items-center gap-4">
                       <div className="h-px flex-1 bg-white/10" />
-                      <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.4em] px-4 italic">{module.title}</h3>
+                      <h3 className="text-[11px] font-black text-primary uppercase tracking-[0.4em] px-4 italic">
+                        {module.title === 'Conteúdo' ? (t('course.content') || 'Conteúdo') : module.title}
+                      </h3>
                       <div className="h-px flex-1 bg-white/10" />
                     </div>
                     
@@ -472,7 +467,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     </div>
                   ) : (
                     <div className="h-full flex items-center justify-center">
-                      <p className="text-gray-500 italic">Aula sem conteúdo de mídia</p>
+                      <p className="text-gray-500 italic">{t('course.no_media') || 'Aula sem conteúdo de mídia'}</p>
                     </div>
                   )}
                 </motion.div>
@@ -495,9 +490,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     `}
                   >
                     {progress.find(p => p.chapter_id === activeChapter?.id)?.completed ? (
-                      <><CheckCircle2 size={20} /> AULA CONCLUÍDA</>
+                      <><CheckCircle2 size={20} /> {t('course.lesson_completed_btn') || 'AULA CONCLUÍDA'}</>
                     ) : (
-                      'CONCLUIR AULA'
+                      t('course.complete_lesson_btn') || 'CONCLUIR AULA'
                     )}
                   </motion.button>
                 </div>
@@ -513,10 +508,10 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     className="flex flex-col items-start gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-left"
                   >
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-primary transition-colors flex items-center gap-1">
-                      <ChevronLeft size={12} /> Aula Anterior
+                      <ChevronLeft size={12} /> {t('course.prev_lesson') || 'Aula Anterior'}
                     </span>
                     <span className="text-sm font-bold text-white line-clamp-1">
-                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) - 1]?.title || 'Início'}
+                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) - 1]?.title || t('nav.home') || 'Início'}
                     </span>
                   </button>
 
@@ -529,10 +524,10 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     className="flex flex-col items-end gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-right"
                   >
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-primary transition-colors flex items-center gap-1">
-                      Próxima Aula <ChevronRight size={12} />
+                      {t('course.next_lesson') || 'Próxima Aula'} <ChevronRight size={12} />
                     </span>
                     <span className="text-sm font-bold text-white line-clamp-1">
-                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) + 1]?.title || 'Fim'}
+                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) + 1]?.title || t('course.end_label') || 'Fim'}
                     </span>
                   </button>
                 </div>
@@ -543,7 +538,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 {/* Lesson List (Sitemap feel) */}
                 {chapters.length > 1 && (
                   <div className="pt-16 border-t border-white/5">
-                    <h3 className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-8 text-center italic">Cronograma do Curso</h3>
+                    <h3 className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-8 text-center italic">{t('course.schedule_title') || 'Cronograma do Curso'}</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {sortedChapters.map((chapter, idx) => {
                         const isActive = activeChapter?.id === chapter.id;

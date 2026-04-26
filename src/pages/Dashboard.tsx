@@ -11,8 +11,10 @@ import Community from '../components/Community';
 import AdminPanel from '../components/AdminPanel';
 import CourseViewer from '../components/CourseViewer';
 import FloatingWhatsApp from '../components/FloatingWhatsApp';
+import PWAInstallModal from '../components/PWAInstallModal';
+import { getDeviceType, isPWAInstalled } from '../lib/pwa';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book, Bell } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
@@ -34,7 +36,7 @@ const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community'
             {settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
           </h3>
           <p className="text-gray-500 font-medium max-w-md">
-            {settings.custom_texts?.['auth.support_description'] || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
+            {settings.custom_texts?.['auth.support_description'] || t('auth.support_description') || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-4">
@@ -78,6 +80,34 @@ export default function Dashboard({ user }: DashboardProps) {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>('home');
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [showPWAInstall, setShowPWAInstall] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [canInstall, setCanInstall] = useState(!isPWAInstalled());
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstall(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
+    // Check if actually installed
+    const checkInstallation = () => {
+      if (isPWAInstalled()) {
+        setCanInstall(false);
+      }
+    };
+    
+    const interval = setInterval(checkInstallation, 2000);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -90,47 +120,28 @@ export default function Dashboard({ user }: DashboardProps) {
       });
     }
 
-    // Attempt to trigger native permission on first interaction (browser requirement)
-    const handleFirstInteraction = async () => {
+    // Check if we should show the welcome notification modal
+    const checkInitialNotifications = async () => {
       if (typeof window === 'undefined') return;
-
-      // Handle iOS specifically: Notification is often undefined in Safari unless PWA
-      if (!('Notification' in window)) {
-        console.log('⚠️ Notifications not supported in this browser (common in iOS Safari outside PWA)');
-        // If it's iOS, we should show a small tip
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        if (isIOS) {
-          toast.info('Dica: No iPhone, adicione à tela de início para receber notificações.', {
-            duration: 6000,
-          });
-        }
-        document.removeEventListener('click', handleFirstInteraction);
+      
+      // If permission is already granted, refresh token
+      if ('Notification' in window && Notification.permission === 'granted') {
+        onForegroundMessage();
+        await requestNotificationPermission(user.id);
         return;
       }
 
-      if (Notification.permission === 'denied') {
-        toast.error('Notificações bloqueadas! Para receber avisos, você precisa permitir nas configurações do seu navegador (ícone de cadeado).');
-      }
-
-      if (Notification.permission === 'default') {
-        console.log('🎯 Global click detected - triggering native prompt');
-        try {
-          // Calling it directly here to ensure user-gesture association
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            await requestNotificationPermission(user.id);
-          }
-        } catch (err) {
-          console.error('Failed to request permission:', err);
+      // If default, show the modal right after login if not dismissed before
+      if ('Notification' in window && Notification.permission === 'default') {
+        const dismissed = localStorage.getItem(`push_modal_dismissed_${user.id}`);
+        if (!dismissed) {
+          // Delay slightly to ensure smooth entrance
+          setTimeout(() => setShowWelcomeModal(true), 1500);
         }
       }
-      
-      document.removeEventListener('click', handleFirstInteraction);
     };
 
-    if (typeof window !== 'undefined' && Notification.permission === 'default') {
-      document.addEventListener('click', handleFirstInteraction);
-    }
+    checkInitialNotifications();
 
     // Low-friction registration check
     const checkPushStatus = async () => {
@@ -149,7 +160,7 @@ export default function Dashboard({ user }: DashboardProps) {
     checkPushStatus();
     
     // Optional: Re-check if user changes permission in browser settings
-    const interval = setInterval(checkPushStatus, 10000);
+    const interval = setInterval(checkPushStatus, 60000); // Check once per minute
     return () => clearInterval(interval);
   }, [user.id]);
 
@@ -270,7 +281,7 @@ export default function Dashboard({ user }: DashboardProps) {
   if (loading) {
     return (
       <div className="min-h-screen bg-bg-main flex items-center justify-center">
-        <Loader2 className="animate-spin text-primary" size={32} />
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
@@ -287,15 +298,94 @@ export default function Dashboard({ user }: DashboardProps) {
         )}
       </AnimatePresence>
 
+      {/* Welcome Notification Modal */}
+      <AnimatePresence>
+        {showWelcomeModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-xl">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              className="relative w-full max-w-sm bg-zinc-900 border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-primary shadow-[0_0_20px_rgba(var(--primary-rgb),0.5)]" />
+              <div className="p-10 text-center">
+                <div className="w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-primary/20 rotate-3">
+                  <Bell className="text-primary animate-pulse" size={36} />
+                </div>
+                <h3 className="text-2xl font-black text-white uppercase tracking-tighter italic mb-4">
+                  {t('push.title') || 'Avisos Importantes!'}
+                </h3>
+                <p className="text-gray-400 text-sm mb-10 leading-relaxed font-medium">
+                  {t('push.description') || 'Deseja receber avisos de novas aulas, materiais e comunicados importantes diretamente no seu celular?'}
+                </p>
+                <div className="flex flex-col gap-4">
+                  <button 
+                    onClick={async () => {
+                      const granted = await requestNotificationPermission(user.id);
+                      localStorage.setItem(`push_modal_dismissed_${user.id}`, 'true');
+                      setShowWelcomeModal(false);
+                      if (granted) {
+                        toast.success(t('push.success') || 'Notificações ativadas com sucesso!');
+                      }
+                    }}
+                    className="w-full bg-primary hover:bg-primary-hover text-white font-black py-5 rounded-2xl shadow-2xl shadow-primary/30 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase italic"
+                  >
+                    {t('push.allow') || 'Ativar Notificações'}
+                  </button>
+                  <button 
+                    onClick={() => {
+                      localStorage.setItem(`push_modal_dismissed_${user.id}`, 'true');
+                      setShowWelcomeModal(false);
+                    }}
+                    className="w-full py-3 text-[10px] text-gray-600 font-bold uppercase tracking-[0.3em] hover:text-white transition-colors"
+                  >
+                    {t('push.deny') || 'Agora não'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <Navbar user={user} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === 'home' ? (
         <>
+          {/* PWA Install Button for Mobile */}
+          {(getDeviceType() !== 'desktop') && canInstall && (
+            <div className="px-6 pt-24 -mb-16 relative z-[20]">
+              <button 
+                onClick={() => setShowPWAInstall(true)}
+                className="w-full flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl group active:scale-[0.98] transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <Smartphone size={20} />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-[10px] font-black text-primary uppercase tracking-widest italic leading-none mb-1">
+                      {settings.custom_texts?.['pwa.install_teaser'] || 'Experiência Premium'}
+                    </div>
+                    <div className="text-xs font-bold text-white uppercase tracking-tight">
+                      {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || 'INSTALAR APLICATIVO'}
+                    </div>
+                  </div>
+                </div>
+                <div className="w-8 h-8 rounded-full border border-primary/20 flex items-center justify-center text-primary">
+                  <Play size={12} className="ml-0.5" />
+                </div>
+              </button>
+            </div>
+          )}
+
           {/* Banner Section */}
           <div className="w-full pb-12">
             <BannerCarousel 
               images={settings.banner_images || []} 
               interval={settings.banner_interval || 5000} 
+              config={settings.banner_config || []}
             />
           </div>
 
@@ -450,6 +540,23 @@ export default function Dashboard({ user }: DashboardProps) {
 
       {!viewingCourseId && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />}
       <FloatingWhatsApp page={activeTab as any} />
+      
+      <PWAInstallModal 
+        isOpen={showPWAInstall} 
+        onClose={() => setShowPWAInstall(false)}
+        onInstall={async () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+              setDeferredPrompt(null);
+              setCanInstall(false);
+              return true;
+            }
+          }
+          return false;
+        }}
+      />
     </div>
   );
 }

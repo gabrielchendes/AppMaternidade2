@@ -39,6 +39,7 @@ export interface AppSettings {
   custom_texts: { [key: string]: string };
   banner_images: string[];
   banner_interval: number;
+  banner_config: Array<{ scale: number, x: number, y: number }>;
 }
 
 const defaultSettings: AppSettings = {
@@ -89,12 +90,17 @@ const defaultSettings: AppSettings = {
     'admin.security.error_length': 'A senha deve ter pelo menos 4 caracteres',
     'admin.security.error_mismatch': 'As senhas não coincidem',
     'admin.security.success': 'Senha do administrador atualizada com sucesso!',
+    'auth.user_not_found': 'Usuário não encontrado.',
   },
   banner_images: [
     'https://picsum.photos/seed/maternity-banner-1/1200/600',
     'https://picsum.photos/seed/maternity-banner-2/1200/600'
   ],
-  banner_interval: 5000
+  banner_interval: 5000,
+  banner_config: [
+    { scale: 100, x: 50, y: 50 },
+    { scale: 100, x: 50, y: 50 }
+  ]
 };
 
 interface SettingsContextType {

@@ -1,21 +1,35 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, Notification } from '../lib/supabase';
 import { Bell, X, Check, Loader2, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { ptBR, enUS, es } from 'date-fns/locale';
+import { useI18n } from '../contexts/I18nContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface NotificationBellProps {
   user: User;
 }
 
 export default function NotificationBell({ user }: NotificationBellProps) {
+  const { t } = useI18n();
+  const { settings } = useSettings();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Get date locale based on settings
+  const dateLocale = useMemo(() => {
+    const lang = settings.custom_texts?.['app.language'] || 'pt';
+    switch (lang) {
+      case 'en': return enUS;
+      case 'es': return es;
+      default: return ptBR;
+    }
+  }, [settings.custom_texts]);
 
   useEffect(() => {
     fetchNotifications();
@@ -53,14 +67,28 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { data, error } = await supabase
         .from('notifications')
-        .select('*')
+        .select(`
+          *,
+          broadcast:notification_broadcasts!broadcast_id (
+            type
+          )
+        `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(20);
 
       if (error) throw error;
-      setNotifications(data || []);
-      setUnreadCount(data?.filter(n => !n.is_read).length || 0);
+      
+      // Filter out notifications that are only for tracking push purposes
+      const filteredData = (data as any[] || []).filter(n => {
+        // If there's no associated broadcast (older ones or manual), show them
+        if (!n.broadcast) return true;
+        // Only show in the bell if it's 'in_app' or 'both'
+        return n.broadcast.type === 'in_app' || n.broadcast.type === 'both';
+      });
+
+      setNotifications(filteredData);
+      setUnreadCount(filteredData.filter(n => !n.is_read).length || 0);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -72,7 +100,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ is_read: true })
+        .update({ is_read: true, read_at: new Date().toISOString() })
         .eq('id', id);
       if (error) throw error;
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
@@ -86,7 +114,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { error } = await supabase
         .from('notifications')
-        .update({ is_read: true })
+        .update({ is_read: true, read_at: new Date().toISOString() })
         .eq('user_id', user.id)
         .eq('is_read', false);
       if (error) throw error;
@@ -132,7 +160,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
               <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
                 <div className="flex items-center gap-3">
                   <Bell size={24} className="text-primary" />
-                  <h3 className="font-black text-lg uppercase tracking-tighter">Notificações</h3>
+                  <h3 className="font-black text-lg uppercase tracking-tighter">{t('notifications.title') || 'Notificações'}</h3>
                 </div>
                 <div className="flex items-center gap-4">
                   {unreadCount > 0 && (
@@ -140,11 +168,14 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                       onClick={markAllAsRead}
                       className="text-[10px] text-primary hover:underline font-black uppercase tracking-widest"
                     >
-                      Limpar tudo
+                      {t('notifications.clear_all') || 'Limpar tudo'}
                     </button>
                   )}
-                  <button onClick={() => setIsOpen(false)} className="md:hidden text-gray-500 hover:text-white">
-                    <X size={24} />
+                  <button 
+                    onClick={() => setIsOpen(false)} 
+                    className="text-gray-500 hover:text-white transition-colors"
+                  >
+                    <X size={20} />
                   </button>
                 </div>
               </div>
@@ -159,8 +190,8 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4">
                       <Bell size={40} className="opacity-20" />
                     </div>
-                    <p className="text-base font-medium">Você está em dia!</p>
-                    <p className="text-sm opacity-60">Nenhuma notificação por aqui.</p>
+                    <p className="text-base font-medium">{t('notifications.empty') || 'Você está em dia!'}</p>
+                    <p className="text-sm opacity-60">{t('notifications.empty_desc') || 'Nenhuma notificação por aqui.'}</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-white/5">
@@ -179,10 +210,13 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                           {!notification.is_read && (
                             <button 
                               onClick={() => markAsRead(notification.id)}
-                              className="p-2 bg-primary/20 text-primary rounded-full hover:bg-primary hover:text-white transition-all"
-                              title="Lida"
+                              className="group/btn flex items-center gap-2 pl-3 pr-4 py-2 bg-primary/10 text-primary rounded-full hover:bg-primary hover:text-white transition-all overflow-hidden"
+                              title={t('notifications.mark_as_read') || 'Marcar como lida'}
                             >
-                              <Check size={16} />
+                              <span className="text-[10px] font-black uppercase tracking-widest whitespace-nowrap">
+                                {t('notifications.mark_as_read') || 'marcar como lida'}
+                              </span>
+                              <Check size={14} className="shrink-0" />
                             </button>
                           )}
                         </div>
@@ -191,7 +225,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                         </p>
                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">
                           <Info size={12} />
-                          {format(new Date(notification.created_at), "d 'de' MMM 'às' HH:mm", { locale: ptBR })}
+                          {format(new Date(notification.created_at), 'PPp', { locale: dateLocale })}
                         </div>
                       </div>
                     ))}
@@ -204,7 +238,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
                   onClick={() => setIsOpen(false)}
                   className="w-full py-3 text-xs text-gray-400 hover:text-white font-black uppercase tracking-[0.2em] transition-all"
                 >
-                  Fechar Painel
+                  {t('notifications.close') || 'Fechar Painel'}
                 </button>
               </div>
             </motion.div>

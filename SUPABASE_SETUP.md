@@ -188,13 +188,26 @@ CREATE TABLE IF NOT EXISTS public.post_comments (
 -- 9. Tabela `notifications`
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    broadcast_id UUID, -- Referência para a tabela de logs (notification_broadcasts)
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     message TEXT, -- Alias para body para retrocompatibilidade
     is_read BOOLEAN DEFAULT false,
     read BOOLEAN DEFAULT false, -- Alias para is_read para retrocompatibilidade
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tabela de Histórico de Envios (Broadcasts)
+CREATE TABLE IF NOT EXISTS public.notification_broadcasts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    type TEXT NOT NULL, -- 'in_app', 'push', 'both'
+    sent_at TIMESTAMPTZ DEFAULT NOW(),
+    target_count INTEGER DEFAULT 0,
+    exclusion_course_id UUID, -- Caso tenha sido usado filtro
+    created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
 -- 10. Tabela `push_tokens`
@@ -233,6 +246,9 @@ CREATE TABLE IF NOT EXISTS public.package_courses (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (package_id, course_id)
 );
+
+-- NOVAS ATUALIZAÇÕES (Execute no SQL Editor para habilitar novas funcionalidades)
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config JSONB DEFAULT '[]'::jsonb;
 
 -- ==========================================
 -- POLÍTICAS DE SEGURANÇA (RLS)
@@ -388,6 +404,10 @@ ON CONFLICT (subdomain) DO NOTHING;
 INSERT INTO public.app_settings (id, admin_email, app_name)
 VALUES (1, 'gabrielchendes@gmail.com', 'Maternidade Premium')
 ON CONFLICT (id) DO NOTHING;
+
+-- ATUALIZAÇÕES (Execute se já possuir as tabelas)
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS broadcast_id UUID;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 
 -- 12. Configuração de Buckets de Storage
 -- Nota: Execute estes comandos se o seu projeto permitir criação de buckets via SQL, 

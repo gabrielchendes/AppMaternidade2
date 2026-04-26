@@ -90,7 +90,7 @@ export async function requestNotificationPermission(userId: string) {
         
         // 1. Subscribe to the 'all' topic via backend
         try {
-          await fetch('/api/admin/subscribe-topic', {
+          await fetch('/api/v1/sub-topic', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token, topic: 'all' })
@@ -101,10 +101,20 @@ export async function requestNotificationPermission(userId: string) {
         }
 
         // 2. Fallback: Save to Supabase (only as a backup)
-        await supabase.from('push_tokens').upsert({
-          user_id: userId,
-          token: token
-        }, { onConflict: 'user_id, token' });
+        try {
+          // Use insert and ignore 409 Conflict error
+          await supabase.from('push_tokens').insert({
+            user_id: userId,
+            token: token
+          });
+          console.log('✅ Token saved to Supabase');
+        } catch (dbErr: any) {
+          if (dbErr.code === '23505' || dbErr.status === 409) {
+            console.log('ℹ️ Token already registered');
+          } else {
+            console.error('❌ Failed to save token to Supabase:', dbErr);
+          }
+        }
 
         return true;
       } else {

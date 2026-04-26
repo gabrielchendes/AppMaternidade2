@@ -28,8 +28,16 @@ export async function safeFetch(url: string, options: RequestInit = {}) {
 
     console.log('📡 Resposta da API:', url, text);
 
+    if (!response.ok) {
+      try {
+        const errorJson = JSON.parse(text);
+        return { error: errorJson.error || `Erro ${response.status}: ${text.substring(0, 50)}`, status: response.status };
+      } catch (e) {
+        return { error: `Erro ${response.status} na API`, status: response.status };
+      }
+    }
+
     if (!text || text === "undefined") {
-      console.error('🚨 API retornou valor inválido:', url);
       return null;
     }
 
@@ -37,10 +45,10 @@ export async function safeFetch(url: string, options: RequestInit = {}) {
       return JSON.parse(text);
     } catch (err) {
       console.error('🚨 Erro ao parsear JSON:', text);
-      return null;
+      return { error: 'Resposta do servidor não é um JSON válido' };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('🚨 Erro na requisição fetch:', url, err);
-    return null;
+    return { error: 'Erro de conexão com o servidor: ' + err.message };
   }
 }

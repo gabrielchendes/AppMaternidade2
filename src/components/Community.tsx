@@ -4,8 +4,8 @@ import { supabase, CommunityPost, PostComment } from '../lib/supabase';
 import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight, Edit3, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { format, formatDistanceToNow, subDays, isAfter, formatRelative } from 'date-fns';
+import { ptBR, enUS, es } from 'date-fns/locale';
 import imageCompression from 'browser-image-compression';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
@@ -48,6 +48,29 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);
+
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      const localeCode = t('community.locale') || 'ptBR';
+      const locales: Record<string, any> = { ptBR, enUS, es };
+      const locale = locales[localeCode] || ptBR;
+
+      // Facebook-like behavior: relative or absolute based on distance
+      // If within 1 week, use formatRelative which gives "Today at...", "Yesterday at...", "Last Friday at..."
+      if (isAfter(date, subDays(new Date(), 6))) {
+        const relative = formatRelative(date, new Date(), { locale });
+        // Capitalize first letter
+        return relative.charAt(0).toUpperCase() + relative.slice(1);
+      }
+
+      // Older than a week, use the custom format
+      const formatStr = t('community.date_format');
+      return format(date, formatStr, { locale });
+    } catch (e) {
+      return dateString;
+    }
+  };
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,7 +78,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     fetchUserLikes();
 
     const channel = supabase
-      .channel('community_posts')
+      .channel('community_changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'community_posts' },
@@ -64,15 +87,19 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'post_likes' },
-        () => fetchPosts()
+        () => {
+          fetchPosts(); // Update counts
+          fetchUserLikes(); // Update user's liked status (handles multi-device sync)
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'post_comments' },
-        (payload) => {
-          if (payload.new) {
-            const comment = payload.new as PostComment;
-            fetchComments(comment.post_id);
+        (payload: any) => {
+          const postId = payload.new?.post_id || payload.old?.post_id;
+          if (postId) {
+            fetchComments(postId);
+            fetchPosts(); // Update comments_count
           }
         }
       )
@@ -165,10 +192,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       if (error) throw error;
 
       setPosts(prev => prev.filter(p => p.id !== postId));
-      toast.success('Publicação excluída');
+      toast.success(t('community.delete_success'));
     } catch (error) {
       console.error('Error deleting post:', error);
-      toast.error('Erro ao excluir publicação');
+      toast.error(t('community.delete_error') || 'Erro ao excluir publicação');
     } finally {
       setPostToDelete(null);
     }
@@ -231,10 +258,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         [postId]: prev[postId].filter(c => c.id !== commentId)
       }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: Math.max(0, p.comments_count - 1) } : p));
-      toast.success('Comentário excluído');
+      toast.success(t('community.comment_delete_success'));
     } catch (error) {
       console.error('Error deleting comment:', error);
-      toast.error('Erro ao excluir comentário');
+      toast.error(t('community.comment_delete_error') || 'Erro ao excluir comentário');
     } finally {
       setCommentToDelete(null);
     }
@@ -308,7 +335,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       setImagePreview(null);
       setReplyingTo(null);
       // Don't reset manual name/avatar if in admin mode to allow multiple posts as same person
-      toast.success('Post enviado!');
+      toast.success(t('community.post_sent'));
     } catch (error: any) {
       console.error('Error creating post:', error);
       toast.error(error.message || 'Erro ao enviar post');
@@ -328,9 +355,9 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       if (error) throw error;
       setPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, content: editContent } : p));
       setEditingPost(null);
-      toast.success('Post atualizado');
+      toast.success(t('community.post_updated'));
     } catch (error) {
-      toast.error('Erro ao atualizar post');
+      toast.error(t('community.update_error') || 'Erro ao atualizar post');
     }
   };
 
@@ -354,8 +381,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         console.log('🔎 Query Supabase: post_likes (insert)');
         await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
       }
-      // Refresh to ensure counts are correct
-      fetchPosts();
+      // Realtime listener will sync counts globally
     } catch (error) {
       console.error('Error toggling like:', error);
       // Revert on error
@@ -393,17 +419,25 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
     try {
       console.log('🔎 Query Supabase: post_comments (insert)');
-      const { error } = await supabase.from('post_comments').insert({
+      const { data, error } = await supabase.from('post_comments').insert({
         post_id: postId,
         user_id: user.id,
         user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
         user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
         content: content,
-      });
+      }).select().single();
 
       if (error) throw error;
-      fetchComments(postId);
-      fetchPosts();
+      
+      // Update the optimistic comment with the real ID from DB to allow immediate deletion
+      if (data) {
+        setComments(prev => ({
+          ...prev,
+          [postId]: (prev[postId] || []).map(c => c.id === tempComment.id ? data : c)
+        }));
+      }
+      
+      // Realtime listener will sync counts globally
     } catch (error) {
       console.error('Error adding comment:', error);
       toast.error('Erro ao comentar');
@@ -613,7 +647,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 text-sm font-medium transition-all"
             >
               <ImageIcon size={18} className="text-green-500" />
-              Adicionar foto
+              {t('community.add_photo') || 'Adicionar foto'}
             </button>
             <input 
               type="file" 
@@ -664,7 +698,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   <div>
                     <h4 className="font-bold text-sm">{post.user_name}</h4>
                     <p className="text-[10px] text-gray-500">
-                      {format(new Date(post.created_at), "d 'de' MMMM 'às' HH:mm", { locale: ptBR })}
+                      {formatDate(post.created_at)}
                     </p>
                   </div>
                 </div>
@@ -777,7 +811,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                                 <div className="flex items-center justify-between gap-4 mb-0.5">
                                   <h5 className={`font-bold text-[11px] ${isImportMode ? 'text-blue-500' : 'text-primary'}`}>{comment.user_name}</h5>
                                   <span className="text-[9px] text-gray-500">
-                                    {format(new Date(comment.created_at), "HH:mm", { locale: ptBR })}
+                                    {formatDate(comment.created_at)}
                                   </span>
                                 </div>
                                 <p className="text-xs text-gray-300">{comment.content}</p>
@@ -819,7 +853,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                               value={newComment[post.id] || ''}
                               onChange={(e) => setNewComment(prev => ({ ...prev, [post.id]: e.target.value }))}
                               onKeyDown={(e) => e.key === 'Enter' && handleAddComment(post.id)}
-                              placeholder={(adminMode && personaActive) ? `Comentar como ${manualAuthorName}` : (adminMode ? "Configure uma persona acima..." : "Escreva um comentário...")}
+                              placeholder={(adminMode && personaActive) ? `Comentar como ${manualAuthorName}` : (adminMode ? "Configure uma persona acima..." : (t('community.comment_placeholder') || "Escreva um comentário..."))}
                               disabled={adminMode && !personaActive}
                               className={`w-full bg-zinc-800 border border-white/10 rounded-full px-4 py-2 pr-10 text-xs focus:outline-none focus:border-${isImportMode ? 'blue-500' : 'primary'} disabled:opacity-50`}
                               style={{ fontSize: '16px' }}
@@ -895,23 +929,23 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                 <Trash2 size={24} />
               </div>
               <h3 className="text-xl font-bold text-center mb-2">
-                {postToDelete ? 'Excluir Publicação?' : 'Excluir Comentário?'}
+                {postToDelete ? t('community.delete_post_confirm') || 'Excluir Publicação?' : t('community.delete_comment_confirm') || 'Excluir Comentário?'}
               </h3>
               <p className="text-gray-400 text-center text-sm mb-6">
-                Esta ação não pode ser desfeita. {postToDelete ? 'A publicação e sua imagem serão removidas permanentemente.' : 'O comentário será removido permanentemente.'}
+                {postToDelete ? (t('community.delete_post_desc') || 'Esta ação não pode ser desfeita. A publicação e sua imagem serão removidas permanentemente.') : (t('community.delete_comment_desc') || 'O comentário será removido permanentemente.')}
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => { setPostToDelete(null); setCommentToDelete(null); }}
                   className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold transition-all"
                 >
-                  Cancelar
+                  {t('global.cancel') || 'Cancelar'}
                 </button>
                 <button
                   onClick={postToDelete ? handleDeletePost : handleDeleteComment}
                   className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-all"
                 >
-                  Excluir
+                  {t('global.delete') || 'Excluir'}
                 </button>
               </div>
             </motion.div>
@@ -930,7 +964,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"
             >
               <div className="p-6 border-b border-white/10 flex justify-between items-center">
-                <h3 className="font-bold text-white">Editar Publicação</h3>
+                <h3 className="font-bold text-white">{t('community.edit_post') || 'Editar Publicação'}</h3>
                 <button onClick={() => setEditingPost(null)} className="text-gray-500 hover:text-white"><X size={20} /></button>
               </div>
               <div className="p-6 space-y-4">
@@ -938,13 +972,13 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
                   className={`w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-${isImportMode ? 'blue-500' : 'primary'} outline-none min-h-[150px] text-sm`}
-                  placeholder="Conteúdo do post..."
+                  placeholder={t('community.edit_placeholder') || "Conteúdo do post..."}
                 />
                 <button 
                   onClick={handleUpdatePost}
                   className={`w-full ${isImportMode ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-primary hover:bg-primary-hover shadow-primary/20'} text-white font-bold py-4 rounded-xl transition-all shadow-lg`}
                 >
-                  Salvar Alterações
+                  {t('profile.save_changes') || 'Salvar Alterações'}
                 </button>
               </div>
             </motion.div>

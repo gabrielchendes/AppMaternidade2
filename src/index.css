@@ -2,8 +2,8 @@
 @import "tailwindcss";
 
 :root {
-  --primary: #ec4899;
-  --primary-hover: #be185d;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
   --bg-main: #0f0f0f;
 }
 
@@ -22,6 +22,14 @@
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+  .scrollbar-hide-forced::-webkit-scrollbar {
+    display: none !important;
+  }
+  .scrollbar-hide-forced {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+    overflow: -moz-scrollbars-none;
   }
 }
 
@@ -47,4 +55,11 @@ body {
 .content-visibility-auto {
   content-visibility: auto;
   contain-intrinsic-size: 0 500px;
+}
+
+/* Prevent auto-zoom on mobile inputs */
+@layer base {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }

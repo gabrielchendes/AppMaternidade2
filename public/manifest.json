@@ -1,0 +1,21 @@
+{
+  "name": "Maternidade Premium",
+  "short_name": "Maternidade",
+  "description": "Plataforma exclusiva para mamães premium",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
+  "icons": [
+    {
+      "src": "/firebase-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/firebase-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

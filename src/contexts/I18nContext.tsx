@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useSettings } from './SettingsContext';
+import { languagePresets } from '../constants/languagePresets';
 
 interface I18nContextType {
   t: (key: string, variables?: { [key: string]: any }) => string;
@@ -11,19 +12,26 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
 
   const t = (key: string, variables?: { [key: string]: any }) => {
-    let text = settings.custom_texts?.[key] || key;
+    // 1. Prioridade máxima: Texto customizado pelo administrador no banco
+    let text = settings.custom_texts?.[key];
     
-    // Fallback if key not in custom_texts
-    if (text === key) {
+    // 2. Segunda prioridade: Preset do idioma selecionado (en, es, pt)
+    if (!text) {
+      const currentLang = (settings.custom_texts?.['app.language'] as any) || 'pt';
+      text = languagePresets[currentLang as keyof typeof languagePresets]?.[key];
+    }
+    
+    // 3. Fallback final: Função de fallback legada ou a própria chave
+    if (!text) {
       text = getFallbackTranslations(key);
     }
 
     if (variables) {
       Object.keys(variables).forEach((v) => {
-        text = text.replace(`{${v}}`, variables[v]);
+        text = text!.replace(`{${v}}`, variables[v]);
       });
     }
-    return text;
+    return text || key;
   };
 
   return (
@@ -50,9 +58,10 @@ function getFallbackTranslations(key: string): string {
     'auth.login_with_password': 'Entrar com Email e Senha',
     'auth.restricted_access': 'Acesso Restrito',
     'auth.restricted_access_msg': 'Acesso restrito a alunas cadastradas.',
+    'auth.logout_success': 'Até logo!',
     'auth.master_password': 'Senha Mestre',
-    'auth.welcome_back': 'Bem-vinda de volta!',
-    'auth.subtitle': 'Acesse sua área exclusiva para mamães',
+    'auth.welcome_back': 'Bem-vindo de volta!',
+    'auth.subtitle': 'Acesse sua área exclusiva',
     'auth.support_box': 'Ainda está com dúvidas?',
     'auth.whatsapp_label': 'Chamar no WhatsApp',
     'auth.email_label': 'Enviar um E-mail',
@@ -62,6 +71,10 @@ function getFallbackTranslations(key: string): string {
     'admin.settings': 'Configurações',
     'course.next_module': 'Próximo módulo liberado',
     'course.progress': 'Progresso',
+    'course.your_progress': 'Seu Progresso',
+    'course.lessons': 'Aulas',
+    'course.content': 'Conteúdo',
+    'course.no_media': 'Aula sem conteúdo de mídia',
     'course.lesson_completed': 'Aula concluída!',
     'course.prev_lesson': 'Aula Anterior',
     'course.next_lesson': 'Próxima Aula',
@@ -94,11 +107,23 @@ function getFallbackTranslations(key: string): string {
     'community.like': 'Curtir',
     'community.reply': 'Responder',
     'community.delete_post': 'Excluir Postagem',
+    'community.delete_success': 'Publicação excluída com sucesso!',
+    'community.delete_error': 'Erro ao excluir publicação',
+    'community.comment_delete_success': 'Comentário excluído com sucesso!',
+    'community.comment_delete_error': 'Erro ao excluir comentário',
+    'community.date_format': 'd MMM, HH:mm',
+    'community.locale': 'ptBR',
     'global.save': 'Salvar',
     'global.cancel': 'Cancelar',
     'global.delete': 'Excluir',
     'global.back': 'Voltar',
     'global.logout': 'Sair',
+    'notifications.title': 'Notificações',
+    'notifications.clear_all': 'LIMPAR TUDO',
+    'notifications.close': 'FECHAR PAINEL',
+    'notifications.mark_as_read': 'marcar como lida',
+    'notifications.empty': 'Você está em dia!',
+    'notifications.empty_desc': 'Nenhuma notificação por aqui.',
   };
   return fallbacks[key] || key;
 }

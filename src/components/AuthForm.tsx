@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Loader2, Key, ShieldAlert, MessageSquare, Phone } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, Key, ShieldAlert, MessageSquare, Phone, Smartphone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
 import { safeParse, safeFetch } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { usePWAInstall } from '../hooks/usePWAInstall';
+import PWAInstallModal from './PWAInstallModal';
 
 type LoginMethod = 'passwordless' | 'password';
 
 export default function AuthForm() {
   const { settings } = useSettings();
   const { t } = useI18n();
+  const { isInstallable, isInstalled, isDismissed, promptInstall } = usePWAInstall();
   const [loading, setLoading] = useState(false);
+  const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [masterPassword, setMasterPassword] = useState('');
@@ -45,7 +49,7 @@ export default function AuthForm() {
       } else {
         // Direct login for passwordless using temporary password
         console.log('🔎 Chamando API Auth Direct');
-        const data = await safeFetch('/api/auth/direct', {
+        const data = await safeFetch('/api/v1/login-verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
@@ -100,7 +104,7 @@ export default function AuthForm() {
               placeholder={t('auth.master_password')}
               value={masterPassword}
               onChange={(e) => setMasterPassword(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-red-500 transition-colors"
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-red-500 transition-colors text-base"
               required
               autoFocus
             />
@@ -126,8 +130,32 @@ export default function AuthForm() {
     );
   }
 
+  const handleInstallClick = async () => {
+    const success = await promptInstall();
+    if (!success) {
+      // If it failed because deferredPrompt was null, show the modal instructions instead
+      setIsPWAModalOpen(true);
+    }
+  };
+
   return (
-    <div className="w-full max-w-md p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
+    <div className="flex flex-col items-center gap-6 w-full max-w-md">
+      {/* PWA Install Button at the top */}
+      {((settings.custom_texts?.['pwa.enable_button'] !== 'false' && (isInstallable || import.meta.env.DEV)) && !isInstalled) && (
+        <motion.button
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleInstallClick}
+          className="flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic animate-bounce shadow-lg shadow-primary/20"
+        >
+          <Smartphone size={12} className="group-hover:scale-110 transition-transform" />
+          {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || '📲 Instalar App'}
+        </motion.button>
+      )}
+
+      <div className="w-full p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
       <div className="text-center mb-8">
         {(settings.login_display_type === 'logo' || settings.login_display_type === 'both') && settings.logo_url && (
           <img 
@@ -143,7 +171,7 @@ export default function AuthForm() {
           </h1>
         )}
         <p className="text-gray-400 text-sm">
-          {settings.app_description}
+          {t('auth.subtitle')}
         </p>
       </div>
 
@@ -155,7 +183,7 @@ export default function AuthForm() {
             placeholder={t('auth.email')}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors"
+            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
             required
           />
         </div>
@@ -175,7 +203,7 @@ export default function AuthForm() {
                   placeholder={t('auth.password')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
                   required={method === 'password'}
                 />
               </div>
@@ -237,6 +265,12 @@ export default function AuthForm() {
           </div>
         )}
       </div>
+      <PWAInstallModal
+        isOpen={isPWAModalOpen}
+        onClose={() => setIsPWAModalOpen(false)}
+        onInstall={promptInstall}
+      />
+    </div>
     </div>
   );
 }

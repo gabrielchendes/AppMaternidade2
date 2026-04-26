@@ -40,7 +40,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
   // Get the click_action URL from the notification data or use a default
-  const urlToOpen = event.notification.data?.click_action || 
+  const urlToOpen = event.notification.data?.url ||
+                    event.notification.data?.click_action || 
                     event.notification.click_action || 
                     '/';
 

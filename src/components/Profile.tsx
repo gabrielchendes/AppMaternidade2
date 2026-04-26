@@ -16,7 +16,10 @@ export default function Profile({ user }: ProfileProps) {
   const { settings } = useSettings();
   const { t } = useI18n();
   const [fullName, setFullName] = useState(user.user_metadata?.full_name || '');
-  const [phone, setPhone] = useState(user.user_metadata?.phone || '');
+  const initialPhone = user.user_metadata?.phone || '';
+  // Try to parse country code (assuming it's the first 2-3 digits after +)
+  const [countryCode, setCountryCode] = useState(initialPhone.startsWith('+') ? initialPhone.substring(1, 4) : '');
+  const [phoneBody, setPhoneBody] = useState(initialPhone.startsWith('+') ? initialPhone.substring(initialPhone.length > 4 ? 4 : 1) : initialPhone);
   const [avatarUrl, setAvatarUrl] = useState(user.user_metadata?.avatar_url || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,10 +39,11 @@ export default function Profile({ user }: ProfileProps) {
 
     try {
       // Update Auth metadata
+      const fullPhone = `+${countryCode}${phoneBody}`;
       const { error: authError } = await supabase.auth.updateUser({
         data: { 
           full_name: fullName,
-          phone: phone,
+          phone: fullPhone,
           avatar_url: avatarUrl
         }
       });
@@ -202,24 +206,44 @@ export default function Profile({ user }: ProfileProps) {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder={t('profile.name_placeholder') || "Seu nome"}
-                className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-sm"
+                className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-base"
               />
             </div>
           </div>
 
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{t('profile.phone_label') || 'Telefone (WhatsApp)'}</label>
-            <div className="flex items-center gap-3 px-4 py-3 bg-black/40 rounded-xl border border-white/10 focus-within:border-primary/50 transition-colors">
-              <svg className="w-[18px] h-[18px] text-gray-400 fill-current" viewBox="0 0 24 24">
-                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.438 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
-              </svg>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(00) 00000-0000"
-                className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-sm"
-              />
+            <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-2 w-full">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-1.5 px-3 py-3 bg-black/40 rounded-xl border border-white/10 focus-within:border-primary/50 transition-colors w-full overflow-hidden">
+                  <span className="text-gray-400 font-bold text-sm flex-shrink-0">+</span>
+                  <input
+                    type="text"
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value.replace(/\D/g, '').substring(0, 4))}
+                    placeholder="00"
+                    maxLength={4}
+                    className="bg-transparent border-none outline-none w-full text-white placeholder:text-gray-600 text-base min-w-0"
+                  />
+                </div>
+                <span className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter block px-1 truncate">
+                  {t('profile.phone_country_code') || 'Código País'}
+                </span>
+              </div>
+              <div className="space-y-1 text-left min-w-0">
+                <div className="flex items-center gap-3 px-3 py-3 bg-black/40 rounded-xl border border-white/10 focus-within:border-primary/50 transition-colors w-full overflow-hidden">
+                  <input
+                    type="text"
+                    value={phoneBody}
+                    onChange={(e) => setPhoneBody(e.target.value.replace(/\D/g, ''))}
+                    placeholder="(00) 00000-0000"
+                    className="bg-transparent border-none outline-none w-full text-white placeholder:text-gray-600 text-base min-w-0"
+                  />
+                </div>
+                <span className="text-[9px] text-gray-500 font-bold uppercase tracking-tighter block px-1 truncate">
+                  {t('profile.phone_number_label') || 'Número com DDD'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -238,21 +262,21 @@ export default function Profile({ user }: ProfileProps) {
       <section className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
         <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-widest uppercase">
           <Bell size={18} />
-          Notificações Push
+          {t('profile.push_title') || 'Notificações Push'}
         </div>
         <p className="text-xs text-gray-500 font-medium">
-          Receba avisos importantes, novas aulas e atualizações da comunidade diretamente no seu navegador.
+          {t('profile.push_description') || 'Receba avisos importantes, novas aulas e atualizações da comunidade diretamente no seu navegador.'}
         </p>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-black/40 rounded-xl p-3 border border-white/5">
-            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">Suporte</div>
+            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">{t('profile.status_support') || 'Suporte'}</div>
             <div className={`text-xs font-bold ${pushStatus.supported ? 'text-green-500' : 'text-red-500'}`}>
-              {pushStatus.supported ? 'DISPONÍVEL' : 'NÃO SUPORTADO'}
+              {pushStatus.supported ? (t('profile.status_available') || 'DISPONÍVEL') : (t('profile.status_not_supported') || 'NÃO SUPORTADO')}
             </div>
           </div>
           <div className="bg-black/40 rounded-xl p-3 border border-white/5">
-            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">Permissão</div>
+            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">{t('profile.status_permission') || 'Permissão'}</div>
             <div className={`text-xs font-bold ${pushStatus.permission === 'granted' ? 'text-green-500' : pushStatus.permission === 'denied' ? 'text-red-500' : 'text-yellow-500'}`}>
               {pushStatus.permission.toUpperCase()}
             </div>
@@ -269,17 +293,17 @@ export default function Profile({ user }: ProfileProps) {
             }));
             
             if (granted) {
-              toast.success('Notificações ativadas com sucesso!');
+              toast.success(t('push.success') || 'Notificações ativadas com sucesso!');
             } else if (Notification.permission === 'denied') {
-              toast.error('Notificações bloqueadas no navegador. Redefina as permissões nas configurações do site.');
+              toast.error(t('push.blocked') || 'Notificações bloqueadas no navegador. Redefina as permissões nas configurações do site.');
             } else {
-              toast.error('Não foi possível ativar. Verifique se você está em uma aba segura (HTTPS).');
+              toast.error(t('push.error') || 'Não foi possível ativar. Verifique se você está em uma aba segura (HTTPS).');
             }
           }}
           className="w-full bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all active:scale-[0.98] uppercase tracking-widest text-xs"
         >
           <Bell size={18} />
-          {pushStatus.permission === 'granted' ? 'RE-SINCRONIZAR NOTIFICAÇÕES' : 'ATIVAR NOTIFICAÇÕES'}
+          {pushStatus.permission === 'granted' ? (t('profile.push_resync') || 'RE-SINCRONIZAR NOTIFICAÇÕES') : (t('push.allow') || 'ATIVAR NOTIFICAÇÕES')}
         </button>
       </section>
 
@@ -301,7 +325,7 @@ export default function Profile({ user }: ProfileProps) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-sm"
+                  className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-base"
                 />
               </div>
             </div>
@@ -315,7 +339,7 @@ export default function Profile({ user }: ProfileProps) {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-sm"
+                  className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-base"
                 />
               </div>
             </div>
