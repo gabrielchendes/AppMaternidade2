@@ -6,17 +6,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import admin from 'firebase-admin';
+import * as adminApp from 'firebase-admin/app';
+import * as adminMessaging from 'firebase-admin/messaging';
 import crypto from 'crypto';
 
 dotenv.config();
+
+console.log('🚀 Server starting sequence initialized');
 
 // Global Process Error Logging
 process.on('uncaughtException', (err) => {
   console.error('🔥 CRITICAL: Uncaught Exception:', err);
 });
-process.on('unhandledRejection', (reason) => {
-  console.error('🔥 CRITICAL: Unhandled Rejection:', reason);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 const app = express();
@@ -55,13 +58,12 @@ const getSupabaseAdmin = () => {
 };
 
 // Lazy Initialization for Firebase Admin
-let firebaseAdminApp: admin.app.App | null = null;
-const getFirebaseAdmin = (): admin.app.App | null => {
+let firebaseAdminApp: any = null;
+const getFirebaseAdmin = (): any => {
   if (firebaseAdminApp) return firebaseAdminApp;
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!serviceAccount || serviceAccount === 'undefined' || serviceAccount.trim() === '') {
-      console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT missing');
       return null;
     }
 
@@ -74,18 +76,19 @@ const getFirebaseAdmin = (): admin.app.App | null => {
     }
     
     const parsedAccount = JSON.parse(cleanVal);
-    const currentApps = admin.apps || [];
-    if (currentApps.length === 0) {
-      firebaseAdminApp = admin.initializeApp({
-        credential: admin.credential.cert(parsedAccount)
+    const apps = adminApp.getApps();
+    
+    if (apps.length === 0) {
+      firebaseAdminApp = adminApp.initializeApp({
+        credential: adminApp.cert(parsedAccount)
       });
-      console.log('🚀 Firebase Admin initialized');
+      console.log('✅ Firebase Admin initialized');
     } else {
-      firebaseAdminApp = currentApps[0];
+      firebaseAdminApp = apps[0];
     }
     return firebaseAdminApp;
   } catch (err: any) {
-    console.error('🔥 Error initializing Firebase Admin:', err);
+    console.error('🔥 Firebase Init Error:', err.message);
     return null;
   }
 };
@@ -182,7 +185,7 @@ app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
   res.json({ 
     initialized: !!firebaseAdminApp,
     hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-    appsCount: admin.apps?.length || 0
+    appsCount: adminApp.getApps().length
   });
 });
 
@@ -237,6 +240,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
 
     let pushMessageId = null;
     if ((type === 'push' || type === 'both') && firebaseAdminApp) {
+      const messaging = adminMessaging.getMessaging(firebaseAdminApp);
       if (!isBroadcast && targetUserIds.length > 0) {
         const tokens: string[] = [];
         for (let i = 0; i < targetUserIds.length; i += 1000) {
@@ -245,7 +249,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
         }
         if (tokens.length > 0) {
           for (let i = 0; i < tokens.length; i += 500) {
-            await firebaseAdminApp.messaging().sendEachForMulticast({
+            await messaging.sendEachForMulticast({
               tokens: tokens.slice(i, i + 500),
               notification: { title, body },
               webpush: { fcmOptions: { link: '/' }, notification: { icon: '/firebase-logo.svg', badge: '/firebase-logo.svg' } }
@@ -254,7 +258,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
           pushMessageId = `tokens_${tokens.length}`;
         }
       } else {
-        pushMessageId = await firebaseAdminApp.messaging().send({
+        pushMessageId = await messaging.send({
           topic: 'all', notification: { title, body },
           webpush: { fcmOptions: { link: '/' }, notification: { icon: '/firebase-logo.svg', badge: '/firebase-logo.svg' } }
         });
@@ -427,7 +431,8 @@ app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
   const firebaseAdminApp = getFirebaseAdmin();
   if (!token || !topic || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
   try {
-    await firebaseAdminApp.messaging().subscribeToTopic(token, topic);
+    const messaging = adminMessaging.getMessaging(firebaseAdminApp);
+    await messaging.subscribeToTopic(token, topic);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -458,7 +463,8 @@ app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
   const firebaseAdminApp = getFirebaseAdmin();
   if (!title || !body || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
   try {
-    const resp = await firebaseAdminApp.messaging().send({
+    const messaging = adminMessaging.getMessaging(firebaseAdminApp);
+    const resp = await messaging.send({
       topic: 'all', notification: { title, body },
       webpush: { fcmOptions: { link: '/' }, notification: { icon: '/firebase-logo.svg', badge: '/firebase-logo.svg' } }
     });
@@ -490,33 +496,47 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Static / Vite
 const startServer = async () => {
-  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({ server: { middlewareMode: true, hmr: false }, appType: 'spa' });
-    app.use(vite.middlewares);
-    app.use('*', async (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
-      try {
-        const template = await fs.promises.readFile(path.join(process.cwd(), 'index.html'), 'utf-8');
-        const html = await vite.transformIndexHtml(req.originalUrl, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
-      } catch (e) { next(e); }
-    });
-  } else if (!process.env.VERCEL) {
-    const distPath = path.join(process.cwd(), 'dist');
-    if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+  try {
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      console.log('📦 Setting up Vite middleware...');
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({ server: { middlewareMode: true, hmr: false }, appType: 'spa' });
+      app.use(vite.middlewares);
+      app.use('*', async (req, res, next) => {
+        if (req.path.startsWith('/api/')) return next();
+        try {
+          const templatePath = path.join(process.cwd(), 'index.html');
+          if (!fs.existsSync(templatePath)) return res.status(404).send('index.html not found');
+          const template = await fs.promises.readFile(templatePath, 'utf-8');
+          const html = await vite.transformIndexHtml(req.originalUrl, template);
+          res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+        } catch (e) { next(e); }
+      });
+    } else if (!process.env.VERCEL) {
+      console.log('📦 Serving static files from dist...');
+      const distPath = path.join(process.cwd(), 'dist');
+      if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+      } else {
+        console.warn('⚠️ Dist path not found at startup');
+      }
     }
-  }
-  
-  if (!process.env.VERCEL) {
-    const PORT = 3000;
-    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on http://localhost:${PORT}`));
+    
+    if (!process.env.VERCEL) {
+      const PORT = 3000;
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`✅ Server running on http://localhost:${PORT}`);
+      });
+    }
+  } catch (err) {
+    console.error('🔥 CRITICAL FAILURE in startServer:', err);
   }
 };
 
-startServer();
+startServer().catch(err => {
+  console.error('🔥 CRITICAL FAILURE starting server:', err);
+});
 
 export default app;
 export { app };
