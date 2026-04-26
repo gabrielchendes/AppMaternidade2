@@ -77,60 +77,60 @@ if (supabaseAdmin) {
   console.warn('Supabase Admin client NOT initialized (missing URL or Key)');
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
-  const API_PREFIX = '/api/v1';
+const app = express();
+export { app };
 
-  // Middleware global para parsing de JSON - Increased limit for large notifications
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const API_PREFIX = '/api/v1';
 
-  app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`);
-    next();
-  });
+// Middleware global para parsing de JSON - Increased limit for large notifications
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // Servir arquivos estáticos da pasta public explicitamente
-  app.use(express.static(path.join(process.cwd(), 'public')));
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
 
-  // Route específica para o manifest para garantir o Content-Type correto e evitar o fallback SPA
-  app.get('/manifest.json', (req, res) => {
-    const manifestPath = path.join(process.cwd(), 'public', 'manifest.json');
-    if (fs.existsSync(manifestPath)) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.sendFile(manifestPath);
-    }
-    res.status(404).send('Not found');
-  });
+// Servir arquivos estáticos da pasta public explicitamente
+app.use(express.static(path.join(process.cwd(), 'public')));
 
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', env: 'development', time: new Date().toISOString() });
-  });
+// Route específica para o manifest para garantir o Content-Type correto e evitar o fallback SPA
+app.get('/manifest.json', (req, res) => {
+  const manifestPath = path.join(process.cwd(), 'public', 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    res.setHeader('Content-Type', 'application/json');
+    return res.sendFile(manifestPath);
+  }
+  res.status(404).send('Not found');
+});
 
-  app.post('/api/external/grant-access', express.json(), async (req, res) => {
-    const secret = req.headers['x-internal-secret'];
-    if (secret !== process.env.INTERNAL_API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
-    const { userId, productId } = req.body;
-    if (userId && productId && supabaseAdmin) {
-      const { data, error } = await supabaseAdmin.from('purchases').insert({ user_id: userId, product_id: productId }).select();
-      if (error) return res.status(500).json({ error: error.message });
-      return res.json({ success: true, data });
-    }
-    res.status(400).json({ error: 'Missing data' });
-  });
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', env: process.env.NODE_ENV || 'development', time: new Date().toISOString() });
+});
 
-  app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
-    const { email } = req.body;
-    if (!email || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+app.post('/api/external/grant-access', express.json(), async (req, res) => {
+  const secret = req.headers['x-internal-secret'];
+  if (secret !== process.env.INTERNAL_API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+  const { userId, productId } = req.body;
+  if (userId && productId && supabaseAdmin) {
+    const { data, error } = await supabaseAdmin.from('purchases').insert({ user_id: userId, product_id: productId }).select();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true, data });
+  }
+  res.status(400).json({ error: 'Missing data' });
+});
 
-    try {
-      const cleanEmail = email.trim().toLowerCase();
-      console.log('🔎 Passwordless login request for:', cleanEmail);
-      
-      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers({
-        perPage: 1000
-      });
+app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
+  const { email } = req.body;
+  if (!email || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    console.log('🔎 Passwordless login request for:', cleanEmail);
+    
+    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+      perPage: 1000
+    });
       
       if (listError) throw listError;
 
@@ -384,24 +384,24 @@ async function startServer() {
     const { title, body, type, userIds, exclusionCourseId, isBroadcast } = req.body;
     if (!title || !body || !type || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
 
-    try {
-      const broadcastId = crypto.randomUUID();
-      const targetUserIds = Array.isArray(userIds) ? userIds : [];
+  try {
+    const broadcastId = crypto.randomUUID();
+    const targetUserIds = Array.isArray(userIds) ? userIds : [];
 
-      if (targetUserIds.length === 0 && !isBroadcast) {
-        return res.status(400).json({ error: 'Nenhum usuário alvo especificado' });
-      }
+    if (targetUserIds.length === 0 && !isBroadcast) {
+      return res.status(400).json({ error: 'Nenhum usuário alvo especificado' });
+    }
 
-      // 1. Log the broadcast
-      const { error: bError } = await supabaseAdmin.from('notification_broadcasts').insert({
-        id: broadcastId,
-        title,
-        body,
-        type,
-        target_count: targetUserIds.length,
-        exclusion_course_id: exclusionCourseId || null,
-        created_by: (req as any).user?.id
-      });
+    // 1. Log the broadcast
+    const { error: bError } = await supabaseAdmin.from('notification_broadcasts').insert({
+      id: broadcastId,
+      title,
+      body,
+      type,
+      target_count: targetUserIds.length,
+      exclusion_course_id: exclusionCourseId || null,
+      created_by: (req as any).user?.id
+    });
       
       if (bError) {
         console.error('Error logging broadcast:', bError);
@@ -461,8 +461,8 @@ async function startServer() {
                     webpush: {
                       fcmOptions: { link: '/' },
                       notification: {
-                        icon: '/firebase-logo.png',
-                        badge: '/firebase-logo.png',
+                        icon: '/firebase-logo.svg',
+                        badge: '/firebase-logo.svg',
                         data: { url: '/' }
                       }
                     }
@@ -482,8 +482,8 @@ async function startServer() {
                 webpush: {
                   fcmOptions: { link: '/' },
                   notification: {
-                    icon: '/firebase-logo.png',
-                    badge: '/firebase-logo.png',
+                    icon: '/firebase-logo.svg',
+                    badge: '/firebase-logo.svg',
                     data: { url: '/' }
                   }
                 }
@@ -607,8 +607,8 @@ async function startServer() {
         webpush: {
           fcmOptions: { link: '/' },
           notification: {
-            icon: '/firebase-logo.png',
-            badge: '/firebase-logo.png',
+            icon: '/firebase-logo.svg',
+            badge: '/firebase-logo.svg',
             tag: 'maternidade-premium',
             renotify: true,
             data: { url: '/' }
@@ -674,34 +674,51 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  const vite = await createViteServer({
-    server: { 
-      middlewareMode: true,
-      hmr: false
-    },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
-  
-  app.use('*', async (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return next();
-    
-    // Evitar que arquivos de assets (js, css, etc) retornem o index.html (SPA fallback)
-    const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|webmanifest|woff|woff2|ttf|otf)$/.test(req.path);
-    if (isAsset) {
-      return res.status(404).send('Not found');
+  // Export app for serverless environments (like Vercel)
+  export default app;
+
+  async function startServer() {
+    // Vite middleware for development
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { 
+          middlewareMode: true,
+          hmr: false
+        },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      
+      app.use('*', async (req, res, next) => {
+        if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return next();
+        
+        // Evitar que arquivos de assets (js, css, etc) retornem o index.html (SPA fallback)
+        const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|webmanifest|woff|woff2|ttf|otf)$/.test(req.path);
+        if (isAsset) {
+          return res.status(404).send('Not found');
+        }
+
+        try {
+          const html = await vite.transformIndexHtml(req.originalUrl, await fs.promises.readFile(path.join(process.cwd(), 'index.html'), 'utf-8'));
+          res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+        } catch (e) { next(e); }
+      });
+    } else {
+      // Production serving of static files
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return;
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
     }
 
-    try {
-      const html = await vite.transformIndexHtml(req.originalUrl, await fs.promises.readFile(path.join(process.cwd(), 'index.html'), 'utf-8'));
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
-    } catch (e) { next(e); }
-  });
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Dev server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+  // Only start server if not in a serverless environment or if running this file directly
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    startServer();
+  }

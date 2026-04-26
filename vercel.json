@@ -2,11 +2,15 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/api/(.*)",
       "destination": "/api/index.ts"
     },
     {
-      "source": "/((?!api|assets|favicon|logo|firebase-messaging-sw.js).*)",
+      "source": "/internal/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

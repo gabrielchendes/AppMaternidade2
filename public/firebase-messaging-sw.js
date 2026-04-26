@@ -27,8 +27,8 @@ messaging.onBackgroundMessage((payload) => {
     const notificationTitle = payload.data?.title || 'Novo aviso';
     const notificationOptions = {
       body: payload.data?.body || 'Você tem uma nova mensagem.',
-      icon: '/firebase-logo.png',
-      badge: '/firebase-logo.png',
+      icon: '/firebase-logo.svg',
+      badge: '/firebase-logo.svg',
       data: payload.data
     };
     self.registration.showNotification(notificationTitle, notificationOptions);
