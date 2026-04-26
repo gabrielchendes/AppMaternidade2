@@ -1,13 +1,11 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import admin from 'firebase-admin';
+import * as admin from 'firebase-admin';
 import crypto from 'crypto';
 
-console.log('LOCAL DEV SERVER IS STARTING UP...');
 dotenv.config();
 
 // Debug: Log buffer
@@ -18,48 +16,41 @@ const addLog = (type: string, data: any) => {
 };
 
 // Initialize Firebase Admin if service account is provided
-let firebaseAdminApp: any = null;
-let firebaseAdmin: any = null;
+let firebaseAdminApp: admin.app.App | null = null;
+let firebaseAdmin: any = admin;
 try {
   let serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
   
   if (serviceAccount && serviceAccount !== 'undefined' && serviceAccount.trim() !== '') {
-    console.log('📦 FIREBASE_SERVICE_ACCOUNT found (Length:', serviceAccount.length, ')');
-    firebaseAdmin = (admin as any).default || admin;
+    console.log('📦 FIREBASE_SERVICE_ACCOUNT found');
     
     let parsedAccount;
     try {
-      // 1. Clean string (sometimes there are weird chars from pasting)
       let cleanVal = serviceAccount.trim();
-      
-      // 2. Handle potential Base64 encoding
       if (!cleanVal.startsWith('{')) {
         try {
           const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
           if (decoded.startsWith('{')) {
-            console.log('🔓 Decoded Firebase secret from Base64');
             cleanVal = decoded;
           }
         } catch(e) {}
       }
-      
       parsedAccount = JSON.parse(cleanVal);
-      console.log('✅ Firebase JSON parsed successfully');
     } catch (parseErr) {
-      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', parseErr);
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON');
       parsedAccount = null;
     }
     
-    if (parsedAccount && firebaseAdmin.apps.length === 0) {
-      firebaseAdminApp = firebaseAdmin.initializeApp({
-        credential: firebaseAdmin.credential.cert(parsedAccount)
-      });
-      console.log('🚀 Firebase Admin initialized successfully');
-    } else if (firebaseAdmin.apps.length > 0) {
-      firebaseAdminApp = firebaseAdmin.apps[0];
+    if (parsedAccount) {
+      if (admin.apps.length === 0) {
+        firebaseAdminApp = admin.initializeApp({
+          credential: admin.credential.cert(parsedAccount)
+        });
+        console.log('🚀 Firebase Admin initialized');
+      } else {
+        firebaseAdminApp = admin.apps[0];
+      }
     }
-  } else {
-    console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT environment variable is empty or missing');
   }
 } catch (err: any) {
   console.error('🔥 Error initializing Firebase Admin:', err);
@@ -67,14 +58,17 @@ try {
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabaseAdmin = (supabaseUrl && supabaseServiceRoleKey) 
-  ? createClient(supabaseUrl, supabaseServiceRoleKey) 
-  : null;
+let supabaseAdmin: any = null;
 
-if (supabaseAdmin) {
-  console.log('Supabase Admin client initialized');
-} else {
-  console.warn('Supabase Admin client NOT initialized (missing URL or Key)');
+try {
+  if (supabaseUrl && supabaseServiceRoleKey) {
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    console.log('Supabase Admin client initialized');
+  } else {
+    console.warn('Supabase Admin client NOT initialized (missing URL or Key)');
+  }
+} catch (err) {
+  console.error('🔥 Error initializing Supabase Admin:', err);
 }
 
 const app = express();
@@ -678,8 +672,11 @@ app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
   export default app;
 
   async function startServer() {
+    const PORT = 3000;
+
     // Vite middleware for development
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { 
           middlewareMode: true,
@@ -704,13 +701,20 @@ app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
         } catch (e) { next(e); }
       });
     } else {
-      // Production serving of static files
+      // Production serving of static files (only if not handled by Vercel rewrites)
       const distPath = path.join(process.cwd(), 'dist');
-      app.use(express.static(distPath));
-      app.get('*', (req, res) => {
-        if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return;
-        res.sendFile(path.join(distPath, 'index.html'));
-      });
+      if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+        app.get('*', (req, res, next) => {
+          if (req.path.startsWith('/api/') || req.path.startsWith('/internal/')) return next();
+          const p = path.join(distPath, 'index.html');
+          if (fs.existsSync(p)) {
+            res.sendFile(p);
+          } else {
+            next();
+          }
+        });
+      }
     }
 
     app.listen(PORT, '0.0.0.0', () => {
@@ -718,7 +722,7 @@ app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
     });
   }
 
-  // Only start server if not in a serverless environment or if running this file directly
-  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  // Only start server if not in a serverless environment
+  if (!process.env.VERCEL) {
     startServer();
   }
