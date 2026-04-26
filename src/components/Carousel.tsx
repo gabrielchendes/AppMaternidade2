@@ -18,8 +18,8 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
   };
 
   return (
-    <div className="relative group/carousel mb-12">
-      <h2 className="text-2xl font-black mb-6 px-12 text-gray-200 uppercase tracking-tighter italic">
+    <div className="relative group/carousel mb-8 sm:mb-12">
+      <h2 className="text-xl sm:text-2xl font-black mb-4 sm:mb-6 px-6 md:px-16 text-gray-200 uppercase tracking-tighter italic">
         {title}
       </h2>
 
@@ -27,7 +27,7 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Left Arrow */}
         <button
           onClick={() => scroll('left')}
-          className="absolute left-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/60"
+          className="absolute left-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-black/60"
         >
           <ChevronLeft size={32} />
         </button>
@@ -35,7 +35,7 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Scroll Container */}
         <div
           ref={scrollRef}
-          className="flex gap-4 overflow-x-auto scrollbar-hide px-12 pb-4 snap-x snap-mandatory"
+          className="flex gap-4 overflow-x-auto scrollbar-hide px-6 md:px-16 pb-4 snap-x snap-mandatory"
         >
           {children}
         </div>
@@ -43,7 +43,7 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Right Arrow */}
         <button
           onClick={() => scroll('right')}
-          className="absolute right-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity flex items-center justify-center hover:bg-black/60"
+          className="absolute right-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-black/60"
         >
           <ChevronRight size={32} />
         </button>

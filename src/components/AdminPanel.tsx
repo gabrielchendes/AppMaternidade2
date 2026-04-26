@@ -3031,6 +3031,9 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.end_label', label: 'Texto Fim (Navegação)' },
                                 { key: 'course.materials', label: 'Título Materiais' },
                                 { key: 'course.schedule_title', label: 'Título Cronograma' },
+                                { key: 'course.completed', label: 'Status: Concluído' },
+                                { key: 'course.continue', label: 'Status: Continuar' },
+                                { key: 'course.start', label: 'Status: Começar' },
                                 { key: 'course.support_description', label: 'Texto de Suporte (Box)' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">

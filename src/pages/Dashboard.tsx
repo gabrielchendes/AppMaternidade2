@@ -47,7 +47,7 @@ const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community'
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-2xl shadow-xl shadow-green-500/20 transition-all active:scale-95"
             >
-              <Phone size={20} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
+              <Phone size={24} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
             </a>
           )}
           {emailEnabled && settings.support_email && (
@@ -55,7 +55,7 @@ const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community'
               href={`mailto:${settings.support_email}`}
               className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-black rounded-2xl border border-white/10 transition-all active:scale-95"
             >
-              <MailIcon size={20} /> {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
+              <MailIcon size={24} /> {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
             </a>
           )}
         </div>
@@ -361,8 +361,8 @@ export default function Dashboard({ user }: DashboardProps) {
                 className="w-full flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl group active:scale-[0.98] transition-all"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <Smartphone size={20} />
+                  <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <Smartphone size={24} />
                   </div>
                   <div className="text-left">
                     <div className="text-[10px] font-black text-primary uppercase tracking-widest italic leading-none mb-1">
@@ -381,7 +381,7 @@ export default function Dashboard({ user }: DashboardProps) {
           )}
 
           {/* Banner Section */}
-          <div className="w-full pb-12">
+          <div className="w-full pb-8">
             <BannerCarousel 
               images={settings.banner_images || []} 
               interval={settings.banner_interval || 5000} 
