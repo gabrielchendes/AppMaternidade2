@@ -1,5 +1,8 @@
+// @ts-ignore
 import express from 'express';
+// @ts-ignore
 import * as path from 'path';
+// @ts-ignore
 import * as fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -8,8 +11,21 @@ import crypto from 'crypto';
 
 dotenv.config();
 
+// Global Process Error Logging
+process.on('uncaughtException', (err) => {
+  console.error('🔥 CRITICAL: Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('🔥 CRITICAL: Unhandled Rejection:', reason);
+});
+
 const app = express();
 const API_PREFIX = '/api/v1';
+
+// Test Route (Public)
+app.get('/api/test', (req, res) => {
+  res.json({ ok: true, message: 'Server is reachable', env: process.env.NODE_ENV });
+});
 
 // Debug: Log buffer (ephemeral in serverless)
 const debugLogs: any[] = [];
@@ -18,69 +34,80 @@ const addLog = (type: string, data: any) => {
   if (debugLogs.length > 20) debugLogs.pop();
 };
 
-// Initialize Firebase Admin
-let firebaseAdminApp: any = null;
-try {
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (serviceAccount && serviceAccount !== 'undefined' && serviceAccount.trim() !== '') {
-    let parsedAccount;
-    try {
-      let cleanVal = serviceAccount.trim();
-      if (!cleanVal.startsWith('{')) {
-        const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
-        if (decoded.startsWith('{')) cleanVal = decoded;
-      }
-      parsedAccount = JSON.parse(cleanVal);
-    } catch (parseErr) {
-      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT JSON');
-    }
-    
-    if (parsedAccount) {
-      if (!admin.apps || admin.apps.length === 0) {
-        firebaseAdminApp = admin.initializeApp({
-          credential: admin.credential.cert(parsedAccount)
-        });
-        console.log('🚀 Firebase Admin initialized');
-      } else {
-        firebaseAdminApp = admin.apps[0];
-      }
-    }
+// Lazy Initialization for Supabase Admin
+let supabaseAdminInstance: any = null;
+const getSupabaseAdmin = () => {
+  if (supabaseAdminInstance) return supabaseAdminInstance;
+  const url = process.env.VITE_SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (!url || !key) {
+    console.warn('⚠️ Supabase Admin NOT initialized (missing URL or Key)');
+    return null;
   }
-} catch (err: any) {
-  console.error('🔥 Error initializing Firebase Admin:', err);
-}
-
-// Initialize Supabase Admin
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-let supabaseAdmin: any = null;
-
-if (supabaseUrl && supabaseServiceRoleKey) {
   try {
-    supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
-    console.log('Supabase Admin client initialized');
+    supabaseAdminInstance = createClient(url, key);
+    console.log('✅ Supabase Admin client initialized');
+    return supabaseAdminInstance;
   } catch (err) {
     console.error('🔥 Error initializing Supabase Admin:', err);
+    return null;
   }
-}
+};
+
+// Lazy Initialization for Firebase Admin
+let firebaseAdminApp: admin.app.App | null = null;
+const getFirebaseAdmin = (): admin.app.App | null => {
+  if (firebaseAdminApp) return firebaseAdminApp;
+  try {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!serviceAccount || serviceAccount === 'undefined' || serviceAccount.trim() === '') {
+      console.warn('⚠️ FIREBASE_SERVICE_ACCOUNT missing');
+      return null;
+    }
+
+    let cleanVal = serviceAccount.trim();
+    if (!cleanVal.startsWith('{')) {
+      try {
+        const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
+        if (decoded.startsWith('{')) cleanVal = decoded;
+      } catch (e) {}
+    }
+    
+    const parsedAccount = JSON.parse(cleanVal);
+    const currentApps = admin.apps || [];
+    if (currentApps.length === 0) {
+      firebaseAdminApp = admin.initializeApp({
+        credential: admin.credential.cert(parsedAccount)
+      });
+      console.log('🚀 Firebase Admin initialized');
+    } else {
+      firebaseAdminApp = currentApps[0];
+    }
+    return firebaseAdminApp;
+  } catch (err: any) {
+    console.error('🔥 Error initializing Firebase Admin:', err);
+    return null;
+  }
+};
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
 // Admin Auth Middleware
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !supabaseAdmin) {
-    return res.status(401).json({ error: 'Unauthorized: Missing credentials or server configuration' });
-  }
-
   try {
+    const supabaseAdmin = getSupabaseAdmin();
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !supabaseAdmin) {
+      return res.status(401).json({ error: 'Unauthorized: Missing credentials or server configuration' });
+    }
+
     const token = authHeader.split(' ')[1];
     if (!token || token === 'undefined' || token === 'null') {
       return res.status(401).json({ error: 'Invalid token format' });
@@ -102,8 +129,8 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
     (req as any).user = data.user;
     next();
   } catch (err: any) { 
-    console.error('🚨 Error in adminAuth middleware:', err);
-    res.status(401).json({ error: 'Authentication failed: ' + (err.message || 'Unknown error') }); 
+    console.error('🚨 adminAuth error:', err);
+    res.status(500).json({ error: 'Authentication crash: ' + (err.message || 'Unknown error') }); 
   }
 };
 
@@ -118,6 +145,8 @@ app.get('/manifest.json', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
+  const firebaseAdminApp = getFirebaseAdmin();
+  const supabaseAdmin = getSupabaseAdmin();
   res.json({ 
     status: 'ok', 
     env: process.env.NODE_ENV || 'development', 
@@ -135,6 +164,7 @@ app.post('/api/external/grant-access', async (req, res) => {
   const secret = req.headers['x-internal-secret'];
   if (secret !== process.env.INTERNAL_API_SECRET) return res.status(401).json({ error: 'Unauthorized' });
   const { userId, productId } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (userId && productId && supabaseAdmin) {
     try {
       const { data, error } = await supabaseAdmin.from('purchases').insert({ user_id: userId, product_id: productId }).select();
@@ -148,6 +178,7 @@ app.post('/api/external/grant-access', async (req, res) => {
 });
 
 app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
+  const firebaseAdminApp = getFirebaseAdmin();
   res.json({ 
     initialized: !!firebaseAdminApp,
     hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
@@ -161,6 +192,7 @@ app.get(`${API_PREFIX}/ping`, (req, res) => {
 
 app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
   const { email } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!email || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const cleanEmail = email.trim().toLowerCase();
@@ -180,9 +212,11 @@ app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
 // Notifications
 app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
   const { title, body, type, userIds, exclusionCourseId, isBroadcast } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!title || !body || !type || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
 
   try {
+    const firebaseAdminApp = getFirebaseAdmin();
     const broadcastId = crypto.randomUUID();
     const targetUserIds = Array.isArray(userIds) ? userIds : [];
     if (targetUserIds.length === 0 && !isBroadcast) return res.status(400).json({ error: 'No targets' });
@@ -234,6 +268,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
 });
 
 app.get(`${API_PREFIX}/notification-history`, adminAuth, async (req, res) => {
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) return res.status(500).json({ error: 'DB not available' });
   try {
     const { data: broadcasts, error } = await supabaseAdmin.from('notification_broadcasts').select('*').order('created_at', { ascending: false }).limit(50);
@@ -250,6 +285,7 @@ app.get(`${API_PREFIX}/notification-history`, adminAuth, async (req, res) => {
 
 app.get(`${API_PREFIX}/notification-details/:id`, adminAuth, async (req, res) => {
   const { id } = req.params;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) return res.status(500).json({ error: 'DB not available' });
   try {
     const { data, error } = await supabaseAdmin.from('notifications').select('user_id, is_read, read_at').eq('broadcast_id', id);
@@ -264,6 +300,7 @@ app.get(`${API_PREFIX}/notification-details/:id`, adminAuth, async (req, res) =>
 });
 
 app.delete(`${API_PREFIX}/notification-clear`, adminAuth, async (req, res) => {
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) return res.status(500).json({ error: 'DB not available' });
   try {
     await supabaseAdmin.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -276,6 +313,7 @@ app.delete(`${API_PREFIX}/notification-clear`, adminAuth, async (req, res) => {
 
 // User Management
 app.get(`${API_PREFIX}/users-list`, adminAuth, async (req, res) => {
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
     const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
@@ -290,6 +328,7 @@ app.get(`${API_PREFIX}/users-list`, adminAuth, async (req, res) => {
 
 app.get(`${API_PREFIX}/u-data/:userId`, adminAuth, async (req, res) => {
   const { userId } = req.params;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!userId || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
@@ -302,6 +341,7 @@ app.get(`${API_PREFIX}/u-data/:userId`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/user-create`, adminAuth, async (req, res) => {
   const { email, password, fullName, phone } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!email || !password || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
@@ -319,6 +359,7 @@ app.post(`${API_PREFIX}/user-create`, adminAuth, async (req, res) => {
 
 app.delete(`${API_PREFIX}/user-delete/:id`, adminAuth, async (req, res) => {
   const { id } = req.params;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!id || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     await supabaseAdmin.from('purchases').delete().eq('user_id', id);
@@ -333,6 +374,7 @@ app.delete(`${API_PREFIX}/user-delete/:id`, adminAuth, async (req, res) => {
 });
 
 app.get(`${API_PREFIX}/purchases-list`, adminAuth, async (req, res) => {
+  const supabaseAdmin = getSupabaseAdmin();
   if (!supabaseAdmin) return res.status(500).json({ error: 'Admin not initialized' });
   try {
     const { data, error } = await supabaseAdmin.from('purchases').select('id, created_at, user_id, product_id, is_manual, profiles!user_id(full_name, email), courses!product_id(title, cover_url, price)').order('created_at', { ascending: false });
@@ -345,6 +387,7 @@ app.get(`${API_PREFIX}/purchases-list`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/user-access-toggle`, adminAuth, async (req, res) => {
   const { userId, courseId, action } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!userId || !courseId || !action || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     if (action === 'grant') {
@@ -363,6 +406,7 @@ app.post(`${API_PREFIX}/user-access-toggle`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/user-password-set`, adminAuth, async (req, res) => {
   const { newPassword } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!newPassword || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
@@ -380,6 +424,7 @@ app.post(`${API_PREFIX}/user-password-set`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
   const { token, topic } = req.body;
+  const firebaseAdminApp = getFirebaseAdmin();
   if (!token || !topic || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
   try {
     await firebaseAdminApp.messaging().subscribeToTopic(token, topic);
@@ -391,6 +436,7 @@ app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
 
 app.post(`${API_PREFIX}/msg-all`, adminAuth, async (req, res) => {
   const { title, message } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!title || !message || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { data: profiles, error } = await supabaseAdmin.from('profiles').select('id');
@@ -409,6 +455,7 @@ app.post(`${API_PREFIX}/msg-all`, adminAuth, async (req, res) => {
 
 app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
   const { title, body } = req.body;
+  const firebaseAdminApp = getFirebaseAdmin();
   if (!title || !body || !firebaseAdminApp) return res.status(400).json({ error: 'Missing data' });
   try {
     const resp = await firebaseAdminApp.messaging().send({
@@ -424,6 +471,7 @@ app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
 // App Settings
 app.post(`${API_PREFIX}/settings/update`, adminAuth, async (req, res) => {
   const { settings } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
   if (!settings || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { error } = await supabaseAdmin.from('app_settings').update(settings).eq('id', 1);
