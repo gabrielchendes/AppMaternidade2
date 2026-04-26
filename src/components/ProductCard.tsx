@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Lock, Play, Star, CheckCircle2, Rocket, Book } from 'lucide-react';
+import { Lock, Play, Star, CheckCircle2, Rocket } from 'lucide-react';
 import { Course } from '../types/lms';
 import { motion } from 'motion/react';
 import { useI18n } from '../contexts/I18nContext';
@@ -17,7 +17,7 @@ const ProductCard = memo(({ product, isUnlocked, progress, stats, onOpen }: Prod
   return (
     <motion.div
       whileHover={{ y: -8, scale: 1.02 }}
-      className="relative flex-shrink-0 w-[160px] sm:w-[220px] cursor-pointer group rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border border-white/5 snap-start"
+      className="relative flex-shrink-0 w-[180px] sm:w-[220px] cursor-pointer group rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border border-white/5 snap-start"
       onClick={() => onOpen(product)}
     >
       {/* Cover Image - Netflix vertical style */}
@@ -89,24 +89,6 @@ const ProductCard = memo(({ product, isUnlocked, progress, stats, onOpen }: Prod
                 </div>
               )}
             </div>
-
-            {/* Stats - Lessons & Materials */}
-            {stats && (
-              <div className="flex items-center gap-3 mt-1">
-                {stats.lessons > 0 && (
-                  <div className="flex items-center gap-1 text-[10px] sm:text-xs font-bold text-white/50 uppercase tracking-widest">
-                    <Play size={10} className="text-primary" />
-                    {stats.lessons} {stats.lessons === 1 ? 'Aula' : 'Aulas'}
-                  </div>
-                )}
-                {stats.materials > 0 && (
-                  <div className="flex items-center gap-1 text-[10px] sm:text-xs font-bold text-white/50 uppercase tracking-widest">
-                    <Book size={10} className="text-secondary" />
-                    {stats.materials} {stats.materials === 1 ? 'Mat.' : 'Mat.'}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 
