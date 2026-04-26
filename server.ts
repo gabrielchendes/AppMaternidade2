@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -26,13 +26,36 @@ app.get('/api/test', (req, res) => {
   res.json({ ok: true, message: 'Server is reachable', env: process.env.NODE_ENV });
 });
 
-app.get('/api/debug-env', (req, res) => {
+// VERY PUBLIC DEBUG (Safe info only)
+app.get('/api/env-status', async (req, res) => {
+  const sa = process.env.FIREBASE_SERVICE_ACCOUNT || '';
+  const su = !!process.env.VITE_SUPABASE_URL;
+  const sk = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  let supabaseTest = 'Not attempted';
+  if (su && sk) {
+    try {
+      const sb = getSupabaseAdmin();
+      if (sb) {
+        const { error } = await sb.from('app_settings').select('id').limit(1);
+        supabaseTest = error ? `Error: ${error.message}` : 'Connected';
+      } else {
+        supabaseTest = 'Admin client initialization failed';
+      }
+    } catch (e: any) {
+      supabaseTest = `Crash: ${e.message}`;
+    }
+  }
+
   res.json({
-    has_supabase_url: !!process.env.VITE_SUPABASE_URL,
-    has_supabase_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    has_firebase: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-    node_env: process.env.NODE_ENV,
-    firebase_len: (process.env.FIREBASE_SERVICE_ACCOUNT || '').length
+    supabase_connected: supabaseTest,
+    supabase_url_exists: su,
+    supabase_key_exists: sk,
+    firebase_sa_provided: !!sa,
+    firebase_sa_len: sa.length,
+    node_version: process.version,
+    env: process.env.NODE_ENV,
+    time: new Date().toISOString()
   });
 });
 
@@ -54,7 +77,12 @@ const getSupabaseAdmin = () => {
     return null;
   }
   try {
-    supabaseAdminInstance = createClient(url, key);
+    supabaseAdminInstance = createClient(url, key, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
     console.log('✅ Supabase Admin client initialized');
     return supabaseAdminInstance;
   } catch (err) {
@@ -65,11 +93,14 @@ const getSupabaseAdmin = () => {
 
 // Lazy Initialization for Firebase Admin
 let firebaseAdminApp: admin.app.App | null = null;
+let lastFirebaseError: string | null = null;
+
 const getFirebaseAdmin = (): admin.app.App | null => {
   if (firebaseAdminApp) return firebaseAdminApp;
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!serviceAccount || serviceAccount === 'undefined' || serviceAccount.trim() === '') {
+      lastFirebaseError = 'FIREBASE_SERVICE_ACCOUNT is missing or empty';
       return null;
     }
 
@@ -77,11 +108,25 @@ const getFirebaseAdmin = (): admin.app.App | null => {
     if (!cleanVal.startsWith('{')) {
       try {
         const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
-        if (decoded.startsWith('{')) cleanVal = decoded;
-      } catch (e) {}
+        if (decoded.trim().startsWith('{')) cleanVal = decoded.trim();
+      } catch (e) {
+        console.error('⚠️ Firebase Admin: Base64 decode failed');
+      }
     }
     
+    if (!cleanVal.startsWith('{')) {
+      lastFirebaseError = 'Service Account string is not JSON';
+      console.error('⚠️ Firebase Admin:', lastFirebaseError);
+      return null;
+    }
+
     const parsedAccount = JSON.parse(cleanVal);
+    if (!parsedAccount.project_id || !parsedAccount.private_key) {
+      lastFirebaseError = 'JSON missing project_id or private_key';
+      console.error('⚠️ Firebase Admin:', lastFirebaseError);
+      return null;
+    }
+
     const apps = admin.apps || [];
     
     if (apps.length === 0) {
@@ -94,7 +139,8 @@ const getFirebaseAdmin = (): admin.app.App | null => {
     }
     return firebaseAdminApp;
   } catch (err: any) {
-    console.error('🔥 Firebase Init Error:', err.message);
+    lastFirebaseError = err.message || 'Unknown Init Error';
+    console.error('🔥 Firebase Init Error:', lastFirebaseError);
     return null;
   }
 };
@@ -112,49 +158,69 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
   try {
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
-      console.error('❌ server.ts: Supabase Admin not initialized');
-      return res.status(500).json({ error: 'Server data connection failure' });
+      console.error('❌ server.ts: Supabase Admin client is NULL');
+      return res.status(500).json({ error: 'Database service unavailable' });
     }
 
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'No authorization header' });
+    if (!authHeader) {
+      console.warn('⚠️ adminAuth: No authorization header');
+      return res.status(401).json({ error: 'Authorization required' });
+    }
 
     const token = authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token format invalid' });
+    if (!token) {
+      console.warn('⚠️ adminAuth: Invalid token format in header');
+      return res.status(401).json({ error: 'Token missing' });
+    }
 
-    // Try to get user. If this fails, the token is likely expired or invalid.
+    // Use token to get user
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
     if (authError || !user) {
-      console.warn('⚠️ adminAuth: User session invalid', authError?.message);
-      return res.status(403).json({ error: 'Invalid or expired session' });
+      console.warn('⚠️ adminAuth: Supabase rejection:', authError?.message || 'No user found');
+      return res.status(403).json({ error: 'Session invalid or expired' });
     }
 
     const email = user.email?.toLowerCase();
     
-    // Hardcoded safety fallback
+    // 1. Hardcoded super-admin check
     if (email === 'gabrielchendes@gmail.com') {
+      console.log(`✅ adminAuth: Super-admin access granted to ${email}`);
       (req as any).user = user;
       return next();
     }
 
-    // Dynamic admin check
-    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
-    const adminEmail = settings?.admin_email?.toLowerCase();
-    
-    if (email && email === adminEmail) {
-      (req as any).user = user;
-      return next();
+    // 2. Database check for other admins
+    try {
+      const { data: settings, error: settingsError } = await supabaseAdmin
+        .from('app_settings')
+        .select('admin_email')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (settingsError) {
+        console.error('❌ adminAuth: Error fetching settings:', settingsError);
+      }
+
+      const adminEmail = settings?.admin_email?.toLowerCase();
+      
+      if (email && adminEmail && email === adminEmail) {
+        console.log(`✅ adminAuth: Admin access granted to ${email}`);
+        (req as any).user = user;
+        return next();
+      }
+    } catch (e) {
+      console.error('❌ adminAuth: Settings check crash:', e);
     }
 
-    console.warn(`🛑 adminAuth: Unauthorized access attempt by ${email}`);
-    res.status(403).json({ error: 'You do not have administrative privileges' });
+    console.warn(`🛑 adminAuth: Access denied for ${email}`);
+    res.status(403).json({ error: 'Administrative privileges required' });
   } catch (err: any) { 
-    console.error('🔥 adminAuth CRASH:', err);
+    console.error('🔥 adminAuth FATAL EXCEPTION:', err);
     res.status(500).json({ 
-      error: 'Internal Authorization Error', 
-      details: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      error: 'Authorization service failure', 
+      details: err.message
     }); 
   }
 };
@@ -202,12 +268,27 @@ app.post('/api/external/grant-access', async (req, res) => {
   res.status(400).json({ error: 'Missing data' });
 });
 
-app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
+// Status Route (Public)
+app.get(`${API_PREFIX}/public-status`, async (req, res) => {
   const fApp = getFirebaseAdmin();
+  const sApp = getSupabaseAdmin();
+  const sa = process.env.FIREBASE_SERVICE_ACCOUNT || '';
+  
   res.json({ 
-    initialized: !!fApp,
-    hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-    appsCount: (admin.apps || []).length
+    firebase: {
+      initialized: !!fApp,
+      hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+      saLength: sa.length,
+      appsCount: (admin.apps || []).length,
+      lastError: lastFirebaseError
+    },
+    supabase: {
+      initialized: !!sApp,
+      hasUrl: !!process.env.VITE_SUPABASE_URL,
+      hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    },
+    node: process.version,
+    env: process.env.NODE_ENV
   });
 });
 
@@ -451,7 +532,7 @@ app.post(`${API_PREFIX}/user-password-set`, adminAuth, async (req, res) => {
 app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
   const { token, topic } = req.body;
   const fApp = getFirebaseAdmin();
-  if (!token || !topic || !fApp) return res.status(400).json({ error: 'Missing data or Firebase not ready' });
+  if (!token || !topic || !fApp) return res.status(400).json({ error: 'Messaging not available', detail: lastFirebaseError });
   try {
     const messaging = fApp.messaging();
     await messaging.subscribeToTopic(token, topic);
@@ -483,7 +564,7 @@ app.post(`${API_PREFIX}/msg-all`, adminAuth, async (req, res) => {
 app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
   const { title, body } = req.body;
   const fApp = getFirebaseAdmin();
-  if (!title || !body || !fApp) return res.status(400).json({ error: 'Missing data or Firebase not ready' });
+  if (!title || !body || !fApp) return res.status(400).json({ error: 'Messaging not available', detail: lastFirebaseError });
   try {
     const messaging = fApp.messaging();
     const resp = await messaging.send({
