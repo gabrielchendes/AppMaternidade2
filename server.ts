@@ -3,7 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import admin from 'firebase-admin';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -92,10 +93,10 @@ const getSupabaseAdmin = () => {
 };
 
 // Lazy Initialization for Firebase Admin
-let firebaseAdminApp: admin.app.App | null = null;
+let firebaseAdminApp: any = null;
 let lastFirebaseError: string | null = null;
 
-const getFirebaseAdmin = (): admin.app.App | null => {
+const getFirebaseAdmin = (): any => {
   if (firebaseAdminApp) return firebaseAdminApp;
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -105,6 +106,7 @@ const getFirebaseAdmin = (): admin.app.App | null => {
     }
 
     let cleanVal = serviceAccount.trim();
+
     if (!cleanVal.startsWith('{')) {
       try {
         const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
@@ -121,17 +123,22 @@ const getFirebaseAdmin = (): admin.app.App | null => {
     }
 
     const parsedAccount = JSON.parse(cleanVal);
+    // Fix for private key newlines
+    if (parsedAccount.private_key) {
+      parsedAccount.private_key = parsedAccount.private_key.replace(/\\n/g, '\n');
+    }
+
     if (!parsedAccount.project_id || !parsedAccount.private_key) {
       lastFirebaseError = 'JSON missing project_id or private_key';
       console.error('⚠️ Firebase Admin:', lastFirebaseError);
       return null;
     }
 
-    const apps = admin.apps || [];
+    const apps = getApps();
     
     if (apps.length === 0) {
-      firebaseAdminApp = admin.initializeApp({
-        credential: admin.credential.cert(parsedAccount)
+      firebaseAdminApp = initializeApp({
+        credential: cert(parsedAccount)
       });
       console.log('✅ Firebase Admin initialized');
     } else {
@@ -156,6 +163,7 @@ app.use((req, res, next) => {
 
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
+    console.log(`🔐 adminAuth attempt: ${req.method} ${req.path}`);
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       console.error('❌ server.ts: Supabase Admin client is NULL');
@@ -175,6 +183,7 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
     }
 
     // Use token to get user
+    console.log('🔎 adminAuth: Verifying token with Supabase...');
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
     if (authError || !user) {
@@ -183,6 +192,8 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
     }
 
     const email = user.email?.toLowerCase();
+    const userId = user.id;
+    console.log(`👤 adminAuth: Authenticated user ${email} (${userId})`);
     
     // 1. Hardcoded super-admin check
     if (email === 'gabrielchendes@gmail.com') {
@@ -193,6 +204,7 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
 
     // 2. Database check for other admins
     try {
+      console.log('🔎 adminAuth: Checking database for admin privileges...');
       const { data: settings, error: settingsError } = await supabaseAdmin
         .from('app_settings')
         .select('admin_email')
@@ -220,7 +232,8 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
     console.error('🔥 adminAuth FATAL EXCEPTION:', err);
     res.status(500).json({ 
       error: 'Authorization service failure', 
-      details: err.message
+      details: err.message,
+      stack: err.stack
     }); 
   }
 };
@@ -279,7 +292,7 @@ app.get(`${API_PREFIX}/public-status`, async (req, res) => {
       initialized: !!fApp,
       hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
       saLength: sa.length,
-      appsCount: (admin.apps || []).length,
+      appsCount: getApps().length,
       lastError: lastFirebaseError
     },
     supabase: {
@@ -289,6 +302,16 @@ app.get(`${API_PREFIX}/public-status`, async (req, res) => {
     },
     node: process.version,
     env: process.env.NODE_ENV
+  });
+});
+
+app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
+  const fApp = getFirebaseAdmin();
+  res.json({ 
+    initialized: !!fApp,
+    hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+    appsCount: getApps().length,
+    lastError: lastFirebaseError
   });
 });
 
@@ -343,7 +366,7 @@ app.post(`${API_PREFIX}/notification-push`, adminAuth, async (req, res) => {
 
     let pushMessageId = null;
     if ((type === 'push' || type === 'both') && firebaseAdminApp) {
-      const messaging = firebaseAdminApp.messaging();
+      const messaging = getMessaging(firebaseAdminApp);
       if (!isBroadcast && targetUserIds.length > 0) {
         const tokens: string[] = [];
         for (let i = 0; i < targetUserIds.length; i += 1000) {
@@ -534,7 +557,7 @@ app.post(`${API_PREFIX}/sub-topic`, async (req, res) => {
   const fApp = getFirebaseAdmin();
   if (!token || !topic || !fApp) return res.status(400).json({ error: 'Messaging not available', detail: lastFirebaseError });
   try {
-    const messaging = fApp.messaging();
+    const messaging = getMessaging(fApp);
     await messaging.subscribeToTopic(token, topic);
     res.json({ success: true });
   } catch (err: any) {
@@ -566,7 +589,7 @@ app.post(`${API_PREFIX}/msg-out`, adminAuth, async (req, res) => {
   const fApp = getFirebaseAdmin();
   if (!title || !body || !fApp) return res.status(400).json({ error: 'Messaging not available', detail: lastFirebaseError });
   try {
-    const messaging = fApp.messaging();
+    const messaging = getMessaging(fApp);
     const resp = await messaging.send({
       topic: 'all', notification: { title, body },
       webpush: { fcmOptions: { link: '/' }, notification: { icon: '/firebase-logo.svg', badge: '/firebase-logo.svg' } }
