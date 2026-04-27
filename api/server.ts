@@ -102,27 +102,37 @@ const getFirebaseAdmin = (): any => {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!serviceAccount || serviceAccount === 'undefined' || serviceAccount.trim() === '') {
       lastFirebaseError = 'FIREBASE_SERVICE_ACCOUNT is missing or empty';
+      console.warn('⚠️ Firebase Admin:', lastFirebaseError);
       return null;
     }
 
     let cleanVal = serviceAccount.trim();
+    console.log(`🔎 Firebase Admin: Parsing service account (length: ${cleanVal.length})`);
 
     if (!cleanVal.startsWith('{')) {
       try {
+        console.log('🔎 Firebase Admin: Attempting base64 decode...');
         const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
-        if (decoded.trim().startsWith('{')) cleanVal = decoded.trim();
-      } catch (e) {
-        console.error('⚠️ Firebase Admin: Base64 decode failed');
+        if (decoded.trim().startsWith('{')) {
+          cleanVal = decoded.trim();
+          console.log('✅ Firebase Admin: Base64 decode success');
+        } else {
+          console.error('❌ Firebase Admin: Decoded string is not JSON');
+        }
+      } catch (e: any) {
+        console.error('❌ Firebase Admin: Base64 decode crash:', e.message);
       }
     }
     
     if (!cleanVal.startsWith('{')) {
-      lastFirebaseError = 'Service Account string is not JSON';
+      lastFirebaseError = 'Service Account string is not valid JSON';
       console.error('⚠️ Firebase Admin:', lastFirebaseError);
       return null;
     }
 
     const parsedAccount = JSON.parse(cleanVal);
+    console.log('✅ Firebase Admin: JSON parse success');
+
     // Fix for private key newlines
     if (parsedAccount.private_key) {
       parsedAccount.private_key = parsedAccount.private_key.replace(/\\n/g, '\n');
@@ -649,11 +659,13 @@ const startServer = async () => {
       }
     }
     
-    if (!process.env.VERCEL) {
+    if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
       const PORT = 3000;
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`✅ Server running on http://localhost:${PORT}`);
       });
+    } else {
+      console.log('🚀 Server running in Serverless Mode (Vercel)');
     }
   } catch (err) {
     console.error('🔥 CRITICAL FAILURE in startServer:', err);
