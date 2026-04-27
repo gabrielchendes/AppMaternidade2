@@ -102,25 +102,19 @@ const getFirebaseAdmin = (): any => {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!serviceAccount || serviceAccount === 'undefined' || serviceAccount.trim() === '') {
       lastFirebaseError = 'FIREBASE_SERVICE_ACCOUNT is missing or empty';
-      console.warn('⚠️ Firebase Admin:', lastFirebaseError);
       return null;
     }
 
     let cleanVal = serviceAccount.trim();
-    console.log(`🔎 Firebase Admin: Parsing service account (length: ${cleanVal.length})`);
 
     if (!cleanVal.startsWith('{')) {
       try {
-        console.log('🔎 Firebase Admin: Attempting base64 decode...');
         const decoded = Buffer.from(cleanVal, 'base64').toString('utf-8');
         if (decoded.trim().startsWith('{')) {
           cleanVal = decoded.trim();
-          console.log('✅ Firebase Admin: Base64 decode success');
-        } else {
-          console.error('❌ Firebase Admin: Decoded string is not JSON');
         }
       } catch (e: any) {
-        console.error('❌ Firebase Admin: Base64 decode crash:', e.message);
+        console.error('❌ Firebase Admin: Base64 decode failed');
       }
     }
     
@@ -131,7 +125,6 @@ const getFirebaseAdmin = (): any => {
     }
 
     const parsedAccount = JSON.parse(cleanVal);
-    console.log('✅ Firebase Admin: JSON parse success');
 
     // Fix for private key newlines
     if (parsedAccount.private_key) {
@@ -173,7 +166,6 @@ app.use((req, res, next) => {
 
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
-    console.log(`🔐 adminAuth attempt: ${req.method} ${req.path}`);
     const supabaseAdmin = getSupabaseAdmin();
     if (!supabaseAdmin) {
       console.error('❌ server.ts: Supabase Admin client is NULL');
@@ -182,18 +174,15 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
 
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-      console.warn('⚠️ adminAuth: No authorization header');
       return res.status(401).json({ error: 'Authorization required' });
     }
 
     const token = authHeader.split(' ')[1];
     if (!token) {
-      console.warn('⚠️ adminAuth: Invalid token format in header');
       return res.status(401).json({ error: 'Token missing' });
     }
 
     // Use token to get user
-    console.log('🔎 adminAuth: Verifying token with Supabase...');
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
     if (authError || !user) {
@@ -202,19 +191,15 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
     }
 
     const email = user.email?.toLowerCase();
-    const userId = user.id;
-    console.log(`👤 adminAuth: Authenticated user ${email} (${userId})`);
     
     // 1. Hardcoded super-admin check
     if (email === 'gabrielchendes@gmail.com') {
-      console.log(`✅ adminAuth: Super-admin access granted to ${email}`);
       (req as any).user = user;
       return next();
     }
 
     // 2. Database check for other admins
     try {
-      console.log('🔎 adminAuth: Checking database for admin privileges...');
       const { data: settings, error: settingsError } = await supabaseAdmin
         .from('app_settings')
         .select('admin_email')
@@ -228,7 +213,6 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
       const adminEmail = settings?.admin_email?.toLowerCase();
       
       if (email && adminEmail && email === adminEmail) {
-        console.log(`✅ adminAuth: Admin access granted to ${email}`);
         (req as any).user = user;
         return next();
       }
@@ -320,8 +304,7 @@ app.get(`${API_PREFIX}/info`, adminAuth, async (req, res) => {
   res.json({ 
     initialized: !!fApp,
     hasServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-    appsCount: getApps().length,
-    lastError: lastFirebaseError
+    appsCount: getApps().length
   });
 });
 
@@ -664,8 +647,6 @@ const startServer = async () => {
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`✅ Server running on http://localhost:${PORT}`);
       });
-    } else {
-      console.log('🚀 Server running in Serverless Mode (Vercel)');
     }
   } catch (err) {
     console.error('🔥 CRITICAL FAILURE in startServer:', err);
