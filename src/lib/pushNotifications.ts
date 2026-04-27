@@ -36,97 +36,77 @@ async function getMessagingInstance() {
 }
 
 /**
- * Requests permission for push notifications and saves the token to Supabase
+ * Requests permission for push notifications and handles the background registration
  */
 export async function requestNotificationPermission(userId: string) {
-  const messaging = await getMessagingInstance();
-  
-  if (!messaging) {
-    console.log('Firebase Messaging not available.');
-    return false;
-  }
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
 
   try {
-    console.log('🔔 Notification Setup - User:', userId);
-    
     let permission = Notification.permission;
     
     // If permission is not already granted, request it
     if (permission === 'default') {
-      console.log('🔔 Requesting permission via browser dialog...');
       try {
         permission = await Notification.requestPermission();
       } catch (err) {
-        console.error('❌ Notification.requestPermission() failed:', err);
-        // Fallback for older browsers
         permission = await new Promise((resolve) => {
           Notification.requestPermission((p) => resolve(p));
         });
       }
     }
 
-    console.log('🔔 Final permission status:', permission);
-    
     if (permission === 'granted') {
-      console.log('🔔 Permission granted, obtaining token...');
-      
-      // Register service worker manually to ensure it's pointing to the right file
-      let registration;
-      try {
-        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-        console.log('👷 Service Worker registered for Messaging:', registration.scope);
-      } catch (swError) {
-        console.error('❌ Service Worker registration failed:', swError);
+      // Do the registration in the background without blocking the UI
+      const messaging = await getMessagingInstance();
+      if (messaging) {
+        setupPushInBackground(userId, messaging);
       }
-
-      // Get token
-      const token = await getToken(messaging, {
-        vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ',
-        serviceWorkerRegistration: registration
-      });
-
-      if (token) {
-        console.log('🔑 Push Token generated:', token);
-        
-        // 1. Subscribe to the 'all' topic via backend
-        try {
-          await fetch('/api/v1/sub-topic', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, topic: 'all' })
-          });
-          console.log('📡 Subscribed to "all" topic');
-        } catch (e) {
-          console.error('❌ Failed to subscribe to topic:', e);
-        }
-
-        // 2. Fallback: Save to Supabase (only as a backup)
-        try {
-          // Use insert and ignore 409 Conflict error
-          await supabase.from('push_tokens').insert({
-            user_id: userId,
-            token: token
-          });
-          console.log('✅ Token saved to Supabase');
-        } catch (dbErr: any) {
-          if (dbErr.code === '23505' || dbErr.status === 409) {
-            console.log('ℹ️ Token already registered');
-          } else {
-            console.error('❌ Failed to save token to Supabase:', dbErr);
-          }
-        }
-
-        return true;
-      } else {
-        console.warn('⚠️ No token returned from Firebase');
-      }
-    } else {
-      console.warn('⚠️ Notification permission was denied or dismissed');
+      return true;
     }
   } catch (error) {
-    console.error('❌ Fatal error in push notification setup:', error);
+    console.error('❌ Error requesting permission:', error);
   }
   return false;
+}
+
+/**
+ * Handles the heavy lifting of registration in the background
+ */
+async function setupPushInBackground(userId: string, messaging: any) {
+  try {
+    // Register service worker
+    let registration;
+    try {
+      registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    } catch (swError) {
+      console.error('❌ Service Worker registration failed:', swError);
+    }
+
+    // Get token
+    const token = await getToken(messaging, {
+      vapidKey: 'BGNNXxZmddn3ZCpHjQKCGBy4rGlsyC-e2CNhYb-j5pfeXXHhmrTEGLk3L6r-7PMNNHVdYwNhyJBpzMvRg7LjTfQ',
+      serviceWorkerRegistration: registration
+    });
+
+    if (token) {
+      // 1. Subscribe to topic
+      fetch('/api/v1/sub-topic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, topic: 'all' })
+      }).catch(e => console.error('❌ Failed to subscribe to topic:', e));
+
+      // 2. Save to Supabase
+      supabase.from('push_tokens').insert({
+        user_id: userId,
+        token: token
+      }).then(({ error }) => {
+        if (!error) console.log('✅ Token saved to Supabase');
+      }).catch(e => console.error('❌ Supabase error:', e));
+    }
+  } catch (error) {
+    console.error('❌ Background push setup failed:', error);
+  }
 }
 
 /**

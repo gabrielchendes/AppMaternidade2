@@ -463,7 +463,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
 
   return (
     <div className="fixed inset-0 bg-bg-main z-[200] flex flex-col text-white font-sans overflow-hidden">
-      <header className="h-16 sm:h-20 border-b border-white/5 flex items-center justify-between px-6 bg-black/80 backdrop-blur-2xl shrink-0 z-50">
+      <header className="h-14 sm:h-20 border-b border-white/5 flex items-center justify-between px-4 sm:px-6 bg-black/80 backdrop-blur-2xl shrink-0 z-50">
         <div className="flex items-center">
           <button 
             onClick={viewMode === 'player' && chapters.length > 1 ? () => setViewMode('grid') : onClose} 
@@ -474,17 +474,17 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           </button>
         </div>
 
-        <div className="flex-1 max-w-sm mx-auto flex flex-col gap-2">
+        <div className="flex-1 max-w-[180px] sm:max-w-sm mx-auto flex flex-col gap-1 sm:gap-2">
           <div className="flex items-center justify-between">
-             <span className="text-[10px] font-black text-white/40 uppercase tracking-widest leading-none">
+             <span className="text-[9px] sm:text-[10px] font-black text-white/40 uppercase tracking-widest leading-none">
                 {completedChaptersCount} / {chapters.length} {t('course.lessons') || 'Aulas'}
               </span>
-              <span className={`text-xs font-black italic leading-none ${
+              <span className={`text-[10px] sm:text-xs font-black italic leading-none ${
                 calculateProgress() === 100 ? 'text-green-500' : 
                 calculateProgress() === 0 ? 'text-yellow-500' : 'text-blue-500'
               }`}>{calculateProgress()}%</span>
           </div>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
+          <div className="h-1 sm:h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
             <motion.div 
                initial={{ width: 0 }}
                animate={{ width: `${calculateProgress()}%` }}
@@ -601,8 +601,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                               </div>
                             </div>
                             
-                            <div className="space-y-1.5 px-2">
-                              <div className="flex items-center gap-2 mb-1">
+                            <div className="space-y-0.5 px-2">
+                              <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] italic leading-none">
                                   {chapter.content_type === 'video' ? 'Videoaula' : chapter.content_type === 'pdf' ? 'Material PDF' : 'Leitura'}
                                 </span>

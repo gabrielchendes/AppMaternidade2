@@ -34,9 +34,10 @@ export default function NotificationBell({ user }: NotificationBellProps) {
   useEffect(() => {
     fetchNotifications();
 
-    // Real-time subscription
+    // Real-time subscription - use a unique name for each instance to avoid collisions
+    const channelId = Math.random().toString(36).substring(2, 9);
     const channel = supabase
-      .channel('user_notifications')
+      .channel(`user_notifications_${channelId}`)
       .on(
         'postgres_changes',
         { 

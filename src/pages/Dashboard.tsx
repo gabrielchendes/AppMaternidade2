@@ -79,7 +79,20 @@ export default function Dashboard({ user }: DashboardProps) {
   const [loading, setLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (['home', 'profile', 'community', 'admin'].includes(hash)) {
+      return hash as any;
+    }
+    return 'home';
+  });
+
+  useEffect(() => {
+    // Only update hash if it's not already correct to avoid unnecessary history changes
+    if (window.location.hash !== `#${activeTab}`) {
+      window.history.replaceState(null, '', `#${activeTab}`);
+    }
+  }, [activeTab]);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPWAInstall, setShowPWAInstall] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -136,7 +149,7 @@ export default function Dashboard({ user }: DashboardProps) {
         const dismissed = localStorage.getItem(`push_modal_dismissed_${user.id}`);
         if (!dismissed) {
           // Delay slightly to ensure smooth entrance
-          setTimeout(() => setShowWelcomeModal(true), 1500);
+          setTimeout(() => setShowWelcomeModal(true), 500);
         }
       }
     };
@@ -314,24 +327,24 @@ export default function Dashboard({ user }: DashboardProps) {
                   <Bell className="text-primary animate-pulse" size={36} />
                 </div>
                 <h3 className="text-2xl font-black text-white uppercase tracking-tighter italic mb-4">
-                  {t('push.title') || 'Avisos Importantes!'}
+                  {settings.custom_texts?.['push.title'] || t('push.title') || 'Avisos Importantes!'}
                 </h3>
                 <p className="text-gray-400 text-sm mb-10 leading-relaxed font-medium">
-                  {t('push.description') || 'Deseja receber avisos de novas aulas, materiais e comunicados importantes diretamente no seu celular?'}
+                  {settings.custom_texts?.['push.description'] || t('push.description') || 'Deseja receber avisos de novas aulas, materiais e comunicados importantes diretamente no seu celular?'}
                 </p>
                 <div className="flex flex-col gap-4">
                   <button 
                     onClick={async () => {
-                      const granted = await requestNotificationPermission(user.id);
                       localStorage.setItem(`push_modal_dismissed_${user.id}`, 'true');
                       setShowWelcomeModal(false);
+                      const granted = await requestNotificationPermission(user.id);
                       if (granted) {
-                        toast.success(t('push.success') || 'Notificações ativadas com sucesso!');
+                        toast.success(settings.custom_texts?.['push.success'] || t('push.success') || 'Notificações ativadas com sucesso!');
                       }
                     }}
                     className="w-full bg-primary hover:bg-primary-hover text-white font-black py-5 rounded-2xl shadow-2xl shadow-primary/30 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase italic"
                   >
-                    {t('push.allow') || 'Ativar Notificações'}
+                    {settings.custom_texts?.['push.allow'] || t('push.allow') || 'Ativar Notificações'}
                   </button>
                   <button 
                     onClick={() => {
@@ -340,7 +353,7 @@ export default function Dashboard({ user }: DashboardProps) {
                     }}
                     className="w-full py-3 text-[10px] text-gray-600 font-bold uppercase tracking-[0.3em] hover:text-white transition-colors"
                   >
-                    {t('push.deny') || 'Agora não'}
+                    {settings.custom_texts?.['push.deny'] || t('push.deny') || 'Agora não'}
                   </button>
                 </div>
               </div>
@@ -349,37 +362,16 @@ export default function Dashboard({ user }: DashboardProps) {
         )}
       </AnimatePresence>
 
-      <Navbar user={user} activeTab={activeTab} onTabChange={setActiveTab} />
+      <Navbar 
+        user={user} 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab} 
+        canInstall={canInstall}
+        onInstall={() => setShowPWAInstall(true)}
+      />
 
       {activeTab === 'home' ? (
         <>
-          {/* PWA Install Button for Mobile */}
-          {(getDeviceType() !== 'desktop') && canInstall && (
-            <div className="px-6 pt-24 -mb-16 relative z-[20]">
-              <button 
-                onClick={() => setShowPWAInstall(true)}
-                className="w-full flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl group active:scale-[0.98] transition-all"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <Smartphone size={24} />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-[10px] font-black text-primary uppercase tracking-widest italic leading-none mb-1">
-                      {settings.custom_texts?.['pwa.install_teaser'] || 'Experiência Premium'}
-                    </div>
-                    <div className="text-xs font-bold text-white uppercase tracking-tight">
-                      {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || 'INSTALAR APLICATIVO'}
-                    </div>
-                  </div>
-                </div>
-                <div className="w-8 h-8 rounded-full border border-primary/20 flex items-center justify-center text-primary">
-                  <Play size={12} className="ml-0.5" />
-                </div>
-              </button>
-            </div>
-          )}
-
           {/* Banner Section */}
           <div className="w-full pb-8">
             <BannerCarousel 

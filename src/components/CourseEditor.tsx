@@ -258,7 +258,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose }: Cou
     return (value / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   };
 
-  if (loading) return <div className="fixed inset-0 bg-bg-main flex items-center justify-center z-50"><Loader2 className="animate-spin text-blue-500" size={48} /></div>;
+  if (loading) return <div className="fixed inset-0 bg-bg-main flex items-center justify-center z-50"><Loader2 className="animate-spin text-primary" size={48} /></div>;
 
   return (
     <div className="fixed inset-0 bg-bg-main z-50 flex flex-col pt-safe animate-in fade-in duration-300">

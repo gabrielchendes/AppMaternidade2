@@ -184,7 +184,7 @@ export default function PWAInstallModal({ isOpen, onClose, onInstall }: PWAInsta
                         }
                       }}
                       className={`h-1.5 rounded-full transition-all duration-500 ${
-                        currentSlide === idx ? 'bg-primary w-6 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'bg-white/20 w-1.5'
+                        currentSlide === idx ? 'bg-primary w-6 shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]' : 'bg-white/20 w-1.5'
                       }`}
                     />
                   ))}

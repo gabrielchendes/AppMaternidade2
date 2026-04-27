@@ -36,6 +36,7 @@ export interface AppSettings {
   support_email_course_enabled: boolean;
   support_whatsapp_floating_course_enabled: boolean;
   login_display_type: 'title' | 'logo' | 'both';
+  login_install_button_pulsing: boolean;
   custom_texts: { [key: string]: string };
   banner_images: string[];
   banner_interval: number;
@@ -46,8 +47,8 @@ const defaultSettings: AppSettings = {
   app_name: 'AppMaternidade',
   admin_email: 'gabrielchendes@gmail.com',
   app_description: 'Acesse sua área exclusiva',
-  primary_color: '#ec4899',
-  secondary_color: '#be185d',
+  primary_color: '#ef4444',
+  secondary_color: '#dc2626',
   background_color: '#0f0f0f',
   logo_url: null,
   favicon_url: null,
@@ -77,6 +78,7 @@ const defaultSettings: AppSettings = {
   support_email_course_enabled: true,
   support_whatsapp_floating_course_enabled: true,
   login_display_type: 'title',
+  login_install_button_pulsing: true,
   custom_texts: {
     'auth.welcome': 'Bem-vinda de volta!',
     'auth.subtitle': 'Acesse sua área exclusiva para mamães',
@@ -157,6 +159,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.style.setProperty('--primary', s.primary_color);
     document.documentElement.style.setProperty('--primary-hover', s.secondary_color);
     document.documentElement.style.setProperty('--bg-main', s.background_color || '#0f0f0f');
+    
+    // Also update RGB for shadows
+    const r = parseInt(s.primary_color.slice(1, 3), 16);
+    const g = parseInt(s.primary_color.slice(3, 5), 16);
+    const b = parseInt(s.primary_color.slice(5, 7), 16);
+    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+      document.documentElement.style.setProperty('--primary-rgb', `${r}, ${g}, ${b}`);
+    }
     
     // Update title
     document.title = s.app_name;

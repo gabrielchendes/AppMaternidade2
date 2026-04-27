@@ -41,12 +41,12 @@ const ProductCard = memo(({ product, isUnlocked, progress, stats, onOpen }: Prod
       </div>
 
       {/* Info Content Section (Below the image) */}
-      <div className="p-3 flex flex-col gap-2 flex-grow bg-zinc-900/50">
-        <h3 className="font-bold text-[12px] sm:text-base text-zinc-100 leading-tight line-clamp-2 min-h-[2.4rem]">
+      <div className="p-3 flex flex-col gap-1 flex-grow bg-zinc-900/50">
+        <h3 className="font-bold text-[12px] sm:text-base text-zinc-100 leading-tight line-clamp-2">
           {product.title}
         </h3>
         
-        <div className="mt-auto pt-1 space-y-2">
+        <div className="space-y-1.5">
           {isUnlocked ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-1">

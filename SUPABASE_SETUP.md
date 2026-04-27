@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     admin_email TEXT DEFAULT 'gabrielchendes@gmail.com',
     app_name TEXT DEFAULT 'Maternidade Premium',
     app_description TEXT DEFAULT 'Sua jornada na maternidade começa aqui.',
-    primary_color TEXT DEFAULT '#ec4899',
-    secondary_color TEXT DEFAULT '#be185d',
+    primary_color TEXT DEFAULT '#ef4444',
+    secondary_color TEXT DEFAULT '#dc2626',
     background_color TEXT DEFAULT '#0f0f0f',
     logo_url TEXT,
     favicon_url TEXT,
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     support_email_course_enabled BOOLEAN DEFAULT true,
     support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true,
     login_display_type TEXT DEFAULT 'title',
+    login_install_button_pulsing BOOLEAN DEFAULT true,
     custom_texts JSONB DEFAULT '{
         "auth.welcome": "Bem-vinda de volta!",
         "auth.subtitle": "Acesse sua área exclusiva para mamães",
@@ -397,7 +398,7 @@ CREATE TRIGGER on_post_comment AFTER INSERT OR DELETE ON public.post_comments FO
 
 -- Inserir tenant padrão
 INSERT INTO public.tenants (name, subdomain, primary_color)
-VALUES ('Maternidade Premium', 'app', '#ec4899')
+VALUES ('Maternidade Premium', 'app', '#ef4444')
 ON CONFLICT (subdomain) DO NOTHING;
 
 -- Inserir configurações iniciais
@@ -420,4 +421,8 @@ INSERT INTO storage.buckets (id, name, public) VALUES ('course_covers', 'course_
 CREATE POLICY "Qualquer um pode ver conteúdo de cursos" ON storage.objects FOR SELECT USING (bucket_id IN ('course_content', 'course_covers'));
 CREATE POLICY "Apenas admin pode fazer upload" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
 CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
+
+-- ATUALIZAÇÃO: Adicionar coluna login_install_button_pulsing
+-- Execute este comando se você já tiver a tabela app_settings
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
 ```

@@ -77,8 +77,9 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     fetchPosts();
     fetchUserLikes();
 
+    const channelId = Math.random().toString(36).substring(2, 9);
     const channel = supabase
-      .channel('community_changes')
+      .channel(`community_changes_${channelId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'community_posts' },

@@ -907,7 +907,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="animate-spin text-blue-500" size={48} />
+              <Loader2 className="animate-spin text-primary" size={48} />
             </div>
           ) : (
             <AnimatePresence mode="wait">
@@ -2035,6 +2035,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   app_name: localSettings.app_name,
                                   app_description: localSettings.app_description,
                                   login_display_type: localSettings.login_display_type,
+                                  login_install_button_pulsing: localSettings.login_install_button_pulsing !== false,
                                   logo_url: localSettings.logo_url,
                                   favicon_url: localSettings.favicon_url,
                                   primary_color: localSettings.primary_color,
@@ -2110,16 +2111,33 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 </div>
                               </div>
 
+                              <div className="space-y-2 pt-2 border-t border-white/5">
+                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Estilo Botão Instalar</label>
+                                <div className="flex p-1 bg-black rounded-xl border border-white/10 font-sans">
+                                  <button 
+                                    onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: true })}
+                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing !== false ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                  >
+                                    PULSANTE
+                                  </button>
+                                  <button 
+                                    onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: false })}
+                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing === false ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                  >
+                                    ESTÁTICO
+                                  </button>
+                                </div>
+                              </div>
+
                               <div className="space-y-4">
                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cor Principal</label>
                                 <div className="flex flex-wrap gap-3 items-center">
                                   {[
-                                    { name: 'Rosa', primary: '#ec4899', secondary: '#be185d' },
+                                    { name: 'Vermelho', primary: '#ef4444', secondary: '#b91c1c' },
                                     { name: 'Azul', primary: '#3b82f6', secondary: '#1d4ed8' },
                                     { name: 'Verde', primary: '#10b981', secondary: '#047857' },
                                     { name: 'Roxo', primary: '#8b5cf6', secondary: '#6d28d9' },
                                     { name: 'Laranja', primary: '#f97316', secondary: '#c2410c' },
-                                    { name: 'Vermelho', primary: '#ef4444', secondary: '#b91c1c' },
                                   ].map((color) => (
                                     <button
                                       key={color.primary}
@@ -2408,7 +2426,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       <div className="space-y-8">
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
                           <div className="flex items-center gap-3">
-                            <div className="p-2 bg-pink-500/20 rounded-lg text-pink-500">
+                            <div className="p-2 bg-primary/20 rounded-lg text-primary">
                               <ShoppingBag size={20} />
                             </div>
                             <h4 className="font-bold text-white">Textos do Dashboard</h4>

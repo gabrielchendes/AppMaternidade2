@@ -140,7 +140,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-        <Loader2 className="animate-spin text-blue-500" size={48} />
+        <Loader2 className="animate-spin text-primary" size={48} />
       </div>
     );
   }

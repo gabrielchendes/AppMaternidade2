@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { User, Lock, Mail, Save, Loader2, Camera, Bell } from 'lucide-react';
+import { User, Lock, Mail, Save, Loader2, Camera, Bell, LogOut } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -33,11 +33,43 @@ export default function Profile({ user }: ProfileProps) {
     tokenGenerated: false
   });
 
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      window.location.href = '/';
+    } catch (error: any) {
+      toast.error('Erro ao sair da conta');
+    }
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      // Step 1: Get session first to ensure it's loaded
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('Session error on mobile:', sessionError);
+        throw new Error(`Sessão indisponível: ${sessionError.message}`);
+      }
+
+      // Step 2: Get user as the primary verification with refresh fallback
+      let { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !currentUser) {
+        console.warn('User missing from session, attempting refresh...');
+        const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshedSession) {
+          currentUser = refreshedSession.user;
+        } else {
+          console.error('Final user verification failure:', userError || refreshError);
+          throw new Error('Auth session missing');
+        }
+      }
+
       // Update Auth metadata
       const fullPhone = `+${countryCode}${phoneBody}`;
       const { error: authError } = await supabase.auth.updateUser({
@@ -52,7 +84,13 @@ export default function Profile({ user }: ProfileProps) {
 
       toast.success(t('profile.update_success') || 'Perfil atualizado com sucesso!');
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao atualizar perfil');
+      console.error('Profile update error:', error);
+      if (error.message?.includes('Auth session missing')) {
+        toast.error('Sessão perdida. Reiniciando...');
+        setTimeout(() => window.location.reload(), 2000);
+      } else {
+        toast.error(error.message || 'Erro ao atualizar perfil');
+      }
     } finally {
       setLoading(false);
     }
@@ -89,14 +127,22 @@ export default function Profile({ user }: ProfileProps) {
       setAvatarUrl(publicUrl);
       
       // Update metadata immediately
-      await supabase.auth.updateUser({
-        data: { avatar_url: publicUrl }
-      });
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser) {
+        await supabase.auth.updateUser({
+          data: { avatar_url: publicUrl }
+        });
+      }
       
       toast.success(t('profile.avatar_success') || 'Foto de perfil atualizada!');
     } catch (error: any) {
       console.error('Error uploading avatar:', error);
-      toast.error('Erro ao enviar foto de perfil');
+      if (error.message?.includes('Auth session missing')) {
+        toast.error('Sessão perdida. Reiniciando...');
+        setTimeout(() => window.location.reload(), 2000);
+      } else {
+        toast.error('Erro ao enviar foto de perfil');
+      }
     } finally {
       setUploading(false);
     }
@@ -356,7 +402,19 @@ export default function Profile({ user }: ProfileProps) {
         </section>
       )}
 
-      <div className="pt-8 border-t border-white/5 text-center">
+      {/* Sair da Conta */}
+      <section className="pt-8 border-t border-white/5">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-red-500 hover:bg-red-500/10 border border-red-500/20 transition-all font-black uppercase tracking-widest text-xs active:scale-95"
+        >
+          <LogOut size={18} />
+          {settings?.custom_texts?.['global.logout'] || t('global.logout') || "Sair da Conta"}
+        </button>
+      </section>
+
+      <div className="text-center opacity-20 text-[10px] uppercase font-black tracking-[0.2em] pt-4 pb-8">
+        {settings?.app_name || 'Maternidade Premium'} • {new Date().getFullYear()}
       </div>
     </div>
   );

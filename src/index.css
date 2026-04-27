@@ -2,9 +2,9 @@
 @import "tailwindcss";
 
 :root {
-  --primary: #3b82f6;
-  --primary-rgb: 59, 130, 246;
-  --primary-hover: #2563eb;
+  --primary: #ef4444;
+  --primary-rgb: 239, 68, 68;
+  --primary-hover: #dc2626;
   --yellow-rgb: 234, 179, 8;
   --green-rgb: 34, 197, 94;
   --bg-main: #0f0f0f;

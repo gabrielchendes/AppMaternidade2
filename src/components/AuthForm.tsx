@@ -71,7 +71,11 @@ export default function AuthForm() {
         }
       }
 
-      toast.success(t('auth.welcome_back'));
+      const isNotFirstLogin = localStorage.getItem(`not_first_login_${email.toLowerCase()}`);
+      if (isNotFirstLogin) {
+        toast.success(t('auth.welcome_back'));
+      }
+      localStorage.setItem(`not_first_login_${email.toLowerCase()}`, 'true');
     } catch (error: any) {
       toast.error(error.message || 'Ocorreu um erro');
     } finally {
@@ -148,7 +152,7 @@ export default function AuthForm() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleInstallClick}
-          className="flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic animate-bounce shadow-lg shadow-primary/20"
+          className={`flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 ${settings.login_install_button_pulsing !== false ? 'animate-bounce' : ''}`}
         >
           <Smartphone size={12} className="group-hover:scale-110 transition-transform" />
           {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || '📲 Instalar App'}

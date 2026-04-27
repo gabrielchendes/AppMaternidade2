@@ -40,7 +40,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
             id: 'default-tenant',
             name: 'Maternidade Premium',
             subdomain: 'app',
-            primary_color: '#ec4899'
+            primary_color: '#ef4444'
           });
         } else {
           setTenant(data);
