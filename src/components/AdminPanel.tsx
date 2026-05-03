@@ -44,6 +44,7 @@ import {
   Shield,
   Smartphone,
   Monitor,
+  Apple,
   ImageOff,
   Home,
   User as UserIcon,
@@ -154,8 +155,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
   const [bannerPreviewMode, setBannerPreviewMode] = useState<'desktop' | 'mobile'>('mobile');
+  const [activeBannerPlatform, setActiveBannerPlatform] = useState<'desktop' | 'mobile'>('desktop');
   const [editingBannerIndex, setEditingBannerIndex] = useState<number>(0);
   const [firebaseStatus, setFirebaseStatus] = useState<{ initialized: boolean, hasServiceAccount: boolean } | null>(null);
+  const [pwaImageInputs, setPwaImageInputs] = useState<Record<string, string>>({});
+  const [showAddPwaImageUrl, setShowAddPwaImageUrl] = useState<{ deviceId: string, currentUrls: string[], updateFn: (urls: string[]) => void } | null>(null);
+  const [pwaUrlInput, setPwaUrlInput] = useState('');
 
   const isAdminAuthorized = user.email?.toLowerCase() === (settings?.admin_email || 'gabrielchendes@gmail.com').toLowerCase();
 
@@ -331,7 +336,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     try {
       if (activeTab === 'users' || activeTab === 'courses' || activeTab === 'vendas' || activeTab === 'packages') {
         const fetchCourses = async () => {
-          console.log('🔎 Query Supabase: courses');
           const { data: coursesData, error: coursesError } = await supabase
             .from('courses')
             .select('*')
@@ -356,7 +360,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         };
 
         const fetchPackages = async () => {
-          console.log('🔎 Query Supabase: course_packages');
           const { data: packagesData, error: packagesError } = await supabase
             .from('course_packages')
             .select('*, package_courses(course_id)')
@@ -370,7 +373,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
         if (activeTab === 'users') {
           const { data: { session } } = await supabase.auth.getSession();
-          console.log('🔎 Chamando API Admin Users');
           const data = await safeFetch('/api/v1/users-list', {
             headers: { 'Authorization': `Bearer ${session?.access_token}` }
           });
@@ -386,7 +388,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
         if (activeTab === 'vendas') {
           const { data: { session } } = await supabase.auth.getSession();
-          console.log('🔎 Chamando API Admin Purchases');
           const data = await safeFetch('/api/v1/purchases-list', {
             headers: { 'Authorization': `Bearer ${session?.access_token}` }
           });
@@ -410,7 +411,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
   const updateSettings = async (newSettings: Partial<any>) => {
     try {
-      console.log('🔎 Query Supabase: app_settings (upsert)');
       const { error } = await supabase
         .from('app_settings')
         .upsert({ id: 1, ...newSettings });
@@ -431,7 +431,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
   const fetchUserPurchases = async (userId: string) => {
     try {
-      console.log('🔎 Query Supabase: purchases (select)');
       const { data, error } = await supabase
         .from('purchases')
         .select('product_id')
@@ -519,7 +518,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setCreatingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('🔎 Chamando API Admin Create User');
       const data = await safeFetch('/api/v1/user-create', {
         method: 'POST',
         headers: {
@@ -556,7 +554,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setDeletingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('🔎 Chamando API Admin Delete User');
       const data = await safeFetch(`/api/v1/user-delete/${userId}`, {
         method: 'DELETE',
         headers: {
@@ -617,7 +614,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setSendingNotification(true);
     try {
       // 1. Get target users
-      console.log('🔎 Query Supabase: profiles (select) for target count');
       let { data: usersToNotify, error: userError } = await supabase.from('profiles').select('id');
       if (userError) throw userError;
 
@@ -723,7 +719,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setUpdatingPassword(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('🔎 Chamando API Admin Update Password');
       const data = await safeFetch('/api/v1/user-password-set', {
         method: 'POST',
         headers: { 
@@ -1770,7 +1765,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           <div className="p-2 bg-purple-600/20 rounded-lg text-purple-500">
                             <Type size={20} />
                           </div>
-                          <h4 className="font-bold text-white">Editor de Textos Brutalista</h4>
+                          <h4 className="font-bold text-white">Editor de Textos</h4>
                         </div>
                         <button 
                           onClick={async () => {
@@ -1790,10 +1785,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {Object.keys(languagePresets.pt).map((key) => (
                            <div key={key} className="space-y-2 bg-black/20 p-4 rounded-xl border border-white/5">
-                             <div className="flex justify-between items-center">
-                               <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{key}</label>
-                               <span className="text-[8px] font-bold text-blue-500 uppercase">Padrão: {languagePresets.pt[key].substring(0, 15)}...</span>
-                             </div>
+                               <div className="flex flex-col space-y-1 mb-1">
+                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{key}</label>
+                                 <span className="text-[9px] font-medium text-blue-500/80 leading-tight">Padrão: {languagePresets.pt[key]}</span>
+                               </div>
                              <textarea 
                                value={draftCustomTexts[key] || settings.custom_texts?.[key] || ''}
                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [key]: e.target.value })}
@@ -1841,6 +1836,104 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               </button>
                             </div>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Global Branding Settings */}
+                      <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-amber-500/20 rounded-lg text-amber-500">
+                            <Palette size={20} />
+                          </div>
+                          <h4 className="font-bold text-white">Identidade Visual Global</h4>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Favicon (URL)</label>
+                            <input 
+                              type="text" 
+                              value={localSettings?.favicon_url || ''}
+                              onChange={(e) => setLocalSettings({ ...localSettings, favicon_url: e.target.value })}
+                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
+                              placeholder="https://exemplo.com/favicon.png"
+                            />
+                            <p className="text-[10px] text-gray-600 mt-1">Este ícone aparecerá na aba do navegador e como ícone do app instalado.</p>
+                          </div>
+
+                          <div className="space-y-4 pt-2 border-t border-white/5">
+                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cores da Plataforma</label>
+                            <div className="flex flex-wrap gap-3 items-center">
+                              {[
+                                { name: 'Vermelho', primary: '#ef4444', secondary: '#b91c1c' },
+                                { name: 'Azul', primary: '#3b82f6', secondary: '#1d4ed8' },
+                                { name: 'Verde', primary: '#10b981', secondary: '#047857' },
+                                { name: 'Roxo', primary: '#8b5cf6', secondary: '#6d28d9' },
+                                { name: 'Laranja', primary: '#f97316', secondary: '#c2410c' },
+                              ].map((color) => (
+                                <button
+                                  key={color.primary}
+                                  onClick={() => setLocalSettings({ 
+                                    ...localSettings, 
+                                    primary_color: color.primary,
+                                    secondary_color: color.secondary
+                                  })}
+                                  className={`w-8 h-8 rounded-lg border-2 transition-all ${localSettings?.primary_color === color.primary ? 'border-white scale-110 shadow-lg' : 'border-transparent hover:scale-105'}`}
+                                  style={{ backgroundColor: color.primary }}
+                                />
+                              ))}
+                              <div className="flex items-center gap-2 ml-2 p-1.5 bg-black/40 rounded-lg border border-white/10">
+                                <Palette size={14} className="text-gray-500" />
+                                <input 
+                                  type="color" 
+                                  value={localSettings?.primary_color || '#3b82f6'}
+                                  onChange={(e) => setLocalSettings({ ...localSettings, primary_color: e.target.value, secondary_color: e.target.value })}
+                                  className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cor de Fundo</label>
+                             <div className="flex flex-wrap gap-2 items-center">
+                               {[
+                                 { name: 'Original', color: '#0f0f0f' },
+                                 { name: 'Black', color: '#000000' },
+                                 { name: 'Dark', color: '#1a1a1a' },
+                                 { name: 'Night', color: '#020617' },
+                                 { name: 'Deep', color: '#0f172a' },
+                               ].map((bg) => (
+                                 <button
+                                   key={bg.color}
+                                   onClick={() => setLocalSettings({ ...localSettings, background_color: bg.color })}
+                                   className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold transition-all ${localSettings?.background_color === bg.color ? 'bg-white text-black border-white' : 'bg-white/5 text-gray-400 border-white/10'}`}
+                                   style={{ backgroundColor: localSettings?.background_color === bg.color ? '#fff' : bg.color }}
+                                 >
+                                   {bg.name}
+                                 </button>
+                               ))}
+                             </div>
+                          </div>
+                      
+                          <button 
+                            onClick={async () => {
+                              setIsSavingSettings(true);
+                              await updateSettings({ 
+                                favicon_url: localSettings.favicon_url,
+                                pwa_icon_url: localSettings.favicon_url,
+                                primary_color: localSettings.primary_color,
+                                secondary_color: localSettings.secondary_color,
+                                background_color: localSettings.background_color
+                              });
+                              setIsSavingSettings(false);
+                            }}
+                            disabled={isSavingSettings}
+                            className="w-full mt-2 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
+                          >
+                            {isSavingSettings ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                            Salvar Identidade Global
+                          </button>
                         </div>
                       </div>
 
@@ -1947,9 +2040,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       <div>
                         <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Edição de Páginas</h3>
                         <p className="text-sm text-gray-500">Personalize o conteúdo e visual de cada página.</p>
-                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mt-2 italic opacity-80">
-                          Editor de Textos Brutalista
-                        </p>
                       </div>
                       <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto">
                         <div className="flex p-1 bg-black rounded-xl border border-white/10 overflow-x-auto w-full sm:w-auto scrollbar-none">
@@ -2005,8 +2095,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <button 
                           onClick={async () => {
                             setIsSavingPages(true);
-                            await updateSettings({ custom_texts: draftCustomTexts });
+                            
+                            // Coleta todas as alterações
+                            const updates: any = { 
+                              custom_texts: {
+                                ...settings.custom_texts,
+                                ...draftCustomTexts
+                              }
+                            };
+
+                            // Se estiver na aba login, inclui configurações específicas
+                            if (activePageTab === 'login') {
+                              updates.app_name = localSettings.app_name;
+                              updates.login_display_type = localSettings.login_display_type;
+                              updates.login_install_button_pulsing = localSettings.login_install_button_pulsing;
+                              updates.logo_url = localSettings.logo_url;
+                              updates.logo_height = localSettings.logo_height;
+                            }
+
+                            await updateSettings(updates);
                             setIsSavingPages(false);
+                            toast.success('Alterações salvas com sucesso!');
                           }}
                           disabled={isSavingPages}
                           className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-lg shadow-green-600/20"
@@ -2016,335 +2125,235 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         </button>
                       </div>
                     </div>
-
-                    {activePageTab === 'login' && (
-                      <div className="space-y-8">
-                        {/* Identidade Visual moved here */}
-                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-amber-500/20 rounded-lg text-amber-500">
-                                <Layout size={20} />
-                              </div>
-                              <h4 className="font-bold text-white">Identidade Visual</h4>
-                            </div>
-                            <button 
-                              onClick={async () => {
-                                setIsSavingSettings(true);
-                                await updateSettings({ 
-                                  app_name: localSettings.app_name,
-                                  app_description: localSettings.app_description,
-                                  login_display_type: localSettings.login_display_type,
-                                  login_install_button_pulsing: localSettings.login_install_button_pulsing !== false,
-                                  logo_url: localSettings.logo_url,
-                                  favicon_url: localSettings.favicon_url,
-                                  primary_color: localSettings.primary_color,
-                                  secondary_color: localSettings.secondary_color,
-                                  background_color: localSettings.background_color,
-                                  pwa_icon_url: localSettings.favicon_url
-                                });
-                                setIsSavingSettings(false);
-                                toast.success('Identidade Visual salva!');
-                              }}
-                              disabled={isSavingSettings}
-                              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
-                            >
-                              {isSavingSettings ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                              Salvar Identidade
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                            <div className="space-y-6">
-                              <div className="space-y-2">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Nome da Plataforma</label>
-                                <input 
-                                  type="text" 
-                                  value={localSettings?.app_name || ''}
-                                  onChange={(e) => setLocalSettings({ ...localSettings, app_name: e.target.value })}
-                                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                                />
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Logo (URL)</label>
-                                  <input 
-                                    type="text" 
-                                    value={localSettings?.logo_url || ''}
-                                    onChange={(e) => setLocalSettings({ ...localSettings, logo_url: e.target.value })}
-                                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Favicon (URL)</label>
-                                  <input 
-                                    type="text" 
-                                    value={localSettings?.favicon_url || ''}
-                                    onChange={(e) => setLocalSettings({ ...localSettings, favicon_url: e.target.value })}
-                                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Exibição no Login</label>
-                                <div className="flex p-1 bg-black rounded-xl border border-white/10 font-sans">
-                                  <button 
-                                    onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'title' })}
-                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'title' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                  >
-                                    SÓ TÍTULO
-                                  </button>
-                                  <button 
-                                    onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'logo' })}
-                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'logo' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                  >
-                                    SÓ LOGO
-                                  </button>
-                                  <button 
-                                    onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'both' })}
-                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'both' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                  >
-                                    AMBOS
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="space-y-2 pt-2 border-t border-white/5">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Estilo Botão Instalar</label>
-                                <div className="flex p-1 bg-black rounded-xl border border-white/10 font-sans">
-                                  <button 
-                                    onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: true })}
-                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing !== false ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                  >
-                                    PULSANTE
-                                  </button>
-                                  <button 
-                                    onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: false })}
-                                    className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing === false ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                  >
-                                    ESTÁTICO
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="space-y-4">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cor Principal</label>
-                                <div className="flex flex-wrap gap-3 items-center">
-                                  {[
-                                    { name: 'Vermelho', primary: '#ef4444', secondary: '#b91c1c' },
-                                    { name: 'Azul', primary: '#3b82f6', secondary: '#1d4ed8' },
-                                    { name: 'Verde', primary: '#10b981', secondary: '#047857' },
-                                    { name: 'Roxo', primary: '#8b5cf6', secondary: '#6d28d9' },
-                                    { name: 'Laranja', primary: '#f97316', secondary: '#c2410c' },
-                                  ].map((color) => (
-                                    <button
-                                      key={color.primary}
-                                      onClick={() => setLocalSettings({ 
-                                        ...localSettings, 
-                                        primary_color: color.primary,
-                                        secondary_color: color.secondary
-                                      })}
-                                      className={`w-8 h-8 rounded-lg border-2 transition-all ${localSettings?.primary_color === color.primary ? 'border-white scale-110 shadow-lg' : 'border-transparent hover:scale-105'}`}
-                                      style={{ backgroundColor: color.primary }}
-                                    />
-                                  ))}
-                                  <div className="flex items-center gap-2 ml-2 p-1.5 bg-black/40 rounded-lg border border-white/10">
-                                    <Palette size={14} className="text-gray-500" />
-                                    <input 
-                                      type="color" 
-                                      value={localSettings?.primary_color || '#3b82f6'}
-                                      onChange={(e) => setLocalSettings({ ...localSettings, primary_color: e.target.value, secondary_color: e.target.value })}
-                                      className="w-6 h-6 rounded bg-transparent border-0 cursor-pointer"
-                                    />
+                        {activePageTab === 'login' && (
+                          <div className="space-y-8">
+                            {/* Customização da Página de Login */}
+                            <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
+                                    <LockIcon size={20} />
+                                  </div>
+                                  <div className="">
+                                    <h4 className="font-bold text-white">Customização da Página de Login</h4>
+                                    <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mt-0.5">Aparência, Textos e Mensagens de Erro</p>
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="space-y-6 pt-4 border-t border-white/5">
-                                <h5 className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Textos da Tela de Login</h5>
-                                {[
-                                  { key: 'auth.subtitle', label: 'Subtítulo do Login' },
-                                  { key: 'auth.restricted_access_msg', label: 'Aviso de Acesso Restrito' },
-                                ].map(field => (
-                                  <div key={field.key} className="space-y-2">
-                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                                <div className="space-y-6">
+                                  {/* 1. Estilo Botão Instalar */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Estilo Botão Instalar</label>
+                                    <div className="flex p-1 bg-black rounded-xl border border-white/10 font-sans">
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: 'pulsing' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing === 'pulsing' || localSettings?.login_install_button_pulsing === true ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        PULSANTE
+                                      </button>
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: 'static' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing === 'static' || localSettings?.login_install_button_pulsing === false ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        ESTÁTICO
+                                      </button>
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_install_button_pulsing: 'hidden' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_install_button_pulsing === 'hidden' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        NÃO APARECER
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* 2. Exibição no Login */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Exibição no Login</label>
+                                    <div className="flex p-1 bg-black rounded-xl border border-white/10 font-sans">
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'title' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'title' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        SÓ TÍTULO
+                                      </button>
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'logo' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'logo' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        SÓ LOGO
+                                      </button>
+                                      <button 
+                                        onClick={() => setLocalSettings({ ...localSettings, login_display_type: 'both' })}
+                                        className={`flex-1 py-1.5 rounded-lg text-bold text-[10px] transition-all ${localSettings?.login_display_type === 'both' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                                      >
+                                        AMBOS
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* 3. Logo (URL) */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Logo (URL)</label>
                                     <input 
                                       type="text" 
-                                      value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
-                                      placeholder={field.label}
-                                      onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
-                                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
+                                      value={localSettings?.logo_url || ''}
+                                      onChange={(e) => setLocalSettings({ ...localSettings, logo_url: e.target.value })}
+                                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
                                     />
                                   </div>
-                                ))}
-                              </div>
 
-                              <div className="space-y-4">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cor de Fundo (Apps/Sites)</label>
-                                <div className="flex flex-wrap gap-2 items-center">
-                                  {[
-                                    { name: 'Original', color: '#0f0f0f' },
-                                    { name: 'Black', color: '#000000' },
-                                    { name: 'Dark', color: '#1a1a1a' },
-                                    { name: 'Night', color: '#020617' },
-                                    { name: 'Deep', color: '#0f172a' },
-                                  ].map((bg) => (
-                                    <button
-                                      key={bg.color}
-                                      onClick={() => setLocalSettings({ ...localSettings, background_color: bg.color })}
-                                      className={`px-3 py-1.5 rounded-lg border text-[10px] font-bold transition-all ${localSettings?.background_color === bg.color ? 'bg-white text-black border-white' : 'bg-white/5 text-gray-400 border-white/10'}`}
-                                      style={{ backgroundColor: localSettings?.background_color === bg.color ? '#fff' : bg.color }}
-                                    >
-                                      {bg.name}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-6">
-                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview Realista (Login)</label>
-                              <div className="rounded-[2.5rem] border border-white/10 p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[300px] relative overflow-hidden shadow-2xl" 
-                                   style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                <div className="absolute inset-0 blur-3xl rounded-full opacity-20" style={{ backgroundColor: `${localSettings?.primary_color}` }} />
-                                <div className="relative z-10 w-full max-w-[200px]">
-                                  {(localSettings?.login_display_type === 'logo' || localSettings?.login_display_type === 'both') && localSettings?.logo_url ? (
-                                    <img src={localSettings.logo_url} className="h-10 mx-auto mb-4 object-contain" referrerPolicy="no-referrer" />
-                                  ) : null}
-                                  {(localSettings?.login_display_type === 'title' || localSettings?.login_display_type === 'both') && (
-                                    <h2 className="text-xl font-black italic uppercase tracking-tighter" style={{ color: localSettings?.primary_color }}>{localSettings?.app_name || 'App Name'}</h2>
-                                  )}
-                                  
-                                  <p className="text-[8px] text-gray-500 mt-2">
-                                    {draftCustomTexts['auth.subtitle'] || settings.custom_texts?.['auth.subtitle'] || languagePresets.pt['auth.subtitle']}
-                                  </p>
-
-                                  <div className="mt-6 space-y-2">
-                                    <div className="w-full h-8 bg-white/5 border border-white/10 rounded-lg" />
-                                    <div className="w-full h-8 bg-white/5 border border-white/10 rounded-lg" />
-                                    <div className="w-full h-8 rounded-lg flex items-center justify-center text-[8px] font-black text-white uppercase tracking-widest" style={{ backgroundColor: localSettings?.primary_color }}>
-                                      Entrar
+                                  {/* 4. Tamanho do Logo */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Tamanho do Logo (Altura em px)</label>
+                                    <div className="flex items-center gap-4 p-4 bg-black/40 rounded-xl border border-white/5">
+                                      <input 
+                                        type="range" 
+                                        min="20" 
+                                        max="300"
+                                        value={localSettings?.logo_height || 64}
+                                        onChange={(e) => setLocalSettings({ ...localSettings, logo_height: parseInt(e.target.value) })}
+                                        className="flex-1 accent-blue-500"
+                                      />
+                                      <span className="text-sm font-black text-white w-16 text-center tabular-nums">{localSettings?.logo_height || 64}px</span>
                                     </div>
-                                    <p className="text-[6px] text-gray-600 mt-4 leading-tight">
-                                      {draftCustomTexts['auth.restricted_access_msg'] || settings.custom_texts?.['auth.restricted_access_msg'] || languagePresets.pt['auth.restricted_access_msg']}
-                                    </p>
                                   </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
 
-                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
-                              <LockIcon size={20} />
-                            </div>
-                            <h4 className="font-bold text-white">Customização da Página de Login</h4>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                            <div className="space-y-6">
-                              {[
-                                { key: 'auth.welcome_back', label: 'Título de Boas-vindas' },
-                                { key: 'auth.subtitle', label: 'Subtítulo' },
-                                { key: 'auth.login', label: 'Texto do Botão' },
-                                { key: 'auth.email', label: 'Label do E-mail' },
-                                { key: 'auth.password', label: 'Label da Senha' },
-                                { key: 'auth.restricted_access', label: 'Aviso de Acesso Restrito' },
-                                { key: 'auth.support_box', label: 'Título da Caixa de Suporte' },
-                                { key: 'auth.support_description', label: 'Descrição do Suporte', type: 'textarea' },
-                                { key: 'auth.whatsapp_label', label: 'Label do WhatsApp' },
-                                { key: 'auth.email_label', label: 'Label do E-mail Suporte' },
-                                { key: 'auth.user_not_found', label: 'Erro: Usuário não encontrado' },
-                                { key: 'auth.disclaimer', label: 'Disclaimer (Rodapé)', type: 'textarea' }
-                              ].map(field => (
-                                <div key={field.key} className="space-y-2">
-                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
-                                  {field.type === 'textarea' ? (
-                                    <textarea 
-                                      value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
-                                      placeholder={field.label}
-                                      onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
-                                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none min-h-[100px]"
-                                    />
-                                  ) : (
+                                  {/* 5. Nome da Plataforma */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Nome da Plataforma</label>
                                     <input 
                                       type="text" 
-                                      value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
-                                      placeholder={field.label}
-                                      onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
-                                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
+                                      value={localSettings?.app_name || ''}
+                                      onChange={(e) => setLocalSettings({ ...localSettings, app_name: e.target.value })}
+                                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
                                     />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="space-y-6">
-                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview da Página de Login</label>
-                              <div className="rounded-[2.5rem] border border-white/10 p-8 flex flex-col items-center justify-between text-center space-y-6 min-h-[600px] relative overflow-hidden" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[80px]" />
-                                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/5 rounded-full blur-[80px]" />
-                                
-                                <div className="relative z-10 w-full max-w-[280px] pt-8 flex-1 flex flex-col">
-                                  <div className="mb-4">
-                                    <div className="w-12 h-12 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center mx-auto mb-4">
-                                      <LockIcon size={24} className="text-blue-500" />
-                                    </div>
-                                    <h2 className="text-2xl font-black italic uppercase tracking-tighter" style={{ color: localSettings?.primary_color || settings.primary_color }}>
-                                      {draftCustomTexts['auth.welcome_back'] || 'Bem-vinda de volta!'}
-                                    </h2>
-                                    <p className="text-[11px] text-gray-500 mt-2 font-medium">
-                                      {draftCustomTexts['auth.subtitle'] || 'Acesse sua área exclusiva para mamães'}
-                                    </p>
-                                  </div>
-                                  
-                                  <div className="mt-8 space-y-3">
-                                    <div className="relative">
-                                      <div className="w-full h-12 bg-white/5 border border-white/10 rounded-xl flex items-center px-4 text-xs text-gray-600 text-left">
-                                        {draftCustomTexts['auth.email'] || 'E-mail'}
-                                      </div>
-                                    </div>
-                                    <div className="relative">
-                                      <div className="w-full h-12 bg-white/5 border border-white/10 rounded-xl flex items-center px-4 text-xs text-gray-600 text-left">
-                                        {draftCustomTexts['auth.password'] || 'Senha'}
-                                      </div>
-                                    </div>
-                                    <div className="w-full h-12 rounded-xl flex items-center justify-center text-xs font-black text-white uppercase tracking-widest shadow-xl shadow-blue-600/20" style={{ backgroundColor: localSettings?.primary_color || settings.primary_color }}>
-                                      {draftCustomTexts['auth.login'] || 'Entrar'}
-                                      <ArrowRight size={16} className="ml-2" />
-                                    </div>
                                   </div>
 
-                                  <div className="mt-8 pt-6 border-t border-white/5 space-y-4">
-                                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">
-                                      {draftCustomTexts['auth.support_box'] || 'Caixa de Suporte'}
-                                    </p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div className="flex items-center justify-center gap-2 py-3 bg-green-500/10 border border-green-500/20 rounded-xl text-green-500 text-[10px] font-black uppercase">
-                                        <Phone size={12} /> {draftCustomTexts['auth.whatsapp_label'] || 'WhatsApp'}
-                                      </div>
-                                      <div className="flex items-center justify-center gap-2 py-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-500 text-[10px] font-black uppercase">
-                                        <Mail size={12} /> {draftCustomTexts['auth.email_label'] || 'E-mail'}
-                                      </div>
+                                  {/* Reordered custom_texts fields */}
+                                  {[
+                                    { key: 'auth.subtitle', label: 'Subtítulo do Login' },
+                                    { key: 'auth.email', label: 'Label do E-mail' },
+                                    { key: 'auth.password', label: 'Label da Senha' },
+                                    { key: 'auth.login', label: 'Texto do Botão' },
+                                    { key: 'auth.support_box', label: 'Título da Caixa de Suporte' },
+                                    { key: 'auth.support_description', label: 'Descrição do Suporte', type: 'textarea' },
+                                    { key: 'auth.whatsapp_label', label: 'Label do WhatsApp' },
+                                    { key: 'auth.email_label', label: 'Label do E-mail Suporte' },
+                                    { key: 'auth.disclaimer', label: 'Disclaimer (Rodapé)', type: 'textarea' },
+                                    { key: 'auth.fill_this_field', label: 'Mensagem: Preencha este campo' },
+                                    { key: 'auth.invalid_email', label: 'Mensagem: E-mail inválido' },
+                                    { key: 'auth.restricted_access', label: 'Título: Acesso Restrito' },
+                                    { key: 'auth.restricted_access_msg', label: 'Mensagem de Acesso Restrito' },
+                                    { key: 'auth.admin_identified', label: 'Mensagem: Acesso Administrativo', type: 'textarea' },
+                                    { key: 'auth.verify_access', label: 'Botão: Verificar Acesso Adm' },
+                                    { key: 'auth.user_not_found', label: 'Erro: Usuário não encontrado' },
+                                    { key: 'auth.invalid_response', label: 'Erro: Falha no Servidor' },
+                                    { key: 'auth.credentials_error', label: 'Erro: Credenciais Inválidas' },
+                                    { key: 'auth.generic_error', label: 'Erro: Genérico' },
+                                  ].map(field => (
+                                    <div key={field.key} className="space-y-2">
+                                      <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
+                                      {field.type === 'textarea' ? (
+                                        <textarea 
+                                          value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                          placeholder={field.label}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                          className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none min-h-[80px]"
+                                        />
+                                      ) : (
+                                        <input 
+                                          type="text" 
+                                          value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                          placeholder={field.label}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                          className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
+                                        />
+                                      )}
                                     </div>
-                                  </div>
+                                  ))}
                                 </div>
 
-                                <div className="mt-auto pt-6 pb-2 w-full border-t border-white/5">
-                                  <p className="text-[10px] text-gray-600 max-w-[240px] mx-auto leading-relaxed">
-                                    {draftCustomTexts['auth.disclaimer'] || 'Ao entrar, você concorda com nossos Termos de Uso e Política de Privacidade. Maternidade Premium! © 2026'}
-                                  </p>
+                                {/* Preview Area */}
+                                <div className="space-y-6">
+                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest text-center block">Preview Completo da Página de Login</label>
+                                  <div className="rounded-[3rem] border-8 border-zinc-800 p-4 min-h-[750px] relative overflow-hidden shadow-2xl mx-auto max-w-[320px] pointer-events-none select-none" 
+                                       style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                    
+                                    {/* Background blur element like in the real login */}
+                                    <div className="absolute inset-0 blur-3xl rounded-full opacity-20" style={{ backgroundColor: `${localSettings?.primary_color || settings.primary_color}` }} />
+
+                                    <div className="relative z-10 flex flex-col items-center gap-6 h-full pt-10">
+                                       {/* PWA Install Button Preview */}
+                                       {(localSettings.login_install_button_pulsing !== 'hidden') && (
+                                         <div className={`flex items-center gap-2 px-3 py-1.5 border border-primary/20 rounded-full text-[8px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 scale-90 ${localSettings.login_install_button_pulsing === 'pulsing' || localSettings.login_install_button_pulsing === true ? 'animate-bounce' : ''}`}
+                                              style={{ backgroundColor: localSettings.primary_color || settings.primary_color }}>
+                                           <Smartphone size={10} />
+                                           {draftCustomTexts['pwa.install_app'] || settings.custom_texts?.['pwa.install_app'] || languagePresets.pt['pwa.install_app'] || 'Instalar App'}
+                                         </div>
+                                       )}
+
+                                       <div className="w-full bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-6 space-y-6">
+                                         <div className="text-center">
+                                           {(localSettings?.login_display_type === 'logo' || localSettings?.login_display_type === 'both') && localSettings?.logo_url ? (
+                                             <img 
+                                               src={localSettings.logo_url} 
+                                               style={{ height: `${(localSettings?.logo_height || 64) / 2}px` }}
+                                               className="mx-auto mb-4 object-contain" 
+                                               referrerPolicy="no-referrer" 
+                                             />
+                                           ) : null}
+                                           {(localSettings?.login_display_type === 'title' || localSettings?.login_display_type === 'both') && (
+                                             <h2 className="text-lg font-black italic uppercase tracking-tighter" style={{ color: localSettings?.primary_color || settings.primary_color }}>
+                                               {localSettings?.app_name || 'App Name'}
+                                             </h2>
+                                           )}
+                                           <p className="text-[9px] text-gray-500 mt-1 font-medium">
+                                             {draftCustomTexts['auth.subtitle'] || settings.custom_texts?.['auth.subtitle'] || languagePresets.pt['auth.subtitle']}
+                                           </p>
+                                         </div>
+
+                                         <div className="space-y-3">
+                                           <div className="w-full h-10 bg-white/5 border border-white/10 rounded-xl flex items-center px-4 text-[10px] text-gray-600 text-left">
+                                             {draftCustomTexts['auth.email'] || settings.custom_texts?.['auth.email'] || languagePresets.pt['auth.email'] || 'E-mail'}
+                                           </div>
+                                           <div className="w-full h-10 bg-white/5 border border-white/10 rounded-xl flex items-center px-4 text-[10px] text-gray-600 text-left">
+                                             {draftCustomTexts['auth.password'] || settings.custom_texts?.['auth.password'] || languagePresets.pt['auth.password'] || 'Senha'}
+                                           </div>
+                                           <div className="w-full h-10 rounded-xl flex items-center justify-center text-[10px] font-black text-white uppercase tracking-widest shadow-xl" style={{ backgroundColor: localSettings?.primary_color || settings.primary_color }}>
+                                             {draftCustomTexts['auth.login'] || settings.custom_texts?.['auth.login'] || languagePresets.pt['auth.login'] || 'Entrar'}
+                                             <ArrowRight size={14} className="ml-2" />
+                                           </div>
+                                         </div>
+
+                                         <div className="pt-4 border-t border-white/5">
+                                           <p className="text-[8px] text-gray-500 font-bold uppercase tracking-widest mb-3 text-center">
+                                             {draftCustomTexts['auth.support_box'] || settings.custom_texts?.['auth.support_box'] || languagePresets.pt['auth.support_box'] || 'Suporte'}
+                                           </p>
+                                           <div className="grid grid-cols-2 gap-2">
+                                             <div className="flex items-center justify-center gap-1.5 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-green-500 text-[8px] font-black uppercase">
+                                               <Phone size={10} /> {draftCustomTexts['auth.whatsapp_label'] || settings.custom_texts?.['auth.whatsapp_label'] || languagePresets.pt['auth.whatsapp_label'] || 'Whats'}
+                                             </div>
+                                             <div className="flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-500 text-[8px] font-black uppercase">
+                                               <Mail size={10} /> {draftCustomTexts['auth.email_label'] || settings.custom_texts?.['auth.email_label'] || languagePresets.pt['auth.email_label'] || 'Email'}
+                                             </div>
+                                           </div>
+                                         </div>
+                                       </div>
+
+                                       <div className="mt-auto px-4 pb-4">
+                                         <p className="text-[8px] text-gray-600 text-center leading-tight">
+                                           {draftCustomTexts['auth.disclaimer'] || settings.custom_texts?.['auth.disclaimer'] || languagePresets.pt['auth.disclaimer'] || '© 2026 Maternidade Premium'}
+                                         </p>
+                                       </div>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    )}
+                        )}
 
                     {activePageTab === 'nav' && (
                       <div className="space-y-8">
@@ -2439,7 +2448,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'dashboard.courses_free', label: 'Título Produto Principal' },
                                 { key: 'dashboard.courses_bonus', label: 'Título Cursos Bônus' },
                                 { key: 'dashboard.empty_locked', label: 'Mensagem Sem Cursos' },
-                                { key: 'dashboard.empty_all_unlocked', label: 'Mensagem Todos Liberados' }
+                                { key: 'dashboard.empty_all_unlocked', label: 'Mensagem Todos Liberados' },
+                                { key: 'dashboard.loading_error', label: 'Erro: Carregar Conteúdos' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -2499,7 +2509,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           </div>
                         </div>
 
-                          {/* Banner Settings */}
+                        {/* Banner Rotativo Premium */}
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -2513,8 +2523,11 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 setIsSavingSettings(true);
                                 await updateSettings({ 
                                   banner_images: localSettings.banner_images,
+                                  banner_images_mobile: localSettings.banner_images_mobile || [],
                                   banner_interval: localSettings.banner_interval,
-                                  banner_config: localSettings.banner_config // We'll store professional adjustments here
+                                  banner_config: localSettings.banner_config,
+                                  banner_config_mobile: localSettings.banner_config_mobile,
+                                  banner_sync: localSettings.banner_sync !== false
                                 });
                                 setIsSavingSettings(false);
                               }}
@@ -2526,17 +2539,73 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             </button>
                           </div>
 
+                          <div className="flex items-center justify-between p-6 bg-zinc-900/30 border border-white/5 rounded-2xl flex-wrap gap-4">
+                            <div className="space-y-1">
+                              <h6 className="text-sm font-bold text-white uppercase italic tracking-tighter">Vincular Dispositivos</h6>
+                              <p className="text-[10px] text-gray-500 font-bold uppercase italic tracking-widest leading-relaxed">
+                                Quando ativado, as mesmas imagens serão usadas para Desktop e Celular.
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const newSync = !(localSettings.banner_sync !== false);
+                                setLocalSettings({ 
+                                  ...localSettings, 
+                                  banner_sync: newSync
+                                });
+                                if (newSync) {
+                                  setActiveBannerPlatform('desktop');
+                                  setBannerPreviewMode('desktop');
+                                }
+                              }}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                                (localSettings.banner_sync !== false) ? 'bg-blue-600' : 'bg-zinc-700'
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  (localSettings.banner_sync !== false) ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
+                          </div>
+
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                             <div className="space-y-6">
                               <div className="space-y-4">
-                                <div className="flex justify-between items-center">
-                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Gerenciar Lâminas</label>
+                                <div className="flex justify-between items-center bg-black/20 p-2 rounded-xl border border-white/5">
+                                  <div className="flex gap-2">
+                                    <button 
+                                      onClick={() => {
+                                        setActiveBannerPlatform('desktop');
+                                        setBannerPreviewMode('desktop');
+                                      }}
+                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeBannerPlatform === 'desktop' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white'}`}
+                                    >
+                                      Desktop
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setActiveBannerPlatform('mobile');
+                                        setBannerPreviewMode('mobile');
+                                      }}
+                                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeBannerPlatform === 'mobile' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white'} ${localSettings.banner_sync !== false ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      disabled={localSettings.banner_sync !== false}
+                                      title={localSettings.banner_sync !== false ? 'Desative "Vincular Dispositivos" para editar o celular separadamente' : ''}
+                                    >
+                                      Celular
+                                    </button>
+                                  </div>
                                   <button 
                                     onClick={() => {
-                                      const newImages = [...(localSettings?.banner_images || []), ''];
-                                      const newConfig = [...(localSettings?.banner_config || [])];
+                                      const isMobile = activeBannerPlatform === 'mobile' && localSettings.banner_sync === false;
+                                      const imagesKey = isMobile ? 'banner_images_mobile' : 'banner_images';
+                                      const configKey = isMobile ? 'banner_config_mobile' : 'banner_config';
+                                      
+                                      const newImages = [...(localSettings?.[imagesKey] || []), ''];
+                                      const newConfig = [...(localSettings?.[configKey] || [])];
                                       newConfig.push({ scale: 100, x: 50, y: 50, stretch: true });
-                                      setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                      setLocalSettings({ ...localSettings, [imagesKey]: newImages, [configKey]: newConfig });
                                     }}
                                     className="text-xs font-bold text-blue-500 hover:text-blue-600 flex items-center gap-1"
                                   >
@@ -2545,18 +2614,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 </div>
                                 
                                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                  {(localSettings?.banner_images || []).map((url: string, index: number) => (
+                                  {(() => {
+                                    const isMobile = activeBannerPlatform === 'mobile' && localSettings.banner_sync === false;
+                                    const images = isMobile ? (localSettings?.banner_images_mobile || []) : (localSettings?.banner_images || []);
+                                    const configs = isMobile ? (localSettings?.banner_config_mobile || []) : (localSettings?.banner_config || []);
+
+                                    return images.map((url: string, index: number) => (
                                     <div key={index} className="space-y-3 p-4 bg-black/40 rounded-2xl border border-white/5 relative group">
                                       <div className="flex gap-2">
                                         <div className="flex flex-col gap-1 pr-2 border-r border-white/5">
                                           <button 
                                             onClick={() => {
                                               if (index === 0) return;
-                                              const newImages = [...localSettings.banner_images];
-                                              const newConfig = [...(localSettings.banner_config || [])];
+                                              const newImages = [...images];
+                                              const newConfig = [...configs];
                                               [newImages[index], newImages[index-1]] = [newImages[index-1], newImages[index]];
                                               [newConfig[index], newConfig[index-1]] = [newConfig[index-1], newConfig[index]];
-                                              setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              if (isMobile) {
+                                                setLocalSettings({ ...localSettings, banner_images_mobile: newImages, banner_config_mobile: newConfig });
+                                              } else {
+                                                setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              }
                                             }}
                                             className={`p-1 hover:bg-white/10 rounded-lg transition-all ${index === 0 ? 'opacity-20 cursor-not-allowed' : 'text-blue-500'}`}
                                             title="Subir"
@@ -2565,12 +2643,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                           </button>
                                           <button 
                                             onClick={() => {
-                                              if (index === localSettings.banner_images.length - 1) return;
-                                              const newImages = [...localSettings.banner_images];
-                                              const newConfig = [...(localSettings.banner_config || [])];
+                                              if (index === images.length - 1) return;
+                                              const newImages = [...images];
+                                              const newConfig = [...configs];
                                               [newImages[index], newImages[index+1]] = [newImages[index+1], newImages[index]];
                                               [newConfig[index], newConfig[index+1]] = [newConfig[index+1], newConfig[index]];
-                                              setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              if (isMobile) {
+                                                setLocalSettings({ ...localSettings, banner_images_mobile: newImages, banner_config_mobile: newConfig });
+                                              } else {
+                                                setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              }
                                             }}
                                             className={`p-1 hover:bg-white/10 rounded-lg transition-all ${index === localSettings.banner_images.length - 1 ? 'opacity-20 cursor-not-allowed' : 'text-blue-500'}`}
                                             title="Descer"
@@ -2578,27 +2660,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                             <ArrowDown size={14} />
                                           </button>
                                         </div>
-                                        <div className="flex flex-col gap-1 pr-2 border-r border-white/5 justify-center">
-                                          <button 
-                                            onClick={() => {
-                                              const newConfig = [...(localSettings.banner_config || [])];
-                                              if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50, stretch: true };
-                                              newConfig[index].stretch = !newConfig[index].stretch;
-                                              // If stretching, reset zoom and position
-                                              if (newConfig[index].stretch) {
-                                                newConfig[index].scale = 100;
-                                                newConfig[index].x = 50;
-                                                newConfig[index].y = 50;
-                                              }
-                                              setLocalSettings({ ...localSettings, banner_config: newConfig });
-                                            }}
-                                            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-1 ${localSettings?.banner_config?.[index]?.stretch ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/40' : 'bg-white/5 text-gray-500 hover:bg-white/10'}`}
-                                            title="Mostrar 100% da Foto (Esticar)"
-                                          >
-                                            <Layout size={12} />
-                                            <span className="text-[6px] font-black uppercase whitespace-nowrap">100% Foto</span>
-                                          </button>
-                                        </div>
+
                                         <div className="flex-1 space-y-2">
                                           <div className="relative group/input">
                                             <input 
@@ -2606,9 +2668,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                               value={url}
                                               onFocus={() => setEditingBannerIndex(index)}
                                               onChange={(e) => {
-                                                const newImages = [...localSettings.banner_images];
+                                                const newImages = [...images];
                                                 newImages[index] = e.target.value;
-                                                setLocalSettings({ ...localSettings, banner_images: newImages });
+                                                if (isMobile) {
+                                                  setLocalSettings({ ...localSettings, banner_images_mobile: newImages });
+                                                } else {
+                                                  setLocalSettings({ ...localSettings, banner_images: newImages });
+                                                }
                                               }}
                                               className="w-full bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:border-blue-500 outline-none transition-all pr-12"
                                               placeholder="URL da imagem..."
@@ -2620,13 +2686,17 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                           <div className="relative group/link">
                                             <input 
                                               type="text" 
-                                              value={localSettings?.banner_config?.[index]?.link || ''}
+                                              value={configs?.[index]?.link || ''}
                                               onFocus={() => setEditingBannerIndex(index)}
                                               onChange={(e) => {
-                                                const newConfig = [...(localSettings.banner_config || [])];
+                                                const newConfig = [...configs];
                                                 if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50, stretch: true };
                                                 newConfig[index].link = e.target.value;
-                                                setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                if (isMobile) {
+                                                  setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                                } else {
+                                                  setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                }
                                               }}
                                               className="w-full bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:border-blue-500 outline-none transition-all pl-10"
                                               placeholder="Link de redirecionamento (Ex: https://...)"
@@ -2639,37 +2709,49 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                         <div className="flex flex-col gap-2">
                                           <button 
                                             onClick={() => {
-                                              const newImages = localSettings.banner_images.filter((_: any, i: number) => i !== index);
-                                              const newConfig = (localSettings?.banner_config || []).filter((_: any, i: number) => i !== index);
-                                              setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              const newImages = images.filter((_: any, i: number) => i !== index);
+                                              const newConfig = configs.filter((_: any, i: number) => i !== index);
+                                              if (isMobile) {
+                                                setLocalSettings({ ...localSettings, banner_images_mobile: newImages, banner_config_mobile: newConfig });
+                                              } else {
+                                                setLocalSettings({ ...localSettings, banner_images: newImages, banner_config: newConfig });
+                                              }
                                             }}
                                             className="p-3 text-red-500 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20"
                                             title="Excluir Lâmina"
                                           >
                                             <Trash2 size={16} />
                                           </button>
-                                          <button 
-                                            onClick={() => setEditingBannerIndex(index)}
-                                            className={`p-3 rounded-xl transition-all border ${editingBannerIndex === index ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/40' : 'bg-white/5 text-blue-500 border-white/10 hover:bg-white/10 hover:border-blue-500/30'}`}
-                                            title="Editar no Preview"
-                                          >
-                                            <Eye size={16} />
-                                          </button>
                                         </div>
                                       </div>
 
+                                      <div className="flex flex-col gap-2">
+                                        <button 
+                                          onClick={() => setEditingBannerIndex(index)}
+                                          className={`w-full p-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${editingBannerIndex === index ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-black/20 text-gray-500 hover:text-white border border-white/5 font-semibold transition-all'}`}
+                                          title="Editar no Preview"
+                                        >
+                                          <Eye size={14} />
+                                          <span className="text-[10px] font-black uppercase whitespace-nowrap tracking-widest leading-none">VER IMAGEM NO PREVIEW</span>
+                                        </button>
+                                      </div>
+
                                       {url && (
-                                          <div className={`space-y-3 pt-2 border-t border-white/5 ${localSettings?.banner_config?.[index]?.stretch ? 'opacity-30 pointer-events-none grayscale' : ''}`}>
-                                            {localSettings?.banner_config?.[index]?.stretch && (
+                                          <div className={`space-y-3 pt-2 border-t border-white/5 ${configs?.[index]?.stretch ? 'opacity-30 pointer-events-none grayscale' : ''}`}>
+                                            {configs?.[index]?.stretch && (
                                               <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-[2px] rounded-2xl">
                                                 <div className="flex flex-col items-center gap-2">
                                                   <Layout size={20} className="text-blue-500" />
                                                   <span className="text-[10px] font-black uppercase text-white tracking-[0.2em]">Modo Foto 100% Ativo</span>
                                                   <button 
                                                     onClick={() => {
-                                                      const newConfig = [...(localSettings.banner_config || [])];
+                                                      const newConfig = [...configs];
                                                       if (newConfig[index]) newConfig[index].stretch = false;
-                                                      setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                      if (isMobile) {
+                                                        setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                                      } else {
+                                                        setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                      }
                                                     }}
                                                     className="px-4 py-1.5 bg-blue-600 rounded-full text-[8px] font-black uppercase text-white hover:bg-blue-500 transition-all pointer-events-auto"
                                                   >
@@ -2682,16 +2764,20 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                             <div className="space-y-1">
                                               <div className="flex justify-between text-[8px] font-black uppercase text-gray-500 tracking-widest">
                                                 <span>Zoom</span>
-                                                <span>{(localSettings?.banner_config?.[index]?.scale || 100)}%</span>
+                                                <span>{(configs?.[index]?.scale || 100)}%</span>
                                               </div>
                                               <input 
                                                 type="range" min="100" max="250" step="1"
-                                                value={localSettings?.banner_config?.[index]?.scale || 100}
+                                                value={configs?.[index]?.scale || 100}
                                                 onChange={(e) => {
-                                                  const newConfig = [...(localSettings.banner_config || [])];
+                                                  const newConfig = [...configs];
                                                   if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50 };
                                                   newConfig[index].scale = parseInt(e.target.value);
-                                                  setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  if (isMobile) {
+                                                    setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                                  } else {
+                                                    setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  }
                                                 }}
                                                 className="w-full accent-blue-500 h-1 bg-black rounded-lg appearance-none cursor-pointer"
                                               />
@@ -2699,16 +2785,20 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                             <div className="space-y-1">
                                               <div className="flex justify-between text-[8px] font-black uppercase text-gray-500 tracking-widest">
                                                 <span>Posição X</span>
-                                                <span>{(localSettings?.banner_config?.[index]?.x || 50)}%</span>
+                                                <span>{(configs?.[index]?.x || 50)}%</span>
                                               </div>
                                               <input 
                                                 type="range" min="0" max="100" step="1"
-                                                value={localSettings?.banner_config?.[index]?.x || 50}
+                                                value={configs?.[index]?.x || 50}
                                                 onChange={(e) => {
-                                                  const newConfig = [...(localSettings.banner_config || [])];
+                                                  const newConfig = [...configs];
                                                   if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50 };
                                                   newConfig[index].x = parseInt(e.target.value);
-                                                  setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  if (isMobile) {
+                                                    setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                                  } else {
+                                                    setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  }
                                                 }}
                                                 className="w-full accent-blue-500 h-1 bg-black rounded-lg appearance-none cursor-pointer"
                                               />
@@ -2716,25 +2806,55 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                             <div className="space-y-1">
                                               <div className="flex justify-between text-[8px] font-black uppercase text-gray-500 tracking-widest">
                                                 <span>Posição Y</span>
-                                                <span>{(localSettings?.banner_config?.[index]?.y || 50)}%</span>
+                                                <span>{(configs?.[index]?.y || 50)}%</span>
                                               </div>
                                               <input 
                                                 type="range" min="0" max="100" step="1"
-                                                value={localSettings?.banner_config?.[index]?.y || 50}
+                                                value={configs?.[index]?.y || 50}
                                                 onChange={(e) => {
-                                                  const newConfig = [...(localSettings.banner_config || [])];
+                                                  const newConfig = [...configs];
                                                   if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50 };
                                                   newConfig[index].y = parseInt(e.target.value);
-                                                  setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  if (isMobile) {
+                                                    setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                                  } else {
+                                                    setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  }
                                                 }}
                                                 className="w-full accent-blue-500 h-1 bg-black rounded-lg appearance-none cursor-pointer"
                                               />
                                             </div>
                                           </div>
+                                          
+                                          <button 
+                                            onClick={() => {
+                                              const isMobile = activeBannerPlatform === 'mobile' && localSettings.banner_sync === false;
+                                              const configs = isMobile ? (localSettings.banner_config_mobile || []) : (localSettings.banner_config || []);
+                                              const newConfig = [...configs];
+                                              if (!newConfig[index]) newConfig[index] = { scale: 100, x: 50, y: 50, stretch: true };
+                                              newConfig[index].stretch = !newConfig[index].stretch;
+                                              // If stretching, reset zoom and position
+                                              if (newConfig[index].stretch) {
+                                                newConfig[index].scale = 100;
+                                                newConfig[index].x = 50;
+                                                newConfig[index].y = 50;
+                                              }
+                                              if (isMobile) {
+                                                setLocalSettings({ ...localSettings, banner_config_mobile: newConfig });
+                                              } else {
+                                                setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                              }
+                                            }}
+                                            className={`w-full p-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all mt-2 ${configs?.[index]?.stretch ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-600/40' : 'bg-white/5 text-gray-500 border-white/10 hover:bg-white/10 hover:border-blue-500/30'}`}
+                                          >
+                                            <Layout size={14} />
+                                            <span className="text-[10px] font-black uppercase whitespace-nowrap tracking-widest leading-none">Imagem tamanho original, clique para editar</span>
+                                          </button>
                                         </div>
                                       )}
                                     </div>
-                                  ))}
+                                  ));
+                                })()}
                                 </div>
                               </div>
 
@@ -2802,10 +2922,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                           </div>
                                         </div>
 
-                                        {(localSettings?.banner_images || []).length > 0 ? (
+                                        {(() => {
+                                          const isMobilePreview = bannerPreviewMode === 'mobile' && localSettings.banner_sync === false;
+                                          const previewImages = isMobilePreview ? (localSettings.banner_images_mobile || []) : (localSettings.banner_images || []);
+                                          const previewConfigs = isMobilePreview ? (localSettings.banner_config_mobile || []) : (localSettings.banner_config || []);
+                                          const currentConfig = previewConfigs[editingBannerIndex ?? 0];
+
+                                          return previewImages.length > 0 ? (
                                           <>
                                             {/* Translucent Drag Overlay */}
-                                            {!localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch && (
+                                            {!currentConfig?.stretch && (
                                               <div 
                                                 className="absolute inset-0 z-10 cursor-move"
                                                 onPointerDown={(e) => {
@@ -2814,8 +2940,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                                   (target as any)._panStart = { 
                                                     x: e.clientX, 
                                                     y: e.clientY,
-                                                    startX: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.x || 50,
-                                                    startY: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.y || 50
+                                                    startX: currentConfig?.x || 50,
+                                                    startY: currentConfig?.y || 50
                                                   };
                                                 }}
                                                 onPointerMove={(e) => {
@@ -2825,15 +2951,19 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                                   const dy = e.clientY - start.y;
                                                   
                                                   const idx = editingBannerIndex ?? 0;
-                                                  const newConfig = [...(localSettings.banner_config || [])];
-                                                  if (!newConfig[idx]) newConfig[idx] = { scale: 100, x: 50, y: 50 };
+                                                  const newConfigs = [...previewConfigs];
+                                                  if (!newConfigs[idx]) newConfigs[idx] = { scale: 100, x: 50, y: 50 };
                                                   
-                                                  const scale = (newConfig[idx].scale || 100) / 100;
+                                                  const scale = (newConfigs[idx].scale || 100) / 100;
                                                   // Sensitivity updated for 65% height
-                                                  newConfig[idx].x = Math.max(0, Math.min(100, start.startX - (dx / (1.5 * 280 / scale)) * 100));
-                                                  newConfig[idx].y = Math.max(0, Math.min(100, start.startY - (dy / (1.5 * (580 * 0.65) / scale)) * 100));
+                                                  newConfigs[idx].x = Math.max(0, Math.min(100, start.startX - (dx / (1.5 * 280 / scale)) * 100));
+                                                  newConfigs[idx].y = Math.max(0, Math.min(100, start.startY - (dy / (1.5 * (580 * 0.65) / scale)) * 100));
                                                   
-                                                  setLocalSettings({ ...localSettings, banner_config: newConfig });
+                                                  if (isMobilePreview) {
+                                                    setLocalSettings({ ...localSettings, banner_config_mobile: newConfigs });
+                                                  } else {
+                                                    setLocalSettings({ ...localSettings, banner_config: newConfigs });
+                                                  }
                                                 }}
                                                 onPointerUp={(e) => {
                                                   (e.currentTarget as any)._panStart = null;
@@ -2842,20 +2972,20 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                               />
                                             )}
                                             <motion.img 
-                                              src={localSettings.banner_images[editingBannerIndex ?? 0] || 'https://images.unsplash.com/photo-1555252333-9f8e92e65ee9'} 
+                                              src={previewImages[editingBannerIndex ?? 0] || 'https://images.unsplash.com/photo-1555252333-9f8e92e65ee9'} 
                                               style={{ 
-                                                objectFit: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 'fill' : 'cover',
+                                                objectFit: currentConfig?.stretch ? 'fill' : 'cover',
                                                 width: '100%',
                                                 height: '100%',
-                                                scale: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 1 : (localSettings?.banner_config?.[editingBannerIndex ?? 0]?.scale || 100) / 100,
-                                                objectPosition: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 'center' : `${localSettings?.banner_config?.[editingBannerIndex ?? 0]?.x || 50}% ${localSettings?.banner_config?.[editingBannerIndex ?? 0]?.y || 50}%`,
+                                                scale: currentConfig?.stretch ? 1 : (currentConfig?.scale || 100) / 100,
+                                                objectPosition: currentConfig?.stretch ? 'center' : `${currentConfig?.x || 50}% ${currentConfig?.y || 50}%`,
                                                 transformOrigin: 'center center'
                                               }}
                                               className="transition-all duration-75 select-none"
                                               referrerPolicy="no-referrer"
                                             />
                                             {/* Drag hint overlay */}
-                                            {!localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch && (
+                                            {!currentConfig?.stretch && (
                                               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                                 <div className="bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
                                                   <Zap size={10} className="text-yellow-400" />
@@ -2869,7 +2999,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                             <ImageOff size={32} />
                                             <p className="text-[8px] font-black uppercase">Sem Imagem</p>
                                           </div>
-                                        )}
+                                        );
+                                      })()}
                                         <div className="absolute inset-0 bg-gradient-to-t from-bg-main via-transparent to-transparent opacity-90 pointer-events-none" />
                                         <div className="absolute inset-0 bg-gradient-to-b from-bg-main/60 via-transparent to-transparent pointer-events-none" />
                                       </div>
@@ -2933,72 +3064,83 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                                         {/* The Banner (exactly 75% height of frame) */}
                                         <div className="relative w-full h-[75%] bg-zinc-800 overflow-hidden group">
-                                          {(localSettings?.banner_images || []).length > 0 ? (
-                                            <>
-                                              {/* Drag Overlay */}
-                                              {!localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch && (
-                                                <div 
-                                                  className="absolute inset-0 z-10 cursor-move"
-                                                  onPointerDown={(e) => {
-                                                    const target = e.currentTarget as HTMLDivElement;
-                                                    target.setPointerCapture(e.pointerId);
-                                                    (target as any)._panStart = { 
-                                                      x: e.clientX, 
-                                                      y: e.clientY,
-                                                      startX: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.x || 50,
-                                                      startY: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.y || 50
-                                                    };
+                                          {(() => {
+                                            const isDesktopPreview = bannerPreviewMode === 'desktop' || localSettings.banner_sync !== false;
+                                            const previewImages = isDesktopPreview ? (localSettings.banner_images || []) : (localSettings.banner_images_mobile || []);
+                                            const previewConfigs = isDesktopPreview ? (localSettings.banner_config || []) : (localSettings.banner_config_mobile || []);
+                                            const currentConfig = previewConfigs[editingBannerIndex ?? 0];
+
+                                            return previewImages.length > 0 ? (
+                                              <>
+                                                {/* Drag Overlay */}
+                                                {!currentConfig?.stretch && (
+                                                  <div 
+                                                    className="absolute inset-0 z-10 cursor-move"
+                                                    onPointerDown={(e) => {
+                                                      const target = e.currentTarget as HTMLDivElement;
+                                                      target.setPointerCapture(e.pointerId);
+                                                      (target as any)._panStart = { 
+                                                        x: e.clientX, 
+                                                        y: e.clientY,
+                                                        startX: currentConfig?.x || 50,
+                                                        startY: currentConfig?.y || 50
+                                                      };
+                                                    }}
+                                                    onPointerMove={(e) => {
+                                                      if (!(e.currentTarget as any)._panStart) return;
+                                                      const start = (e.currentTarget as any)._panStart;
+                                                      const dx = e.clientX - start.x;
+                                                      const dy = e.clientY - start.y;
+                                                      
+                                                      const idx = editingBannerIndex ?? 0;
+                                                      const newConfigs = [...previewConfigs];
+                                                      if (!newConfigs[idx]) newConfigs[idx] = { scale: 100, x: 50, y: 50 };
+                                                      
+                                                      const scale = (newConfigs[idx].scale || 100) / 100;
+                                                      newConfigs[idx].x = Math.max(0, Math.min(100, start.startX - (dx / (1.5 * 850 / scale)) * 100));
+                                                      newConfigs[idx].y = Math.max(0, Math.min(100, start.startY - (dy / (1.5 * 450 * 0.75 / scale)) * 100));
+                                                      
+                                                      if (bannerPreviewMode === 'desktop' || localSettings.banner_sync !== false) {
+                                                        setLocalSettings({ ...localSettings, banner_config: newConfigs });
+                                                      } else {
+                                                        setLocalSettings({ ...localSettings, banner_config_mobile: newConfigs });
+                                                      }
+                                                    }}
+                                                    onPointerUp={(e) => {
+                                                      (e.currentTarget as any)._panStart = null;
+                                                      e.currentTarget.releasePointerCapture(e.pointerId);
+                                                    }}
+                                                  />
+                                                )}
+                                                <motion.img 
+                                                  src={previewImages[editingBannerIndex ?? 0] || 'https://images.unsplash.com/photo-1555252333-9f8e92e65ee9'} 
+                                                  style={{ 
+                                                    objectFit: currentConfig?.stretch ? 'fill' : 'cover',
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    scale: currentConfig?.stretch ? 1 : (currentConfig?.scale || 100) / 100,
+                                                    objectPosition: currentConfig?.stretch ? 'center' : `${currentConfig?.x || 50}% ${currentConfig?.y || 50}%`,
+                                                    transformOrigin: 'center center'
                                                   }}
-                                                  onPointerMove={(e) => {
-                                                    if (!(e.currentTarget as any)._panStart) return;
-                                                    const start = (e.currentTarget as any)._panStart;
-                                                    const dx = e.clientX - start.x;
-                                                    const dy = e.clientY - start.y;
-                                                    
-                                                    const idx = editingBannerIndex ?? 0;
-                                                    const newConfig = [...(localSettings.banner_config || [])];
-                                                    if (!newConfig[idx]) newConfig[idx] = { scale: 100, x: 50, y: 50 };
-                                                    
-                                                    const scale = (newConfig[idx].scale || 100) / 100;
-                                                    newConfig[idx].x = Math.max(0, Math.min(100, start.startX - (dx / (1.5 * 850 / scale)) * 100));
-                                                    newConfig[idx].y = Math.max(0, Math.min(100, start.startY - (dy / (1.5 * 450 * 0.75 / scale)) * 100));
-                                                    
-                                                    setLocalSettings({ ...localSettings, banner_config: newConfig });
-                                                  }}
-                                                  onPointerUp={(e) => {
-                                                    (e.currentTarget as any)._panStart = null;
-                                                    e.currentTarget.releasePointerCapture(e.pointerId);
-                                                  }}
+                                                  className="transition-all duration-75 select-none"
+                                                  referrerPolicy="no-referrer"
                                                 />
-                                              )}
-                                              <motion.img 
-                                                src={localSettings.banner_images[editingBannerIndex ?? 0] || 'https://images.unsplash.com/photo-1555252333-9f8e92e65ee9'} 
-                                                style={{ 
-                                                  objectFit: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 'fill' : 'cover',
-                                                  width: '100%',
-                                                  height: '100%',
-                                                  scale: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 1 : (localSettings?.banner_config?.[editingBannerIndex ?? 0]?.scale || 100) / 100,
-                                                  objectPosition: localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch ? 'center' : `${localSettings?.banner_config?.[editingBannerIndex ?? 0]?.x || 50}% ${localSettings?.banner_config?.[editingBannerIndex ?? 0]?.y || 50}%`,
-                                                  transformOrigin: 'center center'
-                                                }}
-                                                className="transition-all duration-75 select-none"
-                                                referrerPolicy="no-referrer"
-                                              />
-                                              {!localSettings?.banner_config?.[editingBannerIndex ?? 0]?.stretch && (
-                                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                                                  <div className="bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 flex items-center gap-2">
-                                                    <Zap size={12} className="text-yellow-400" />
-                                                    <span className="text-[10px] font-black uppercase text-white tracking-widest leading-none italic">Arraste para Enquadrar</span>
+                                                {!currentConfig?.stretch && (
+                                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                    <div className="bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 flex items-center gap-2">
+                                                      <Zap size={12} className="text-yellow-400" />
+                                                      <span className="text-[10px] font-black uppercase text-white tracking-widest leading-none italic">Arraste para Enquadrar</span>
+                                                    </div>
                                                   </div>
-                                                </div>
-                                              )}
-                                            </>
-                                          ) : (
-                                            <div className="w-full h-full flex flex-col items-center justify-center gap-2 opacity-20">
-                                              <ImageOff size={32} />
-                                              <p className="text-xs font-black uppercase">Sem Imagem</p>
-                                            </div>
-                                          )}
+                                                )}
+                                              </>
+                                            ) : (
+                                              <div className="w-full h-full flex flex-col items-center justify-center gap-2 opacity-20">
+                                                <ImageOff size={32} />
+                                                <p className="text-xs font-black uppercase">Sem Imagem</p>
+                                              </div>
+                                            );
+                                          })()}
                                           <div className="absolute inset-0 bg-gradient-to-t from-bg-main via-transparent to-transparent opacity-90" />
                                           <div className="absolute inset-0 bg-gradient-to-b from-bg-main/40 via-transparent to-transparent" />
                                         </div>
@@ -3052,7 +3194,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.completed', label: 'Status: Concluído' },
                                 { key: 'course.continue', label: 'Status: Continuar' },
                                 { key: 'course.start', label: 'Status: Começar' },
-                                { key: 'course.support_description', label: 'Texto de Suporte (Box)' }
+                                { key: 'course.support_description', label: 'Texto de Suporte (Box)' },
+                                { key: 'course.not_found', label: 'Erro: Não Encontrado' },
+                                { key: 'course.loading_error', label: 'Erro: Carregar Aula' },
+                                { key: 'course.progress_error', label: 'Erro: Atualizar Progresso' },
+                                { key: 'course.video_lesson', label: 'Tag: Videoaula' },
+                                { key: 'course.pdf_material', label: 'Tag: Material PDF' },
+                                { key: 'course.reading', label: 'Tag: Leitura' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3104,7 +3252,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.premium_content', label: 'Badge Premium' },
                                 { key: 'course.lifetime_access', label: 'Texto Acesso' },
                                 { key: 'course.unlock_button', label: 'Botão Comprar' },
-                                { key: 'course.secure_payment', label: 'Texto Rodapé Seguro' }
+                                { key: 'course.secure_payment', label: 'Texto Rodapé Seguro' },
+                                { key: 'course.purchase_unavailable', label: 'Erro: Compra Indisponível' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3246,7 +3395,19 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'profile.info_title', label: 'Título Info Usuário' },
                                 { key: 'profile.avatar_success', label: 'Toast Foto Sucesso' },
                                 { key: 'profile.push_title', label: 'Título Push (Perfil)' },
-                                { key: 'profile.push_description', label: 'Descrição Push (Perfil)', type: 'textarea' }
+                                { key: 'profile.push_description', label: 'Descrição Push (Perfil)', type: 'textarea' },
+                                { key: 'community.title', label: 'Comunidade: Título' },
+                                { key: 'community.subtitle', label: 'Comunidade: Subtítulo' },
+                                { key: 'community.post', label: 'Comunidade: Publicar' },
+                                { key: 'community.reply', label: 'Comunidade: Responder' },
+                                { key: 'community.replying_to', label: 'Comunidade: Em resposta a' },
+                                { key: 'community.empty_title', label: 'Comunidade: Vazio (Título)' },
+                                { key: 'community.empty_subtitle', label: 'Comunidade: Vazio (Subtítulo)' },
+                                { key: 'profile.update_error', label: 'Erro: Atualizar Perfil' },
+                                { key: 'profile.avatar_error', label: 'Erro: Upload Avatar' },
+                                { key: 'profile.password_error', label: 'Erro: Atualizar Senha' },
+                                { key: 'global.logging_out', label: 'Aviso: Saindo da Conta' },
+                                { key: 'global.logout_error', label: 'Erro: Sair da Conta' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3320,7 +3481,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'push.description', label: 'Descrição do Modal', type: 'textarea' },
                                 { key: 'push.allow', label: 'Botão Ativar' },
                                 { key: 'push.deny', label: 'Botão Agora Não' },
-                                { key: 'push.success', label: 'Toast Sucesso' }
+                                { key: 'push.success', label: 'Toast Sucesso' },
+                                { key: 'push.new_notification', label: 'Título Notificação Local' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3395,83 +3557,105 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                     {activePageTab === 'pwa' && (
                       <div className="space-y-8">
-                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-primary/20 rounded-lg text-primary">
-                              <Smartphone size={20} />
-                            </div>
-                            <h4 className="font-bold text-white">Configuração do PWA (Instalação)</h4>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                            <div className="space-y-8">
-                              <div className="space-y-4 pt-4 border-t border-white/5">
-                                <div className="flex items-center justify-between">
-                                  <div className="space-y-1">
-                                    <h5 className="text-sm font-bold text-white">Botão de Instalação na Login</h5>
-                                    <p className="text-xs text-gray-500">Exibir o botão de instalar no topo da tela de autenticação.</p>
-                                  </div>
-                                  <button
-                                    onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.enable_button': draftCustomTexts['pwa.enable_button'] === 'false' ? 'true' : 'false' })}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                                      (draftCustomTexts['pwa.enable_button'] !== 'false') ? 'bg-primary' : 'bg-zinc-700'
-                                    }`}
-                                  >
-                                    <span
-                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        (draftCustomTexts['pwa.enable_button'] !== 'false') ? 'translate-x-6' : 'translate-x-1'
+                        <div className="bg-zinc-900/50 rounded-[40px] border border-white/10 p-10 space-y-16">
+                          <div className="space-y-12">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2 space-y-4">
+                                <div className="space-y-1">
+                                  <h4 className="text-xl font-black text-white uppercase italic tracking-tighter">PWA (Instalação)</h4>
+                                </div>
+                                <div className="space-y-4 pt-4 border-t border-white/5">
+                                  <div className="flex items-center justify-between">
+                                    <div className="space-y-1">
+                                      <h5 className="text-sm font-bold text-white">Botão de Instalação na Login</h5>
+                                      <p className="text-xs text-gray-500">Exibir o botão de instalar no topo da tela de autenticação.</p>
+                                    </div>
+                                    <button
+                                      onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.enable_button': draftCustomTexts['pwa.enable_button'] === 'false' ? 'true' : 'false' })}
+                                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                                        (draftCustomTexts['pwa.enable_button'] !== 'false') ? 'bg-primary' : 'bg-zinc-700'
                                       }`}
-                                    />
-                                  </button>
+                                    >
+                                      <span
+                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                          (draftCustomTexts['pwa.enable_button'] !== 'false') ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                      />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-6">
+                                  <h5 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2 mt-4">Textos Globais do Modal</h5>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {[
+                                      { key: 'pwa.install_app', label: 'Texto do Botão Flutuante (Login)' },
+                                      { key: 'pwa.install_title', label: 'Título do Modal' },
+                                      { key: 'pwa.mobile_header', label: 'Título Auxiliar (Versão Celular)' },
+                                      { key: 'pwa.install_desc', label: 'Descrição Principal' },
+                                      { key: 'pwa.install_button', label: 'Botão Instalar Agora' },
+                                      { key: 'pwa.already_installed', label: 'Botão Já Instalei' }
+                                    ].map(field => (
+                                      <div key={field.key} className="space-y-2">
+                                        <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
+                                        <input 
+                                          type="text" 
+                                          value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                          placeholder={field.label}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                          className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none"
+                                        />
+                                      </div>
+                                    ))}
+                                    <div className="space-y-2">
+                                      <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Tempo de Auto-Slide (Segundos)</label>
+                                      <div className="flex items-center gap-4">
+                                        <input 
+                                          type="number" 
+                                          min="1"
+                                          max="60"
+                                          value={draftCustomTexts['pwa.auto_slide_interval'] !== undefined ? draftCustomTexts['pwa.auto_slide_interval'] : (settings.custom_texts?.['pwa.auto_slide_interval'] || '3')}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.auto_slide_interval': e.target.value })}
+                                          className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none placeholder:text-zinc-700"
+                                        />
+                                        <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest shrink-0">segundos</span>
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
 
                               <div className="space-y-6">
-                                <h5 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2 mt-8">Textos Globais do Modal</h5>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                  {[
-                                    { key: 'pwa.install_app', label: 'Texto do Botão Flutuante (Login)' },
-                                    { key: 'pwa.install_title', label: 'Título do Modal' },
-                                    { key: 'pwa.install_desc', label: 'Descrição Principal' },
-                                    { key: 'pwa.install_button', label: 'Botão Instalar Agora' },
-                                    { key: 'pwa.already_installed', label: 'Botão Já Instalei' }
-                                  ].map(field => (
-                                    <div key={field.key} className="space-y-2">
-                                      <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
-                                      <input 
-                                        type="text" 
-                                        value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
-                                        placeholder={field.label}
-                                        onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
-                                        className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none"
-                                      />
-                                    </div>
-                                  ))}
-                                  <div className="space-y-2">
-                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Tempo de Auto-Slide (Segundos)</label>
-                                    <div className="flex items-center gap-4">
-                                      <input 
-                                        type="number" 
-                                        min="1"
-                                        max="60"
-                                        value={draftCustomTexts['pwa.auto_slide_interval'] !== undefined ? draftCustomTexts['pwa.auto_slide_interval'] : (settings.custom_texts?.['pwa.auto_slide_interval'] || '3')}
-                                        onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.auto_slide_interval': e.target.value })}
-                                        className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none placeholder:text-zinc-700"
-                                      />
-                                      <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest shrink-0">segundos</span>
-                                    </div>
+                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview do Botão</label>
+                                <div className="p-8 rounded-[2.5rem] bg-zinc-950 border border-white/5 flex flex-col items-center justify-center space-y-8 relative overflow-hidden shadow-2xl h-full">
+                                  <div className="absolute top-0 left-0 right-0 h-16 flex items-center justify-center border-b border-white/5 bg-zinc-900/50 backdrop-blur-md">
+                                    { (draftCustomTexts['pwa.enable_button'] !== 'false') && (
+                                        <button className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-full text-[10px] font-black text-primary uppercase tracking-widest italic animate-pulse">
+                                          <Smartphone size={12} />
+                                          {draftCustomTexts['pwa.install_app'] || settings.custom_texts?.['pwa.install_app'] || languagePresets.pt['pwa.install_app']}
+                                        </button>
+                                    )}
+                                  </div>
+                                  <div className="text-center space-y-4 opacity-20 w-full">
+                                     <div className="w-3/4 h-8 bg-white/10 rounded-xl mx-auto" />
+                                     <div className="w-1/2 h-3 bg-white/5 rounded-full mx-auto" />
                                   </div>
                                 </div>
                               </div>
+                            </div>
 
-                              <div className="space-y-12">
-                                <h5 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2 mt-8">Configuração por Dispositivo</h5>
-                                
-                                {[
-                                  { 
-                                    id: 'ios', 
+                          <div className="space-y-12">
+                                <div className="space-y-16">
+                                 
+                                 {[
+                                   { 
+                                     id: 'ios', 
                                     label: 'Apple iOS (Safari)', 
-                                    icon: <Smartphone size={16} />,
+                                    icon: (
+                                      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.1 2.48-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.31-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.89 1.22-2.11 1.09-3.33-1.04.04-2.3.7-3.05 1.57-.67.77-1.26 2.02-1.11 3.21 1.15.09 2.33-.56 3.07-1.45z"/>
+                                      </svg>
+                                    ),
                                     titleKey: 'pwa.ios_label',
                                     stepsKey: 'pwa.steps.ios',
                                     imageKey: 'pwa.carousel.ios'
@@ -3479,7 +3663,11 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   { 
                                     id: 'android', 
                                     label: 'Android (Chrome)', 
-                                    icon: <Smartphone size={16} />,
+                                    icon: (
+                                      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M12 11c-2.4 0-4.6.4-6.3 1.2L4.4 10c-.1-.2-.4-.3-.6-.2-.2.1-.3.4-.2.6l1.3 2.3c-.1.1-.1.2-.1.3C2.4 14.5.5 17.3.5 20.5h23c0-3.2-1.9-6-4.4-7.5l1.3-2.3c.1-.2 0-.5-.2-.6-.2-.1-.5 0-.6.2l-1.3 2.2C16.6 11.4 14.4 11 12 11zm-5 7c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1zm10 0c-.6 0-1-.4-1-1s.4-1 1-1 1 .4 1 1-.4 1-1 1z" />
+                                      </svg>
+                                    ),
                                     titleKey: 'pwa.android_label',
                                     stepsKey: 'pwa.steps.android',
                                     imageKey: 'pwa.carousel.android'
@@ -3493,13 +3681,30 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     imageKey: 'pwa.carousel.desktop'
                                   }
                                 ].map(device => {
+                                  const isSynced = (draftCustomTexts['pwa.sync_images'] !== 'false');
                                   const currentUrls = (draftCustomTexts[device.imageKey] || '').split(',').filter(Boolean);
                                   const updateUrls = (urls: string[]) => {
-                                    setDraftCustomTexts({ ...draftCustomTexts, [device.imageKey]: urls.join(',') });
+                                    const newUrlsStr = urls.join(',');
+                                    if (isSynced) {
+                                      setDraftCustomTexts({ 
+                                        ...draftCustomTexts, 
+                                        'pwa.carousel.ios': newUrlsStr,
+                                        'pwa.carousel.android': newUrlsStr,
+                                        'pwa.carousel.desktop': newUrlsStr
+                                      });
+                                    } else {
+                                      setDraftCustomTexts({ ...draftCustomTexts, [device.imageKey]: newUrlsStr });
+                                    }
                                   };
 
                                   const currentSteps = (() => {
-                                    const raw = draftCustomTexts[device.stepsKey] || settings.custom_texts?.[device.stepsKey] || languagePresets.pt[device.stepsKey] || '[]';
+                                    let raw = draftCustomTexts[device.stepsKey] !== undefined ? draftCustomTexts[device.stepsKey] : (settings.custom_texts?.[device.stepsKey] || languagePresets.pt[device.stepsKey] || '[]');
+                                    
+                                    const oldDefault = '["Toque no ícone de compartilhar", "Selecione \\"Adicionar à Tela de Início\\""]';
+                                    if (device.id === 'ios' && (raw === oldDefault || raw === oldDefault.replace(/\\\\"/g, '"'))) {
+                                      raw = languagePresets.pt[device.stepsKey];
+                                    }
+
                                     try { return JSON.parse(raw); } catch { return []; }
                                   })();
 
@@ -3507,179 +3712,200 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     setDraftCustomTexts({ ...draftCustomTexts, [device.stepsKey]: JSON.stringify(steps) });
                                   };
 
+                                  const displayMode = draftCustomTexts['pwa.display_mode'] || 'mobile';
+
                                   return (
                                     <div key={device.id} className="space-y-8 p-8 bg-zinc-900 border border-white/5 rounded-3xl relative overflow-hidden group/device">
-                                      <div className="flex items-center justify-between">
+                                      <div className="flex items-center justify-between gap-6 flex-wrap">
                                         <div className="flex items-center gap-3">
                                           <div className="p-3 bg-primary/10 rounded-2xl text-primary">
                                             {device.icon}
                                           </div>
-                                          <h6 className="font-bold text-white text-lg uppercase tracking-tight italic underline decoration-primary decoration-4 underline-offset-8 decoration-dotted">{device.label}</h6>
-                                        </div>
-                                      </div>
-
-                                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                                        <div className="space-y-8">
-                                          <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block">Cabeçalho do Modal</label>
-                                            <input 
-                                              type="text" 
-                                              value={draftCustomTexts[device.titleKey] !== undefined ? draftCustomTexts[device.titleKey] : (settings.custom_texts?.[device.titleKey] || languagePresets.pt[device.titleKey] || '')}
-                                              onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [device.titleKey]: e.target.value })}
-                                              className="w-full bg-black border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none"
-                                            />
+                                          <div>
+                                            <h6 className="font-bold text-white text-lg uppercase tracking-tight italic underline decoration-primary decoration-4 underline-offset-8 decoration-dotted leading-none">{device.label}</h6>
                                           </div>
+                                        </div>
 
-                                          <div className="space-y-4">
-                                            <div className="flex items-center justify-between">
-                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Instruções de Instalação</label>
-                                              <button 
-                                                onClick={() => updateSteps([...currentSteps, ''])}
-                                                className="p-1 px-2.5 bg-primary/10 border border-primary/20 rounded-md text-[10px] font-black text-primary uppercase tracking-widest italic"
+                                        {device.id === 'desktop' && (
+                                          <div className="flex items-center gap-4">
+                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest italic">Modo de Exibição</span>
+                                            <div className="flex bg-black p-1 rounded-xl border border-white/5 shadow-inner">
+                                              <button
+                                                onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.display_mode': 'mobile' })}
+                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                                  displayMode === 'mobile' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'
+                                                }`}
                                               >
-                                                + ADD PASSO
+                                                Celular
+                                              </button>
+                                              <button
+                                                onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'pwa.display_mode': 'desktop' })}
+                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                                  displayMode === 'desktop' ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'
+                                                }`}
+                                              >
+                                                Desktop
                                               </button>
                                             </div>
-                                            <div className="space-y-3">
-                                              {currentSteps.map((step: string, index: number) => (
-                                                <div key={index} className="flex gap-2 group/step">
-                                                  <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center text-xs font-black text-white shrink-0 border border-white/5 italic">
-                                                    {index + 1}º
-                                                  </div>
-                                                  <input 
-                                                    type="text" 
-                                                    value={step}
-                                                    onChange={(e) => {
-                                                      const newSteps = [...currentSteps];
-                                                      newSteps[index] = e.target.value;
-                                                      updateSteps(newSteps);
-                                                    }}
-                                                    className="flex-1 bg-zinc-800 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none"
-                                                  />
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {device.id === 'desktop' && displayMode === 'mobile' && (
+                                        <div className="p-6 bg-primary/5 rounded-2xl border border-primary/10 animate-in fade-in slide-in-from-top-4 duration-500">
+                                          <p className="text-xs text-primary/80 font-bold uppercase italic tracking-tighter leading-relaxed">
+                                            Neste modo, usuários em computadores verão as instruções de instalação para iOS e Android simultaneamente, incentivando a instalação no celular. As configurações abaixo (Desktop) estão desativadas.
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {(device.id !== 'desktop' || displayMode === 'desktop') && (
+                                        <div className="grid grid-cols-1 gap-12 animate-in fade-in slide-in-from-top-4 duration-500 pt-8 border-t border-white/5">
+                                          <div className="space-y-12">
+                                            {/* Header and Steps */}
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 bg-zinc-900/50 p-6 rounded-2xl border border-white/5">
+                                              <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block">Cabeçalho do Modal</label>
+                                                <input 
+                                                  type="text" 
+                                                  value={draftCustomTexts[device.titleKey] !== undefined ? draftCustomTexts[device.titleKey] : (settings.custom_texts?.[device.titleKey] || languagePresets.pt[device.titleKey] || '')}
+                                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [device.titleKey]: e.target.value })}
+                                                  className="w-full bg-black border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none focus:ring-1 focus:ring-primary/50"
+                                                />
+                                              </div>
+
+                                              <div className="space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Instruções de Instalação</label>
                                                   <button 
-                                                    onClick={() => {
-                                                      const newSteps = currentSteps.filter((_: any, i: number) => i !== index);
-                                                      updateSteps(newSteps);
-                                                    }}
-                                                    className="p-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl transition-colors shrink-0"
+                                                    onClick={() => updateSteps([...currentSteps, ''])}
+                                                    className="p-1 px-2.5 bg-primary/10 border border-primary/20 rounded-md text-[10px] font-black text-primary uppercase tracking-widest italic"
                                                   >
-                                                    <Trash2 size={16} />
+                                                    + ADD PASSO
                                                   </button>
                                                 </div>
-                                              ))}
+                                                <div className="space-y-3">
+                                                  {currentSteps.map((step: string, index: number) => (
+                                                    <div key={index} className="flex gap-2 group/step">
+                                                      <div className="w-10 h-10 bg-zinc-800 rounded-xl flex items-center justify-center text-xs font-black text-white shrink-0 border border-white/5 italic">
+                                                        {index + 1}º
+                                                      </div>
+                                                      <input 
+                                                        type="text" 
+                                                        value={step}
+                                                        onChange={(e) => {
+                                                          const newSteps = [...currentSteps];
+                                                          newSteps[index] = e.target.value;
+                                                          updateSteps(newSteps);
+                                                        }}
+                                                        className="flex-1 bg-zinc-800 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:border-primary outline-none"
+                                                      />
+                                                      <button 
+                                                        onClick={() => {
+                                                          const newSteps = currentSteps.filter((_: any, i: number) => i !== index);
+                                                          updateSteps(newSteps);
+                                                        }}
+                                                        className="p-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl transition-colors shrink-0"
+                                                      >
+                                                        <Trash2 size={16} />
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Carousel Images Section - Larger and stretched */}
+                                            <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
+                                              <div className="flex items-center justify-between flex-wrap gap-6">
+                                                <div className="space-y-2">
+                                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest block">Imagens do Carrossel (9:16)</label>
+                                                  <p className="text-[10px] text-gray-600 font-bold uppercase italic tracking-tighter">Use links diretos de imagens (.jpg, .png)</p>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                  <button 
+                                                    onClick={() => {
+                                                      setPwaUrlInput('');
+                                                      setShowAddPwaImageUrl({ 
+                                                        deviceId: device.id, 
+                                                        currentUrls: currentUrls,
+                                                        updateFn: updateUrls
+                                                      });
+                                                    }}
+                                                    className="h-12 px-8 bg-primary rounded-xl text-xs font-black text-white uppercase tracking-widest italic shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-3 shrink-0"
+                                                  >
+                                                    <Plus size={20} /> ADICIONAR IMAGEM
+                                                  </button>
+                                                </div>
+                                              </div>
+                                              
+                                              <div className="flex gap-8 overflow-x-auto pb-8 scrollbar-thin scrollbar-thumb-white/10 snap-x snap-mandatory min-h-[720px] px-2">
+                                                {currentUrls.map((url: string, index: number) => (
+                                                  <div key={index} className="relative group shrink-0 w-96 h-[680px] bg-black rounded-[2.5rem] border border-white/10 overflow-hidden snap-center shadow-2xl transition-transform hover:scale-[1.02]">
+                                                    <img src={url} className="w-full h-full object-contain" referrerPolicy="no-referrer" alt="" />
+                                                    <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-6 p-6">
+                                                      <div className="flex gap-3">
+                                                        <button 
+                                                          onClick={() => {
+                                                            if (index === 0) return;
+                                                            const newUrls = [...currentUrls];
+                                                            [newUrls[index-1], newUrls[index]] = [newUrls[index], newUrls[index-1]];
+                                                            updateUrls(newUrls);
+                                                          }}
+                                                          className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white disabled:opacity-20 transition-all"
+                                                          disabled={index === 0}
+                                                        >
+                                                          <ChevronLeft size={24} />
+                                                        </button>
+                                                        <button 
+                                                          onClick={() => {
+                                                            if (index === currentUrls.length - 1) return;
+                                                            const newUrls = [...currentUrls];
+                                                            [newUrls[index], newUrls[index+1]] = [newUrls[index+1], newUrls[index]];
+                                                            updateUrls(newUrls);
+                                                          }}
+                                                          className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white disabled:opacity-20 transition-all"
+                                                          disabled={index === currentUrls.length - 1}
+                                                        >
+                                                          <ChevronRight size={24} />
+                                                        </button>
+                                                      </div>
+                                                      <button 
+                                                        onClick={() => {
+                                                          const newUrls = currentUrls.filter((_: any, i: number) => i !== index);
+                                                          updateUrls(newUrls);
+                                                        }}
+                                                        className="w-full py-4 bg-red-500/80 hover:bg-red-500 rounded-2xl text-white shadow-lg shadow-red-500/20 font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3"
+                                                      >
+                                                        <Trash2 size={20} /> REMOVER
+                                                      </button>
+                                                    </div>
+                                                    <div className="absolute top-4 left-4 bg-primary px-4 py-1.5 rounded-xl text-[11px] font-black text-black italic tracking-tighter uppercase shadow-lg shadow-primary/20">{index + 1}º</div>
+                                                  </div>
+                                                ))}
+                                                {currentUrls.length === 0 && (
+                                                  <div className="flex-1 min-h-[400px] rounded-[3rem] border-2 border-dashed border-white/5 flex flex-col items-center justify-center gap-6 opacity-30">
+                                                    <div className="p-6 bg-white/5 rounded-full">
+                                                      <Plus size={48} />
+                                                    </div>
+                                                    <span className="italic font-bold uppercase text-sm tracking-widest">Nenhuma captura adicionada</span>
+                                                  </div>
+                                                )}
+                                              </div>
                                             </div>
                                           </div>
                                         </div>
-
-                                        <div className="space-y-6">
-                                          <div className="flex items-center justify-between">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Capturas de Tela (9:16 Preferencial)</label>
-                                            <button 
-                                              onClick={() => {
-                                                const newUrl = prompt('Insira a URL da imagem:');
-                                                if (newUrl) updateUrls([...currentUrls, newUrl]);
-                                              }}
-                                              className="p-1 px-2.5 bg-primary rounded-md text-[10px] font-black text-white uppercase tracking-widest italic shadow-lg shadow-primary/20"
-                                            >
-                                              + ADD IMAGEM
-                                            </button>
-                                          </div>
-                                          
-                                          <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-white/10 snap-x snap-mandatory">
-                                            {currentUrls.map((url, index) => (
-                                              <div key={index} className="relative group shrink-0 w-28 h-40 bg-zinc-950 rounded-xl border border-white/5 overflow-hidden snap-center shadow-2xl">
-                                                <img src={url} className="w-full h-full object-contain" referrerPolicy="no-referrer" alt="" />
-                                                <div className="absolute inset-0 bg-black/90 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 p-2">
-                                                  <div className="flex gap-2">
-                                                    <button 
-                                                      onClick={() => {
-                                                        if (index === 0) return;
-                                                        const newUrls = [...currentUrls];
-                                                        [newUrls[index-1], newUrls[index]] = [newUrls[index], newUrls[index-1]];
-                                                        updateUrls(newUrls);
-                                                      }}
-                                                      className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white disabled:opacity-20"
-                                                      disabled={index === 0}
-                                                    >
-                                                      <ChevronLeft size={16} />
-                                                    </button>
-                                                    <button 
-                                                      onClick={() => {
-                                                        if (index === currentUrls.length - 1) return;
-                                                        const newUrls = [...currentUrls];
-                                                        [newUrls[index], newUrls[index+1]] = [newUrls[index+1], newUrls[index]];
-                                                        updateUrls(newUrls);
-                                                      }}
-                                                      className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white disabled:opacity-20"
-                                                      disabled={index === currentUrls.length - 1}
-                                                    >
-                                                      <ChevronRight size={16} />
-                                                    </button>
-                                                  </div>
-                                                  <button 
-                                                    onClick={() => {
-                                                      const newUrls = currentUrls.filter((_, i) => i !== index);
-                                                      updateUrls(newUrls);
-                                                    }}
-                                                    className="p-2 bg-red-500/80 hover:bg-red-500 rounded-lg text-white shadow-lg shadow-red-500/20"
-                                                  >
-                                                    <Trash2 size={16} />
-                                                  </button>
-                                                </div>
-                                                <div className="absolute top-2 left-2 bg-black/80 px-2 rounded text-[9px] font-black text-white italic tracking-tighter uppercase">{index + 1}º</div>
-                                              </div>
-                                            ))}
-                                            {currentUrls.length === 0 && (
-                                              <div className="flex-1 min-h-[192px] rounded-2xl border-2 border-dashed border-white/5 flex items-center justify-center opacity-30 italic font-bold uppercase text-[10px]">
-                                                Nenhuma captura adicionada
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
+                                      )}
                                     </div>
                                   );
                                 })}
-                              </div>
-                            </div>
-
-                            <div className="space-y-6">
-                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview do Botão de Instalação</label>
-                              <div className="p-12 rounded-[2.5rem] bg-zinc-950 border border-white/5 flex flex-col items-center justify-center space-y-8 relative overflow-hidden shadow-2xl">
-                                <div className="absolute top-0 left-0 right-0 h-16 flex items-center justify-center border-b border-white/5 bg-zinc-900/50 backdrop-blur-md">
-                                  { (draftCustomTexts['pwa.enable_button'] !== 'false') && (
-                                      <button className="flex items-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-full text-[10px] font-black text-primary uppercase tracking-widest italic animate-pulse">
-                                        <Smartphone size={12} />
-                                        {draftCustomTexts['pwa.install_app'] || settings.custom_texts?.['pwa.install_app'] || languagePresets.pt['pwa.install_app']}
-                                      </button>
-                                  )}
-                                </div>
-                                <div className="text-center space-y-4 opacity-20 mt-12 w-full">
-                                   <div className="w-3/4 h-10 bg-white/10 rounded-xl mx-auto" />
-                                   <div className="w-1/2 h-4 bg-white/5 rounded-full mx-auto" />
-                                </div>
-                              </div>
-                              
-                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest block mt-12">Simulação de Dispositivo</label>
-                              <div className="p-8 rounded-3xl border border-white/10 bg-zinc-900/30 space-y-4">
-                                <p className="text-[10px] text-gray-400 font-bold uppercase">O modal se adapta automaticamente ao detectar:</p>
-                                <div className="flex gap-4">
-                                  <div className="flex-1 p-3 bg-white/5 rounded-xl text-center border border-white/5">
-                                    <Smartphone className="w-5 h-5 mx-auto mb-1 text-primary" />
-                                    <span className="text-[9px] font-black uppercase text-white">Mobile</span>
-                                  </div>
-                                  <div className="flex-1 p-3 bg-white/5 rounded-xl text-center border border-white/5">
-                                    <Monitor className="w-5 h-5 mx-auto mb-1 text-primary" />
-                                    <span className="text-[9px] font-black uppercase text-white">Desktop</span>
-                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
                 )}
 
                 {activeTab === 'vendas' && (
@@ -3829,8 +4055,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
               </motion.div>
             </AnimatePresence>
           )}
-        </main>
-      </div>
 
       {/* Course Editor Modal */}
       {showCourseEditor && (
@@ -4058,7 +4282,96 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Custom PWA URL Modal */}
+      <AnimatePresence>
+        {showAddPwaImageUrl && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddPwaImageUrl(null)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-[32px] shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent" />
+              
+              <div className="p-8 pb-4">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">Adicionar Captura</h3>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-1">Insira o link da imagem para o carrossel</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowAddPwaImageUrl(null)}
+                    className="p-2 hover:bg-white/5 rounded-full text-gray-500 hover:text-white transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <label className="text-[9px] font-black text-primary uppercase tracking-[0.2em] ml-1">Link Direto da Imagem</label>
+                    <div className="relative group">
+                      <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-primary transition-colors">
+                        <ImageIcon size={18} />
+                      </div>
+                      <input 
+                        autoFocus
+                        type="text"
+                        placeholder="https://exemplo.com/imagem.jpg"
+                        value={pwaUrlInput}
+                        onChange={(e) => setPwaUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && pwaUrlInput.trim()) {
+                            const val = pwaUrlInput.trim();
+                            showAddPwaImageUrl.updateFn([...showAddPwaImageUrl.currentUrls, val]);
+                            setPwaUrlInput('');
+                            setShowAddPwaImageUrl(null);
+                          }
+                        }}
+                        className="w-full bg-black border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white text-sm focus:border-primary outline-none transition-all placeholder:text-gray-700 shadow-inner"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => setShowAddPwaImageUrl(null)}
+                      className="flex-1 px-6 py-4 bg-white/5 hover:bg-white/10 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      disabled={!pwaUrlInput.trim()}
+                      onClick={() => {
+                        const val = pwaUrlInput.trim();
+                        showAddPwaImageUrl.updateFn([...showAddPwaImageUrl.currentUrls, val]);
+                        setPwaUrlInput('');
+                        setShowAddPwaImageUrl(null);
+                      }}
+                      className="flex-1 px-6 py-4 bg-primary text-black rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:grayscale disabled:scale-100"
+                    >
+                      Adicionar Captura
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </main>
     </div>
+  </div>
   );
 }
 

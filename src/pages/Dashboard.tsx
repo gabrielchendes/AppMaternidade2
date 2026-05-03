@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo, lazy, Suspense } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
@@ -6,10 +6,6 @@ import BottomNav from '../components/BottomNav';
 import BannerCarousel from '../components/BannerCarousel';
 import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
-import Profile from '../components/Profile';
-import Community from '../components/Community';
-import AdminPanel from '../components/AdminPanel';
-import CourseViewer from '../components/CourseViewer';
 import FloatingWhatsApp from '../components/FloatingWhatsApp';
 import PWAInstallModal from '../components/PWAInstallModal';
 import { getDeviceType, isPWAInstalled } from '../lib/pwa';
@@ -21,6 +17,20 @@ import { createNotification } from '../lib/notifications';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
+
+// Lazy load heavy components
+const Profile = lazy(() => import('../components/Profile'));
+const Community = lazy(() => import('../components/Community'));
+const AdminPanel = lazy(() => import('../components/AdminPanel'));
+const CourseViewer = lazy(() => import('../components/CourseViewer'));
+
+import { dataCache } from '../lib/cache';
+
+const ComponentLoader = () => (
+  <div className="w-full py-20 flex items-center justify-center">
+    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+  </div>
+);
 
 const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community' | 'profile', settings: any, t: any }) => {
   const whatsappEnabled = settings[`support_whatsapp_${page}_enabled` as keyof typeof settings] && settings.support_whatsapp;
@@ -92,6 +102,8 @@ export default function Dashboard({ user }: DashboardProps) {
     if (window.location.hash !== `#${activeTab}`) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
+    // Always scroll to top when changing tabs
+    window.scrollTo(0, 0);
   }, [activeTab]);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPWAInstall, setShowPWAInstall] = useState(false);
@@ -178,8 +190,21 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [user.id]);
 
   const fetchData = async () => {
+    // Try to get from cache first
+    const cacheKey = `dashboard_data_${user.id}`;
+    const cachedData = dataCache.get(cacheKey);
+    
+    if (cachedData) {
+      setCourses(cachedData.courses);
+      setPurchases(cachedData.purchases);
+      setUserProgress(cachedData.userProgress);
+      setCourseStats(cachedData.courseStats);
+      setCourseChapters(cachedData.courseChapters);
+      setLoading(false);
+      return;
+    }
+
     try {
-      console.log('🔎 Query Supabase: courses, purchases, user_progress, course_packages');
       const [coursesRes, purchasesRes, progressRes, packagesRes] = await Promise.all([
         supabase.from('courses').select('*').eq('is_active', true),
         supabase.from('purchases').select('product_id').eq('user_id', user.id),
@@ -195,9 +220,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const unlockedByPackages = new Set<string>();
       const courseToPackageCheckout: Record<string, string> = {};
 
-      // Logic: If user has a purchase with a Hotmart ID that matches a package, unlock all courses in that package
       packagesRes.data?.forEach(pkg => {
-        // Map courses to their package checkout URL (preferring packages with checkout URLs)
         if (pkg.hotmart_checkout_url) {
           pkg.package_courses?.forEach((pc: any) => {
             if (!courseToPackageCheckout[pc.course_id]) {
@@ -213,19 +236,21 @@ export default function Dashboard({ user }: DashboardProps) {
         }
       });
 
-      setCourses(coursesRes.data?.map(c => ({
+      const processedCourses = coursesRes.data?.map(c => ({
         ...c,
-        checkout_url: courseToPackageCheckout[c.id] || c.checkout_url // Fallback to course's own checkout if package doesn't have one
-      })) || []);
-      setPurchases([...basePurchases, ...Array.from(unlockedByPackages)]);
+        checkout_url: courseToPackageCheckout[c.id] || c.checkout_url
+      })) || [];
+      const allPurchases = [...basePurchases, ...Array.from(unlockedByPackages)];
+
+      setCourses(processedCourses);
+      setPurchases(allPurchases);
       setUserProgress(progressRes.data || []);
 
-      // Fetch stats and chapter mappings for each course
-      console.log('🔎 Query Supabase: chapters (select)');
       const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
+      let stats: Record<string, { lessons: number, materials: number }> = {};
+      let chapterMap: Record<string, string[]> = {};
+
       if (chaptersData) {
-        const stats: Record<string, { lessons: number, materials: number }> = {};
-        const chapterMap: Record<string, string[]> = {};
         chaptersData.forEach((ch: any) => {
           const courseId = ch.modules.course_id;
           if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
@@ -238,9 +263,19 @@ export default function Dashboard({ user }: DashboardProps) {
         setCourseStats(stats);
         setCourseChapters(chapterMap);
       }
+
+      // Save to cache
+      dataCache.set(cacheKey, {
+        courses: processedCourses,
+        purchases: allPurchases,
+        userProgress: progressRes.data || [],
+        courseStats: stats,
+        courseChapters: chapterMap
+      }, 120000); // 2 minutes cache for dashboard
+
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      toast.error('Erro ao carregar conteúdos');
+      toast.error(t('dashboard.loading_error') || 'Erro ao carregar conteúdos');
     } finally {
       setLoading(false);
     }
@@ -276,7 +311,7 @@ export default function Dashboard({ user }: DashboardProps) {
       return;
     }
 
-    toast.error('Este curso ainda não possui um link de compra configurado.');
+    toast.error(t('course.purchase_unavailable') || 'Este curso ainda não possui um link de compra configurado.');
   }, [selectedCourse]);
 
   const getCourseProgress = useCallback((courseId: string) => {
@@ -291,6 +326,10 @@ export default function Dashboard({ user }: DashboardProps) {
     return Math.min(100, Math.round((completedCount / chaptersInCourse.length) * 100));
   }, [courseChapters, userProgress]);
 
+  const unlockedCourses = useMemo(() => courses.filter(p => isUnlocked(p) && !p.is_bonus), [courses, isUnlocked]);
+  const lockedCourses = useMemo(() => courses.filter(p => !isUnlocked(p)), [courses, isUnlocked]);
+  const bonusCourses = useMemo(() => courses.filter(p => p.is_bonus && isUnlocked(p)), [courses, isUnlocked]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-bg-main flex items-center justify-center">
@@ -303,11 +342,13 @@ export default function Dashboard({ user }: DashboardProps) {
     <div className="min-h-screen pb-20 bg-bg-main">
       <AnimatePresence>
         {viewingCourseId && (
-          <CourseViewer 
-            courseId={viewingCourseId} 
-            userId={user.id} 
-            onClose={() => setViewingCourseId(null)} 
-          />
+          <Suspense fallback={<div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+            <CourseViewer 
+              courseId={viewingCourseId} 
+              userId={user.id} 
+              onClose={() => setViewingCourseId(null)} 
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -375,17 +416,23 @@ export default function Dashboard({ user }: DashboardProps) {
           {/* Banner Section */}
           <div className="w-full pb-8">
             <BannerCarousel 
-              images={settings.banner_images || []} 
+              images={(settings.banner_sync !== false) 
+                ? (settings.banner_images || []) 
+                : (getDeviceType() !== 'desktop' ? (settings.banner_images_mobile || settings.banner_images || []) : (settings.banner_images || []))
+              } 
               interval={settings.banner_interval || 5000} 
-              config={settings.banner_config || []}
+              config={(settings.banner_sync !== false)
+                ? (settings.banner_config || [])
+                : (getDeviceType() !== 'desktop' ? (settings.banner_config_mobile || settings.banner_config || []) : (settings.banner_config || []))
+              }
             />
           </div>
 
           {/* Content Sections */}
           <div className="relative z-10 space-y-12 pb-20">
             <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || 'Meus Cursos'}>
-              {courses.filter(p => isUnlocked(p) && !p.is_bonus).length > 0 ? (
-                courses.filter(p => isUnlocked(p) && !p.is_bonus).map(course => (
+              {unlockedCourses.length > 0 ? (
+                unlockedCourses.map(course => (
                   <ProductCard
                     key={course.id}
                     product={course}
@@ -404,8 +451,8 @@ export default function Dashboard({ user }: DashboardProps) {
             </Carousel>
 
             <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || 'Produtos Principais'}>
-              {courses.filter(p => !isUnlocked(p)).length > 0 ? (
-                courses.filter(p => !isUnlocked(p)).map(course => (
+              {lockedCourses.length > 0 ? (
+                lockedCourses.map(course => (
                   <ProductCard
                     key={course.id}
                     product={course}
@@ -421,9 +468,9 @@ export default function Dashboard({ user }: DashboardProps) {
               )}
             </Carousel>
 
-            {courses.filter(p => p.is_bonus && isUnlocked(p)).length > 0 && (
+            {bonusCourses.length > 0 && (
               <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || 'Meus Bônus'}>
-                {courses.filter(p => p.is_bonus && isUnlocked(p)).map(course => (
+                {bonusCourses.map(course => (
                   <ProductCard
                     key={course.id}
                     product={course}
@@ -441,16 +488,22 @@ export default function Dashboard({ user }: DashboardProps) {
         </>
       ) : activeTab === 'community' ? (
         <div className="pt-24">
-          <Community user={user} />
+          <Suspense fallback={<ComponentLoader />}>
+            <Community user={user} />
+          </Suspense>
           <SupportSection page="community" settings={settings} t={t} />
         </div>
       ) : activeTab === 'admin' ? (
         <div className="pt-24">
-          <AdminPanel user={user} />
+          <Suspense fallback={<ComponentLoader />}>
+            <AdminPanel user={user} />
+          </Suspense>
         </div>
       ) : (
         <div className="pt-24">
-          <Profile user={user} />
+          <Suspense fallback={<ComponentLoader />}>
+            <Profile user={user} />
+          </Suspense>
           <SupportSection page="profile" settings={settings} t={t} />
         </div>
       )}

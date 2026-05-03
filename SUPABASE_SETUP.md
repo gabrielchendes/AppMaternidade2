@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     support_email_course_enabled BOOLEAN DEFAULT true,
     support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true,
     login_display_type TEXT DEFAULT 'title',
-    login_install_button_pulsing BOOLEAN DEFAULT true,
+    login_install_button_pulsing TEXT DEFAULT 'pulsing',
     custom_texts JSONB DEFAULT '{
         "auth.welcome": "Bem-vinda de volta!",
         "auth.subtitle": "Acesse sua área exclusiva para mamães",
@@ -66,6 +66,10 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     }'::jsonb,
     banner_images TEXT[] DEFAULT ARRAY['https://picsum.photos/seed/maternity-banner-1/1200/600', 'https://picsum.photos/seed/maternity-banner-2/1200/600'],
     banner_interval INTEGER DEFAULT 5000,
+    banner_config JSONB DEFAULT '[]'::jsonb,
+    banner_images_mobile TEXT[] DEFAULT '{}'::text[],
+    banner_config_mobile JSONB DEFAULT '[]'::jsonb,
+    banner_sync BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT one_row CHECK (id = 1)
@@ -250,6 +254,11 @@ CREATE TABLE IF NOT EXISTS public.package_courses (
 
 -- NOVAS ATUALIZAÇÕES (Execute no SQL Editor para habilitar novas funcionalidades)
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_images_mobile TEXT[] DEFAULT '{}'::text[];
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config_mobile JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_sync BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ALTER COLUMN login_install_button_pulsing TYPE TEXT USING (CASE WHEN login_install_button_pulsing = true THEN 'pulsing' ELSE 'static' END);
+ALTER TABLE public.app_settings ALTER COLUMN login_install_button_pulsing SET DEFAULT 'pulsing';
 
 -- ==========================================
 -- POLÍTICAS DE SEGURANÇA (RLS)
@@ -425,4 +434,5 @@ CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (b
 -- ATUALIZAÇÃO: Adicionar coluna login_install_button_pulsing
 -- Execute este comando se você já tiver a tabela app_settings
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS logo_height INTEGER DEFAULT 64;
 ```

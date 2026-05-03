@@ -86,7 +86,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
 
       if (courseRes.error) {
         console.error('Course fetch error:', courseRes.error);
-        throw new Error('Curso não encontrado');
+        throw new Error(t('course.not_found') || 'Curso não encontrado');
       }
       
       const courseData = courseRes.data;
@@ -123,8 +123,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
       }
     } catch (err: any) {
       console.error('❌ Error in CourseViewer fetch:', err);
-      toast.error(err.message || 'Erro ao carregar curso');
-      if (err.message === 'Curso não encontrado') onClose();
+      toast.error(err.message || t('course.loading_error') || 'Erro ao carregar curso');
+      if (err.message === 'Curso não encontrado' || err.message === t('course.not_found')) onClose();
     } finally {
       setLoading(false);
     }
@@ -160,7 +160,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
       }
     } catch (err) {
       console.error('Error toggling progress:', err);
-      toast.error('Erro ao atualizar progresso');
+      toast.error(t('course.progress_error') || 'Erro ao atualizar progresso');
     }
   };
 
@@ -308,6 +308,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           controls
           autoPlay
           playsInline
+          preload="metadata"
           className="w-full h-full"
           onEnded={() => {
             if (activeChapter) {
@@ -330,6 +331,13 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           controls 
           playing
           playsinline
+          config={{
+            file: {
+              attributes: {
+                preload: 'metadata'
+              }
+            }
+          }}
           onEnded={() => {
             if (activeChapter) {
               markChapterComplete(activeChapter.id);
@@ -396,6 +404,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           className="w-full h-full border-none"
           title={activeChapter.title}
           allow="fullscreen"
+          loading="lazy"
         />
         
         {/* Fullscreen Trigger Overlay - Open in new tab for better visibility if iframe fails */}
@@ -604,7 +613,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             <div className="space-y-0.5 px-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] italic leading-none">
-                                  {chapter.content_type === 'video' ? 'Videoaula' : chapter.content_type === 'pdf' ? 'Material PDF' : 'Leitura'}
+                                  {chapter.content_type === 'video' ? (t('course.video_lesson') || 'Videoaula') : chapter.content_type === 'pdf' ? (t('course.pdf_material') || 'Material PDF') : (t('course.reading') || 'Leitura')}
                                 </span>
                                 {isCompleted && <div className="w-1 h-1 rounded-full bg-green-500" />}
                               </div>

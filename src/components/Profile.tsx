@@ -25,6 +25,7 @@ export default function Profile({ user }: ProfileProps) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pushStatus, setPushStatus] = useState<{ supported: boolean, permission: string, tokenGenerated: boolean }>({
@@ -34,12 +35,15 @@ export default function Profile({ user }: ProfileProps) {
   });
 
   const handleLogout = async () => {
+    setLoggingOut(true);
     try {
+      // Small delay to show feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      window.location.href = '/';
     } catch (error: any) {
-      toast.error('Erro ao sair da conta');
+      toast.error(t('global.logout_error') || 'Erro ao sair da conta');
+      setLoggingOut(false);
     }
   };
 
@@ -53,7 +57,7 @@ export default function Profile({ user }: ProfileProps) {
       
       if (sessionError) {
         console.error('Session error on mobile:', sessionError);
-        throw new Error(`Sessão indisponível: ${sessionError.message}`);
+        throw new Error(`${t('profile.update_error') || 'Erro ao atualizar perfil'}: ${sessionError.message}`);
       }
 
       // Step 2: Get user as the primary verification with refresh fallback
@@ -86,10 +90,10 @@ export default function Profile({ user }: ProfileProps) {
     } catch (error: any) {
       console.error('Profile update error:', error);
       if (error.message?.includes('Auth session missing')) {
-        toast.error('Sessão perdida. Reiniciando...');
+        toast.error(t('global.session_lost') || 'Sessão perdida. Reiniciando...');
         setTimeout(() => window.location.reload(), 2000);
       } else {
-        toast.error(error.message || 'Erro ao atualizar perfil');
+        toast.error(error.message || t('profile.update_error') || 'Erro ao atualizar perfil');
       }
     } finally {
       setLoading(false);
@@ -138,10 +142,10 @@ export default function Profile({ user }: ProfileProps) {
     } catch (error: any) {
       console.error('Error uploading avatar:', error);
       if (error.message?.includes('Auth session missing')) {
-        toast.error('Sessão perdida. Reiniciando...');
+        toast.error(t('global.session_lost') || 'Sessão perdida. Reiniciando...');
         setTimeout(() => window.location.reload(), 2000);
       } else {
-        toast.error('Erro ao enviar foto de perfil');
+        toast.error(t('profile.avatar_error') || 'Erro ao enviar foto de perfil');
       }
     } finally {
       setUploading(false);
@@ -166,7 +170,7 @@ export default function Profile({ user }: ProfileProps) {
       setPassword('');
       setConfirmPassword('');
     } catch (error: any) {
-      toast.error(error.message || 'Erro ao atualizar senha');
+      toast.error(error.message || t('profile.password_error') || 'Erro ao atualizar senha');
     } finally {
       setLoading(false);
     }
@@ -406,16 +410,14 @@ export default function Profile({ user }: ProfileProps) {
       <section className="pt-8 border-t border-white/5">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-red-500 hover:bg-red-500/10 border border-red-500/20 transition-all font-black uppercase tracking-widest text-xs active:scale-95"
+          disabled={loggingOut}
+          className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-red-500 hover:bg-red-500/10 border border-red-500/20 transition-all font-black uppercase tracking-widest text-xs active:scale-95 disabled:opacity-50"
         >
-          <LogOut size={18} />
-          {settings?.custom_texts?.['global.logout'] || t('global.logout') || "Sair da Conta"}
+          {loggingOut ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
+          {loggingOut ? (t('global.logging_out') || 'Saindo...') : (settings?.custom_texts?.['global.logout'] || t('global.logout') || "Sair da Conta")}
         </button>
       </section>
 
-      <div className="text-center opacity-20 text-[10px] uppercase font-black tracking-[0.2em] pt-4 pb-8">
-        {settings?.app_name || 'Maternidade Premium'} • {new Date().getFullYear()}
-      </div>
     </div>
   );
 }

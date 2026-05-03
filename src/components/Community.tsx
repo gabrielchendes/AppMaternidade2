@@ -23,6 +23,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
+  const POSTS_PER_PAGE = 15;
   const [sending, setSending] = useState(false);
   const [likedPosts, setLikedPosts] = useState<string[]>([]);
   const [expandedComments, setExpandedComments] = useState<string[]>([]);
@@ -48,6 +52,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);
+  const postInputRef = useRef<HTMLTextAreaElement>(null);
 
   const formatDate = (dateString: string) => {
     try {
@@ -74,7 +79,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const inputAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchPosts();
+    fetchPosts(0, true);
     fetchUserLikes();
 
     const channelId = Math.random().toString(36).substring(2, 9);
@@ -115,27 +120,50 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     };
   }, []);
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (pageNum = 0, isInitial = false) => {
     try {
-      console.log('🔎 Query Supabase: community_posts (select)');
+      if (isInitial) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const from = pageNum * POSTS_PER_PAGE;
+      const to = from + POSTS_PER_PAGE - 1;
+
       const { data, error } = await supabase
         .from('community_posts')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
-      setPosts(data || []);
+      
+      if (isInitial) {
+        setPosts(data || []);
+      } else {
+        setPosts(prev => [...prev, ...(data || [])]);
+      }
+
+      setHasMore((data || []).length === POSTS_PER_PAGE);
+      setPage(pageNum);
     } catch (error: any) {
       console.error('Error fetching posts:', error);
       toast.error('Erro ao carregar posts');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMore = () => {
+    if (!loadingMore && hasMore) {
+      fetchPosts(page + 1);
     }
   };
 
   const fetchUserLikes = async () => {
     try {
-      console.log('🔎 Query Supabase: post_likes (select)');
       const { data, error } = await supabase
         .from('post_likes')
         .select('post_id')
@@ -150,7 +178,6 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
   const fetchComments = async (postId: string) => {
     try {
-      console.log('🔎 Query Supabase: post_comments (select)');
       const { data, error } = await supabase
         .from('post_comments')
         .select('*')
@@ -589,7 +616,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                 >
                   <X size={16} />
                 </button>
-                <p className={`text-[10px] ${isImportMode ? 'text-blue-500' : 'text-primary'} font-bold mb-1 uppercase tracking-wider`}>Respondendo a {replyingTo.user_name}</p>
+                <p className={`text-[10px] ${isImportMode ? 'text-blue-500' : 'text-primary'} font-bold mb-1 uppercase tracking-wider`}>{t('community.replying_to') || 'Em resposta a'} {replyingTo.user_name}</p>
                 <p className="text-xs text-gray-400 line-clamp-2 italic">"{replyingTo.content}"</p>
               </motion.div>
             )}
@@ -612,6 +639,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                 </div>
               )}
               <textarea
+                ref={postInputRef}
                 value={newPostContent}
                 onChange={(e) => setNewPostContent(e.target.value)}
                 placeholder={(adminMode && personaActive) ? `Postar como ${manualAuthorName}` : (adminMode ? t('community.admin_placeholder') || "Configure uma persona acima para postar..." : t('community.input_placeholder') || "O que você está pensando?")}
@@ -727,7 +755,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               {post.reply_to_id && (
                 <div className="px-4 pb-2">
                   <div className={`bg-white/5 rounded-xl p-3 border-l-4 ${isImportMode ? 'border-blue-500/50' : 'border-primary/50'}`}>
-                    <p className={`text-[10px] ${isImportMode ? 'text-blue-500/70' : 'text-primary/70'} font-bold mb-1 uppercase tracking-wider`}>Em resposta a {post.reply_to_user_name}</p>
+                    <p className={`text-[10px] ${isImportMode ? 'text-blue-500/70' : 'text-primary/70'} font-bold mb-1 uppercase tracking-wider`}>{t('community.replying_to') || 'Em resposta a'} {post.reply_to_user_name}</p>
                     <p className="text-xs text-gray-500 line-clamp-1 italic">"{post.reply_to_content}"</p>
                   </div>
                 </div>
@@ -777,7 +805,11 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                 <button 
                   onClick={() => {
                     setReplyingTo(post);
-                    inputAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Use a timeout to ensure state has updated and layout is settled
+                    setTimeout(() => {
+                      inputAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      postInputRef.current?.focus();
+                    }, 100);
                   }}
                   className="flex items-center gap-2 text-gray-400 hover:text-white text-sm font-bold transition-all active:scale-95 ml-auto"
                 >
@@ -877,6 +909,26 @@ export default function Community({ user, isImportMode = false }: CommunityProps
           ))
         )}
       </div>
+
+      {hasMore && (
+        <div className="mt-8 flex justify-center pb-8">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-sm font-bold text-gray-300 hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
+          >
+            {loadingMore ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                {t('global.loading') || 'Carregando...'}
+              </>
+            ) : (
+              t('community.load_more') || 'Ver mais publicações'
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Full-screen Image Viewer */}
       <AnimatePresence>
         {selectedPostImage && (

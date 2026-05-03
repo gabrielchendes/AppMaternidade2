@@ -68,7 +68,7 @@ export default function BannerCarousel({ images, interval = 5000, config = [] }:
   };
 
   return (
-    <div className="relative w-full h-[65vh] md:h-[75vh] overflow-hidden bg-bg-main">
+    <div className="relative w-full h-[60vh] md:h-[70vh] overflow-hidden bg-bg-main">
       <div className="absolute inset-0">
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
@@ -95,6 +95,7 @@ export default function BannerCarousel({ images, interval = 5000, config = [] }:
           >
             <motion.img
               src={images[currentIndex]}
+              loading={currentIndex === 0 ? "eager" : "lazy"}
               style={{ 
                 objectFit: config[currentIndex]?.stretch ? 'fill' : 'cover',
                 scale: config[currentIndex]?.stretch ? 1 : (config[currentIndex]?.scale ? config[currentIndex].scale / 100 : 1),

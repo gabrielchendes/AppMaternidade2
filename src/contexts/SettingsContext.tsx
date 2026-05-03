@@ -36,11 +36,15 @@ export interface AppSettings {
   support_email_course_enabled: boolean;
   support_whatsapp_floating_course_enabled: boolean;
   login_display_type: 'title' | 'logo' | 'both';
-  login_install_button_pulsing: boolean;
+  login_install_button_pulsing: 'pulsing' | 'static' | 'hidden' | boolean;
+  logo_height?: number;
   custom_texts: { [key: string]: string };
   banner_images: string[];
   banner_interval: number;
-  banner_config: Array<{ scale: number, x: number, y: number }>;
+  banner_config: Array<{ scale: number, x: number, y: number, stretch?: boolean, link?: string }>;
+  banner_images_mobile?: string[];
+  banner_config_mobile?: Array<{ scale: number, x: number, y: number, stretch?: boolean, link?: string }>;
+  banner_sync?: boolean;
 }
 
 const defaultSettings: AppSettings = {
@@ -78,7 +82,8 @@ const defaultSettings: AppSettings = {
   support_email_course_enabled: true,
   support_whatsapp_floating_course_enabled: true,
   login_display_type: 'title',
-  login_install_button_pulsing: true,
+  login_install_button_pulsing: 'pulsing',
+  logo_height: 64,
   custom_texts: {
     'auth.welcome': 'Bem-vinda de volta!',
     'auth.subtitle': 'Acesse sua área exclusiva para mamães',
@@ -100,9 +105,12 @@ const defaultSettings: AppSettings = {
   ],
   banner_interval: 5000,
   banner_config: [
-    { scale: 100, x: 50, y: 50 },
-    { scale: 100, x: 50, y: 50 }
-  ]
+    { scale: 100, x: 50, y: 50, stretch: true },
+    { scale: 100, x: 50, y: 50, stretch: true }
+  ],
+  banner_images_mobile: [],
+  banner_config_mobile: [],
+  banner_sync: true
 };
 
 interface SettingsContextType {

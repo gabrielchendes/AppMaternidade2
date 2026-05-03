@@ -49,7 +49,7 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
           </div>
   
           {/* Middle-Left: Install App (centered between left and center) */}
-          <div className="absolute left-[17%] -translate-x-1/2">
+          <div className="absolute left-[19%] -translate-x-1/2">
             {canInstall && onInstall && (
               <button 
                 onClick={onInstall}

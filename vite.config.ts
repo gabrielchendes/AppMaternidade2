@@ -53,6 +53,22 @@ export default defineConfig(({mode}) => {
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
+    build: {
+      target: 'esnext',
+      minify: 'esbuild',
+      cssMinify: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-utils': ['lucide-react', 'motion', '@supabase/supabase-js', 'date-fns'],
+            'vendor-ui': ['sonner', '@dnd-kit/core', '@dnd-kit/sortable'],
+            'vendor-media': ['react-player', 'react-quill-new'],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

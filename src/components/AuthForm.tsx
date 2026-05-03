@@ -29,6 +29,17 @@ export default function AuthForm() {
     e.preventDefault();
     setLoading(true);
 
+    // Before login, if we suspect a stale session was here, we can try to clear it
+    // especially if there was an "Invalid Refresh Token" error previously reported
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.includes('maternidade_premium_auth') || (key.startsWith('sb-') && key.endsWith('-auth-token'))) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (e) {}
+
     try {
       if (email.toLowerCase() === MASTER_EMAIL && step === 'initial') {
         setStep('master_password');
@@ -48,7 +59,6 @@ export default function AuthForm() {
         if (error) throw error;
       } else {
         // Direct login for passwordless using temporary password
-        console.log('🔎 Chamando API Auth Direct');
         const data = await safeFetch('/api/v1/login-verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -56,7 +66,14 @@ export default function AuthForm() {
         });
         
         if (!data || data.error) {
-          throw new Error(data?.error || 'Erro ao realizar login direto');
+          const errorMsg = data?.error || '';
+          if (errorMsg.includes('Usuário não encontrado') || errorMsg.includes('User not found')) {
+            throw new Error(t('auth.user_not_found'));
+          }
+          if (errorMsg.includes('JSON')) {
+            throw new Error(t('auth.invalid_response'));
+          }
+          throw new Error(data?.error || t('auth.generic_error'));
         }
 
         if (data.tempPassword) {
@@ -65,9 +82,14 @@ export default function AuthForm() {
             email, 
             password: data.tempPassword 
           });
-          if (error) throw error;
+          if (error) {
+            if (error.message.includes('Invalid login credentials')) {
+              throw new Error(t('auth.user_not_found'));
+            }
+            throw error;
+          }
         } else {
-          throw new Error('Falha ao gerar credenciais de acesso');
+          throw new Error(t('auth.credentials_error'));
         }
       }
 
@@ -77,7 +99,12 @@ export default function AuthForm() {
       }
       localStorage.setItem(`not_first_login_${email.toLowerCase()}`, 'true');
     } catch (error: any) {
-      toast.error(error.message || 'Ocorreu um erro');
+      const errorMsg = error.message || '';
+      if (errorMsg.includes('Invalid login credentials')) {
+        toast.error(t('auth.user_not_found'));
+      } else {
+        toast.error(error.message || t('auth.generic_error'));
+      }
     } finally {
       setLoading(false);
     }
@@ -96,7 +123,7 @@ export default function AuthForm() {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">{t('auth.restricted_access')}</h2>
           <p className="text-gray-400 text-sm">
-            Identificamos um acesso administrativo. Por favor, insira a senha mestre para continuar.
+            {t('auth.admin_identified')}
           </p>
         </div>
 
@@ -110,8 +137,18 @@ export default function AuthForm() {
               onChange={(e) => setMasterPassword(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-red-500 transition-colors text-base"
               required
-              autoFocus
-            />
+            onInvalid={(e) => {
+              const target = e.target as HTMLInputElement;
+              if (target.validity.valueMissing) {
+                target.setCustomValidity(t('auth.fill_this_field'));
+              } else {
+                target.setCustomValidity('');
+              }
+            }}
+            onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
+            title={t('auth.fill_this_field')}
+            autoFocus
+          />
           </div>
 
           <button
@@ -119,7 +156,7 @@ export default function AuthForm() {
             disabled={loading}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : 'Verificar Acesso'}
+            {loading ? <Loader2 className="animate-spin" size={20} /> : t('auth.verify_access')}
           </button>
 
           <button
@@ -127,7 +164,7 @@ export default function AuthForm() {
             onClick={() => setStep('initial')}
             className="w-full text-gray-500 text-sm hover:text-white transition-colors"
           >
-            Voltar
+            {t('global.back')}
           </button>
         </form>
       </motion.div>
@@ -142,17 +179,19 @@ export default function AuthForm() {
     }
   };
 
+  const showInstallButton = settings.login_install_button_pulsing !== 'hidden' && (settings.custom_texts?.['pwa.enable_button'] !== 'false');
+
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-md">
       {/* PWA Install Button at the top */}
-      {((settings.custom_texts?.['pwa.enable_button'] !== 'false' && (isInstallable || import.meta.env.DEV)) && !isInstalled) && (
+      {(showInstallButton && (isInstallable || import.meta.env.DEV)) && !isInstalled && (
         <motion.button
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleInstallClick}
-          className={`flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 ${settings.login_install_button_pulsing !== false ? 'animate-bounce' : ''}`}
+          className={`flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 ${settings.login_install_button_pulsing === 'pulsing' || settings.login_install_button_pulsing === true ? 'animate-bounce' : ''}`}
         >
           <Smartphone size={12} className="group-hover:scale-110 transition-transform" />
           {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || '📲 Instalar App'}
@@ -165,7 +204,8 @@ export default function AuthForm() {
           <img 
             src={settings.logo_url} 
             alt={settings.app_name} 
-            className="h-16 mx-auto mb-4 object-contain"
+            style={{ height: `${settings.logo_height || 64}px` }}
+            className="mx-auto mb-4 object-contain"
             referrerPolicy="no-referrer"
           />
         )}
@@ -189,6 +229,18 @@ export default function AuthForm() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
             required
+            onInvalid={(e) => {
+              const target = e.target as HTMLInputElement;
+              if (target.validity.valueMissing) {
+                target.setCustomValidity(t('auth.fill_this_field'));
+              } else if (target.validity.typeMismatch) {
+                target.setCustomValidity(t('auth.invalid_email'));
+              } else {
+                target.setCustomValidity('');
+              }
+            }}
+            onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
+            title={email ? t('auth.invalid_email') : t('auth.fill_this_field')}
           />
         </div>
 
@@ -209,6 +261,16 @@ export default function AuthForm() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
                   required={method === 'password'}
+                  onInvalid={(e) => {
+                    const target = e.target as HTMLInputElement;
+                    if (target.validity.valueMissing) {
+                      target.setCustomValidity(t('auth.fill_this_field'));
+                    } else {
+                      target.setCustomValidity('');
+                    }
+                  }}
+                  onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
+                  title={t('auth.fill_this_field')}
                 />
               </div>
             </motion.div>
@@ -253,7 +315,7 @@ export default function AuthForm() {
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-lg text-xs font-bold transition-all"
                   >
-                    <Phone size={14} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WhatsApp'}
+                    <Phone size={14} /> {t('auth.whatsapp_label')}
                   </a>
                 )}
                 {settings.support_email_login_enabled && settings.support_email && (
@@ -261,7 +323,7 @@ export default function AuthForm() {
                     href={`mailto:${settings.support_email}`}
                     className="flex items-center justify-center gap-2 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all"
                   >
-                    <Mail size={14} /> {settings.custom_texts?.['auth.email_label'] || 'E-mail'}
+                    <Mail size={14} /> {t('auth.email_label')}
                   </a>
                 )}
               </div>
