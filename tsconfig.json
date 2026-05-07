@@ -22,7 +22,8 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["vite/client", "vite-plugin-pwa/client"]
+    "types": ["vite/client", "vite-plugin-pwa/client", "@vercel/node"]
   },
+  "include": ["src", "api"],
   "exclude": ["supabase", "node_modules", "dist"]
 }

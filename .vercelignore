@@ -1,0 +1,10 @@
+node_modules
+dist
+.vscode
+.git
+supabase
+metadata.json
+README.md
+SUPABASE_SETUP.md
+check_tags.js
+matches.txt
