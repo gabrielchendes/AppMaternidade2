@@ -27,10 +27,10 @@ interface PWAColumnProps {
 
 const PWAColumn = ({ platform, steps, images, refObj, slide, setSlide, label, hideLabel, onManualInteraction, isAutoScrollingRef }: PWAColumnProps) => (
   <div className="flex flex-col h-full bg-white/5 rounded-[32px] border border-white/5 shadow-2xl overflow-hidden group/column hover:border-primary/20 transition-all duration-500">
-    <div className="p-6 pb-4">
+    <div className="p-4 md:p-6 pb-2 md:pb-4">
       {!hideLabel && (
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-primary/20 rounded-xl flex-shrink-0 shadow-lg shadow-primary/10">
+        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
+          <div className="p-1.5 md:p-2 bg-primary/20 rounded-xl flex-shrink-0 shadow-lg shadow-primary/10">
             {platform === 'ios' ? (
               <svg viewBox="0 0 24 24" className="w-4 h-4 fill-primary" xmlns="http://www.w3.org/2000/svg">
                 <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.1 2.48-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.31-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.89 1.22-2.11 1.09-3.33-1.04.04-2.3.7-3.05 1.57-.67.77-1.26 2.02-1.11 3.21 1.15.09 2.33-.56 3.07-1.45z"/>
@@ -49,7 +49,7 @@ const PWAColumn = ({ platform, steps, images, refObj, slide, setSlide, label, hi
         </div>
       )}
 
-      <div className={`space-y-3 ml-0.5 ${hideLabel ? 'pt-2' : ''}`}>
+      <div className={`space-y-1.5 md:space-y-3 ml-0.5 ${hideLabel ? 'pt-1' : ''}`}>
         {steps.map((step: string, idx: number) => (
           <div key={idx} className="flex items-start gap-3 text-xs text-gray-400 group/item">
             <div className="w-5 h-5 flex items-center justify-center bg-primary text-black rounded-lg flex-shrink-0 font-black italic text-[10px] shadow-md shadow-primary/20 mt-0.5">
@@ -64,7 +64,7 @@ const PWAColumn = ({ platform, steps, images, refObj, slide, setSlide, label, hi
     </div>
 
     {/* Carousel */}
-    <div className={`relative mt-2 ${platform === 'desktop' ? 'h-[600px]' : 'h-[320px]'} bg-black/40 overflow-hidden`}>
+    <div className={`relative mt-1 ${platform === 'desktop' ? 'h-[600px]' : 'h-[240px] md:h-[320px]'} bg-black/40 overflow-hidden`}>
       <div 
         ref={refObj}
         className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide-forced"
@@ -282,18 +282,18 @@ export default function PWAInstallModal({ isOpen, onClose, onInstall }: PWAInsta
               stiffness: 300,
               duration: 0.4
             }}
-            className={`relative w-full ${showDualMobile ? 'max-w-7xl' : 'max-w-5xl'} bg-zinc-950 border border-white/10 rounded-[64px] overflow-hidden shadow-[0_32px_128px_-16px_rgba(0,0,0,0.9)] flex flex-col max-h-[95vh]`}
+            className={`relative w-full ${showDualMobile ? 'max-w-7xl' : 'max-w-5xl'} bg-zinc-950 border border-white/10 rounded-[40px] md:rounded-[64px] overflow-hidden shadow-[0_32px_128px_-16px_rgba(0,0,0,0.9)] flex flex-col max-h-[95vh]`}
           >
             <button 
               onClick={onClose}
-              className="absolute top-10 right-10 z-[20] p-4 bg-white/0 hover:bg-white/10 text-gray-500 hover:text-white rounded-[2rem] border border-white/10 hover:border-white/20 transition-all"
+              className="absolute top-6 right-6 md:top-10 md:right-10 z-[20] p-3 md:p-4 bg-white/0 hover:bg-white/10 text-gray-500 hover:text-white rounded-2xl md:rounded-[2rem] border border-white/10 hover:border-white/20 transition-all font-bold"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5 md:w-6 md:h-6" />
             </button>
 
-            <div className="flex-1 overflow-y-auto scrollbar-hide p-8 sm:p-12">
-              <div className={`text-center mb-8 ${showDualMobile ? 'max-w-3xl mx-auto' : ''}`}>
-                <h3 className="text-3xl font-black text-white uppercase tracking-tighter italic mb-4 leading-none">
+            <div className="flex-1 overflow-y-auto scrollbar-hide p-6 md:p-12">
+              <div className={`text-center mb-4 md:mb-8 ${showDualMobile ? 'max-w-3xl mx-auto' : ''}`}>
+                <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter italic mb-2 md:mb-4 leading-tight md:leading-none">
                   {showDualMobile 
                     ? (settings.custom_texts?.['pwa.install_title'] || t('pwa.install_title') || 'Instale nosso aplicativo 📲')
                     : (settings.custom_texts?.[`pwa.${currentPlatform}_label`] || t(`pwa.${currentPlatform}_label`) || settings.custom_texts?.['pwa.install_title'] || t('pwa.install_title'))
@@ -368,12 +368,12 @@ export default function PWAInstallModal({ isOpen, onClose, onInstall }: PWAInsta
                 )}
               </div>
 
-              <div className={`mt-8 space-y-8 ${showDualMobile ? 'max-w-2xl mx-auto' : 'max-w-lg mx-auto'}`}>
-                <p className="text-xs text-gray-400 font-medium text-center leading-relaxed px-8">
+              <div className={`mt-4 md:mt-8 space-y-4 md:space-y-8 ${showDualMobile ? 'max-w-2xl mx-auto' : 'max-w-lg mx-auto'}`}>
+                <p className="text-[10px] md:text-xs text-gray-400 font-medium text-center leading-relaxed px-4 md:px-8">
                   {settings.custom_texts?.['pwa.install_desc'] || t('pwa.install_desc') || 'Tenha acesso rápido e notificações exclusivas direto no seu dispositivo.'}
                 </p>
 
-                <div className="grid grid-cols-2 gap-4 px-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4 px-2 md:px-4 pb-4">
                   <button
                     onClick={async () => {
                       const isGotItMode = (device === 'ios' || showDualMobile || adminDisplayMode === 'mobile');
@@ -381,8 +381,6 @@ export default function PWAInstallModal({ isOpen, onClose, onInstall }: PWAInsta
                         onClose();
                       } else if (onInstall) {
                         try {
-                          // Call onInstall but don't strictly wait for success to close,
-                          // as native prompt behavior can vary across browsers and might not return true/false reliably
                           await (onInstall as any)();
                           onClose();
                         } catch (e) {
@@ -392,16 +390,16 @@ export default function PWAInstallModal({ isOpen, onClose, onInstall }: PWAInsta
                         onClose();
                       }
                     }}
-                    className="group relative overflow-hidden flex items-center justify-center gap-4 py-5 px-6 bg-primary text-black font-black uppercase tracking-tighter rounded-3xl hover:brightness-110 active:scale-95 transition-all text-sm shadow-2xl shadow-primary/30"
+                    className="group relative overflow-hidden flex items-center justify-center gap-2 py-3 md:py-5 px-4 md:px-6 bg-primary text-black font-black uppercase tracking-tighter rounded-2xl md:rounded-3xl hover:brightness-110 active:scale-95 transition-all text-xs md:text-sm shadow-2xl shadow-primary/30"
                   >
                     <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/40 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                     {(device === 'ios' || showDualMobile || adminDisplayMode === 'mobile') ? (t('pwa.got_it') || 'ENTENDI') : (settings.custom_texts?.['pwa.install_button'] || t('pwa.install_button') || 'INSTALAR')}
                   </button>
                   <button
                     onClick={handleDismiss}
-                    className="flex items-center justify-center gap-3 py-5 px-6 bg-white/5 border border-white/5 text-gray-500 font-black uppercase tracking-tighter rounded-3xl hover:bg-white/10 active:scale-95 transition-all text-sm"
+                    className="flex items-center justify-center gap-2 py-3 md:py-5 px-4 md:px-6 bg-white/5 border border-white/5 text-gray-500 font-black uppercase tracking-tighter rounded-2xl md:rounded-3xl hover:bg-white/10 active:scale-95 transition-all text-xs md:text-sm"
                   >
-                    <Check className="w-5 h-5 shrink-0" />
+                    <Check className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
                     {settings.custom_texts?.['pwa.already_installed'] || t('pwa.already_installed') || 'OK'}
                   </button>
                 </div>

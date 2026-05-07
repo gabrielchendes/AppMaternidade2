@@ -18,7 +18,7 @@ interface NavbarProps {
 const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: NavbarProps) => {
   const { settings } = useSettings();
   const { t } = useI18n();
-  const isAdmin = user.email === settings?.admin_email || user.email === 'gabrielchendes@gmail.com';
+  const isAdmin = user.email === settings?.admin_email;
   
   const handleRefresh = () => {
     window.location.reload();

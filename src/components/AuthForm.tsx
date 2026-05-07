@@ -23,7 +23,7 @@ export default function AuthForm() {
   const [step, setStep] = useState<'initial' | 'master_password'>('initial');
 
   const method = settings.auth_method || 'passwordless';
-  const MASTER_EMAIL = settings.admin_email || 'gabrielchendes@gmail.com';
+  const MASTER_EMAIL = settings.admin_email;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

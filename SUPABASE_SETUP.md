@@ -17,17 +17,17 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 -- 1. Tabela `app_settings` (Configurações Globais)
 CREATE TABLE IF NOT EXISTS public.app_settings (
     id BIGINT PRIMARY KEY DEFAULT 1,
-    admin_email TEXT DEFAULT 'gabrielchendes@gmail.com',
-    app_name TEXT DEFAULT 'Maternidade Premium',
-    app_description TEXT DEFAULT 'Sua jornada na maternidade começa aqui.',
+    admin_email TEXT DEFAULT 'admin@seudominio.com',
+    app_name TEXT DEFAULT 'Minha Plataforma',
+    app_description TEXT DEFAULT 'Acesse sua área exclusiva.',
     primary_color TEXT DEFAULT '#ef4444',
     secondary_color TEXT DEFAULT '#dc2626',
     background_color TEXT DEFAULT '#0f0f0f',
     logo_url TEXT,
     favicon_url TEXT,
     pwa_icon_url TEXT,
-    support_whatsapp TEXT DEFAULT '5531997433488',
-    support_email TEXT DEFAULT 'gabrielchendes@hotmail.com',
+    support_whatsapp TEXT DEFAULT '5500000000000',
+    support_email TEXT DEFAULT 'suporte@seudominio.com',
     support_whatsapp_message TEXT DEFAULT 'Olá, gostaria de tirar uma dúvida sobre o curso.',
     auth_method TEXT DEFAULT 'passwordless',
     show_support_login BOOLEAN DEFAULT true,
@@ -412,7 +412,7 @@ ON CONFLICT (subdomain) DO NOTHING;
 
 -- Inserir configurações iniciais
 INSERT INTO public.app_settings (id, admin_email, app_name)
-VALUES (1, 'gabrielchendes@gmail.com', 'Maternidade Premium')
+VALUES (1, 'admin@seudominio.com', 'Minha Plataforma')
 ON CONFLICT (id) DO NOTHING;
 
 -- ATUALIZAÇÕES (Execute se já possuir as tabelas)
@@ -435,4 +435,63 @@ CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (b
 -- Execute este comando se você já tiver a tabela app_settings
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS logo_height INTEGER DEFAULT 64;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app';
+
+-- Tabela para Links de Acesso Permanente (Magic Links Eternos)
+CREATE TABLE IF NOT EXISTS public.permanent_access_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_email TEXT NOT NULL,
+    token TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    created_by UUID REFERENCES auth.users(id)
+);
+
+-- Habilitar RLS
+ALTER TABLE public.permanent_access_tokens ENABLE ROW LEVEL SECURITY;
+
+-- Apenas admins podem gerenciar links eternos
+-- Remove a política se ela já existir para evitar o erro 42710
+DROP POLICY IF EXISTS "Admins can manage permanent tokens" ON public.permanent_access_tokens;
+
+CREATE POLICY "Admins can manage permanent tokens" ON public.permanent_access_tokens
+    FOR ALL
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.app_settings 
+            WHERE id = 1 
+            AND admin_email = (SELECT email FROM auth.users WHERE id = auth.uid())
+        )
+    );
+
+-- 5. Adição de colunas extras para customização
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS logo_height INTEGER DEFAULT 64;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app';
+-- Tabela para Magic Login Permanente (Sistema Próprio)
+CREATE TABLE IF NOT EXISTS public.magic_login_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    token TEXT UNIQUE NOT NULL,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    last_access_at TIMESTAMP WITH TIME ZONE
+);
+
+ALTER TABLE public.magic_login_tokens ENABLE ROW LEVEL SECURITY;
+
+-- Remove a política se já existir para evitar erro 42710
+DROP POLICY IF EXISTS "Admins manage magic_login_tokens" ON public.magic_login_tokens;
+
+CREATE POLICY "Admins manage magic_login_tokens" ON public.magic_login_tokens
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM public.app_settings 
+            WHERE id = 1 AND admin_email = (SELECT email FROM auth.users WHERE id = auth.uid())
+        )
+    );
 ```
+
+**Nota Importante:** No painel do Admin, certifique-se de configurar a "URL do APP" com `https://app-maternidade2.vercel.app` para que os links redirecionem corretamente após o login.

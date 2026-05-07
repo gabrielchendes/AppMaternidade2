@@ -45,11 +45,13 @@ export interface AppSettings {
   banner_images_mobile?: string[];
   banner_config_mobile?: Array<{ scale: number, x: number, y: number, stretch?: boolean, link?: string }>;
   banner_sync?: boolean;
+  course_pdf_auto_complete_fullscreen?: boolean;
+  app_url?: string;
 }
 
 const defaultSettings: AppSettings = {
   app_name: 'AppMaternidade',
-  admin_email: 'gabrielchendes@gmail.com',
+  admin_email: 'atendimento@suporte.com',
   app_description: 'Acesse sua área exclusiva',
   primary_color: '#ef4444',
   secondary_color: '#dc2626',
@@ -57,8 +59,8 @@ const defaultSettings: AppSettings = {
   logo_url: null,
   favicon_url: null,
   pwa_icon_url: null,
-  support_whatsapp: '5531997433488',
-  support_email: 'gabrielchendes@hotmail.com',
+  support_whatsapp: '5500000000000',
+  support_email: 'atendimento@suporte.com',
   support_whatsapp_message: 'Olá, gostaria de tirar uma dúvida sobre o curso.',
   auth_method: 'passwordless',
   show_support_login: true,
@@ -84,6 +86,7 @@ const defaultSettings: AppSettings = {
   login_display_type: 'title',
   login_install_button_pulsing: 'pulsing',
   logo_height: 64,
+  app_url: 'https://app-maternidade2.vercel.app',
   custom_texts: {
     'auth.welcome': 'Bem-vinda de volta!',
     'auth.subtitle': 'Acesse sua área exclusiva para mamães',
@@ -110,7 +113,8 @@ const defaultSettings: AppSettings = {
   ],
   banner_images_mobile: [],
   banner_config_mobile: [],
-  banner_sync: true
+  banner_sync: true,
+  course_pdf_auto_complete_fullscreen: false
 };
 
 interface SettingsContextType {

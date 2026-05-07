@@ -48,7 +48,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const [manualAvatarPreview, setManualAvatarPreview] = useState<string | null>(null);
   const [commentToDelete, setCommentToDelete] = useState<{ id: string; postId: string } | null>(null);
 
-  const isAdmin = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase() || user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
+  const isAdmin = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);

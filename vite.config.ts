@@ -22,8 +22,44 @@ export default defineConfig(({mode}) => {
           skipWaiting: true,
           runtimeCaching: [
             {
-              urlPattern: /^https:\/\/.*\.supabase\.co\/.*/,
-              handler: 'NetworkOnly'
+              urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/object\/public\/.*/,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'supabase-storage',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/.*\.r2\.dev\/.*/,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'media-assets',
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+                rangeRequests: true // Support for video streaming parts
+              },
+            },
+            {
+              urlPattern: /^https:\/\/images\.unsplash\.com\/.*/,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'external-images',
+                expiration: {
+                  maxEntries: 50,
+                  maxAgeSeconds: 60 * 60 * 24 * 15, // 15 days
+                }
+              }
             }
           ]
         },
@@ -57,16 +93,6 @@ export default defineConfig(({mode}) => {
       target: 'esnext',
       minify: 'esbuild',
       cssMinify: true,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-utils': ['lucide-react', 'motion', '@supabase/supabase-js', 'date-fns'],
-            'vendor-ui': ['sonner', '@dnd-kit/core', '@dnd-kit/sortable'],
-            'vendor-media': ['react-player', 'react-quill-new'],
-          },
-        },
-      },
       chunkSizeWarningLimit: 1000,
     },
     resolve: {

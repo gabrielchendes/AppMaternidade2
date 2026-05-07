@@ -17,14 +17,13 @@ import { createNotification } from '../lib/notifications';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
+import { dataCache } from '../lib/cache';
 
 // Lazy load heavy components
 const Profile = lazy(() => import('../components/Profile'));
 const Community = lazy(() => import('../components/Community'));
 const AdminPanel = lazy(() => import('../components/AdminPanel'));
 const CourseViewer = lazy(() => import('../components/CourseViewer'));
-
-import { dataCache } from '../lib/cache';
 
 const ComponentLoader = () => (
   <div className="w-full py-20 flex items-center justify-center">
@@ -342,7 +341,7 @@ export default function Dashboard({ user }: DashboardProps) {
     <div className="min-h-screen pb-20 bg-bg-main">
       <AnimatePresence>
         {viewingCourseId && (
-          <Suspense fallback={<div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+          <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[250]"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
             <CourseViewer 
               courseId={viewingCourseId} 
               userId={user.id} 

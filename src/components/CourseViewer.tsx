@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -35,6 +35,46 @@ interface CourseViewerProps {
   onClose: () => void;
 }
 
+const SupportSection = memo(({ settings, t }: { settings: any, t: any }) => {
+  const whatsappEnabled = settings.support_whatsapp_course_enabled && settings.support_whatsapp;
+  const emailEnabled = settings.support_email_course_enabled && settings.support_email;
+
+  if (!whatsappEnabled && !emailEnabled) return null;
+
+  return (
+    <div className="p-6 md:p-10 border-t border-white/5">
+      <div className="bg-zinc-900 border border-white/10 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-8">
+        <div className="space-y-1 text-center md:text-left">
+          <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">
+            {t('auth.support_box')}
+          </h3>
+          <p className="text-gray-500 text-sm font-medium">{t('course.support_description') || 'Nossa equipe está pronta para te ajudar.'}</p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-3">
+          {whatsappEnabled && settings.support_whatsapp && (
+            <a 
+              href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}${settings.support_whatsapp_message ? `?text=${encodeURIComponent(settings.support_whatsapp_message)}` : ''}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-black rounded-xl text-xs transition-all active:scale-95"
+            >
+              <Phone size={16} /> {t('auth.whatsapp_label')}
+            </a>
+          )}
+          {emailEnabled && settings.support_email && (
+            <a 
+              href={`mailto:${settings.support_email}`}
+              className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-black rounded-xl border border-white/10 text-xs transition-all active:scale-95"
+            >
+              <Mail size={16} /> {t('auth.email_label')}
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 export default function CourseViewer({ courseId, userId, onClose, isProfessor = false }: CourseViewerProps & { isProfessor?: boolean }) {
   const { t } = useI18n();
   const { settings } = useSettings();
@@ -48,9 +88,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchCourseData();
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo(0, 0);
+    if (courseId) {
+      fetchCourseData();
     }
   }, [courseId]);
 
@@ -76,24 +115,24 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
   const fetchCourseData = async () => {
     try {
       setLoading(true);
-      console.log('🚀 Loading course:', courseId);
       
-      const [courseRes, modulesRes, progressRes] = await Promise.all([
-        supabase.from('courses').select('*').eq('id', courseId).single(),
+      const { data: courseData, error: courseError } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', courseId)
+        .single();
+
+      if (courseError) throw courseError;
+      setCourse(courseData);
+
+      const [modulesRes, progressRes] = await Promise.all([
         supabase.from('modules').select('*').eq('course_id', courseId).order('order_index'),
         supabase.from('user_progress').select('*').eq('user_id', userId)
       ]);
 
-      if (courseRes.error) {
-        console.error('Course fetch error:', courseRes.error);
-        throw new Error(t('course.not_found') || 'Curso não encontrado');
-      }
-      
-      const courseData = courseRes.data;
       const modulesData = modulesRes.data || [];
       const progressData = progressRes.data || [];
 
-      setCourse(courseData);
       setModules(modulesData);
       setProgress(progressData);
 
@@ -106,10 +145,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           .in('module_id', moduleIds)
           .order('order_index');
         
-        if (chaptersError) {
-          console.error('Chapters fetch error:', chaptersError);
-          throw chaptersError;
-        }
+        if (chaptersError) throw chaptersError;
         
         const finalChapters = chaptersData || [];
         setChapters(finalChapters);
@@ -124,7 +160,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
     } catch (err: any) {
       console.error('❌ Error in CourseViewer fetch:', err);
       toast.error(err.message || t('course.loading_error') || 'Erro ao carregar curso');
-      if (err.message === 'Curso não encontrado' || err.message === t('course.not_found')) onClose();
+      onClose();
     } finally {
       setLoading(false);
     }
@@ -387,9 +423,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
     const encodedUrl = encodeURIComponent(activeChapter.pdf_url);
     const googleDocsViewer = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
     
-    // On mobile, Google Docs Viewer is sometimes more stable for rendering inside an iframe
-    // On desktop, the native browser viewer is much more powerful and handles R2 links natively
-    // We add PDF parameters to hide UI elements and navigation panes (chapters)
+    // PDF parameters for native viewer
     const desktopUrl = activeChapter.pdf_url.includes('#') 
       ? activeChapter.pdf_url 
       : `${activeChapter.pdf_url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&pagemode=none`;
@@ -397,76 +431,54 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
     const viewerUrl = isMobileDevice ? googleDocsViewer : desktopUrl;
 
     return (
-      <div className="w-full h-full relative group/pdf bg-black overflow-hidden rounded-xl">
+      <div className="w-full h-full relative group/pdf bg-[#1a1a1a] overflow-hidden rounded-[2rem] sm:rounded-[3rem]">
+        {/* Subtle Paper Texture Background */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:20px_20px]" />
+        
         <iframe 
           key={activeChapter.id}
           src={viewerUrl}
-          className="w-full h-full border-none"
+          className="w-full h-full border-none relative z-10"
           title={activeChapter.title}
           allow="fullscreen"
           loading="lazy"
         />
         
-        {/* Fullscreen Trigger Overlay - Open in new tab for better visibility if iframe fails */}
-        <div className="absolute top-4 right-4 z-50">
+        {/* Elegant Book Binding Shadow Effect */}
+        <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/40 to-transparent z-20 pointer-events-none" />
+        <div className="absolute inset-y-0 right-0 w-2 bg-gradient-to-l from-black/20 to-transparent z-20 pointer-events-none" />
+
+        {/* Fullscreen Trigger Overlay */}
+        <div className="absolute top-6 right-6 z-50">
           <button 
             onClick={() => {
               window.open(activeChapter.pdf_url!, '_blank');
-              markChapterComplete(activeChapter.id);
+              if (settings?.course_pdf_auto_complete_fullscreen) {
+                markChapterComplete(activeChapter.id);
+              }
             }}
-            className="bg-black/60 backdrop-blur-md text-white p-3 rounded-2xl hover:bg-black/80 transition-all hover:scale-110 active:scale-95 border border-white/20 shadow-2xl flex items-center justify-center group/btn"
+            className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn"
             title={t('course.view_fullscreen') || "Ver em Tela Cheia"}
           >
-            <Maximize2 size={24} className="drop-shadow-lg text-white group-hover/btn:scale-110 transition-transform" />
+            <Maximize2 size={24} className="group-hover/btn:rotate-12 transition-transform" />
           </button>
         </div>
       </div>
     );
   };
 
-  const SupportSection = () => {
-    const whatsappEnabled = settings.support_whatsapp_course_enabled && settings.support_whatsapp;
-    const emailEnabled = settings.support_email_course_enabled && settings.support_email;
-
-    if (!whatsappEnabled && !emailEnabled) return null;
-
-    return (
-      <div className="p-6 md:p-10 border-t border-white/5">
-        <div className="bg-zinc-900 border border-white/10 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-1 text-center md:text-left">
-            <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">
-              {t('auth.support_box')}
-            </h3>
-            <p className="text-gray-500 text-sm font-medium">{t('course.support_description') || 'Nossa equipe está pronta para te ajudar.'}</p>
-          </div>
-          <div className="flex flex-wrap justify-center gap-3">
-            {whatsappEnabled && settings.support_whatsapp && (
-              <a 
-                href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}${settings.support_whatsapp_message ? `?text=${encodeURIComponent(settings.support_whatsapp_message)}` : ''}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-black rounded-xl text-xs transition-all active:scale-95"
-              >
-                <Phone size={16} /> {t('auth.whatsapp_label')}
-              </a>
-            )}
-            {emailEnabled && settings.support_email && (
-              <a 
-                href={`mailto:${settings.support_email}`}
-                className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-black rounded-xl border border-white/10 text-xs transition-all active:scale-95"
-              >
-                <Mail size={16} /> {t('auth.email_label')}
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   if (loading) return (
-    <div className="fixed inset-0 bg-bg-main flex flex-col items-center justify-center z-[200]">
-      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+    <div className="fixed inset-0 bg-bg-main p-6 sm:p-12 z-[200]">
+      <div className="max-w-7xl mx-auto w-full space-y-12 animate-pulse">
+        <div className="h-20 bg-white/5 rounded-3xl" />
+        <div className="h-12 w-64 bg-white/5 rounded-2xl mx-auto" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          {[1,2,3,4,5,6,7,8].map(i => (
+            <div key={i} className="aspect-[16/9] bg-white/5 rounded-3xl" />
+          ))}
+        </div>
+      </div>
     </div>
   );
 
@@ -562,6 +574,16 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             whileHover={{ y: -8, scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             key={chapter.id}
+                            onMouseEnter={() => {
+                              // Pre-fetch next potential media metadata
+                              if (chapter.video_url && chapter.video_url.match(/\.(mp4|webm|ogg)$/i)) {
+                                const link = document.createElement('link');
+                                link.rel = 'preload';
+                                link.as = 'video';
+                                link.href = chapter.video_url;
+                                document.head.appendChild(link);
+                              }
+                            }}
                             onClick={() => {
                               setActiveChapter(chapter);
                               setViewMode('player');
@@ -613,7 +635,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             <div className="space-y-0.5 px-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] italic leading-none">
-                                  {chapter.content_type === 'video' ? (t('course.video_lesson') || 'Videoaula') : chapter.content_type === 'pdf' ? (t('course.pdf_material') || 'Material PDF') : (t('course.reading') || 'Leitura')}
+                                  {chapter.content_type === 'video' ? (t('course.video_lesson') || 'Videoaula') : chapter.content_type === 'pdf' ? '' : (t('course.reading') || 'Leitura')}
                                 </span>
                                 {isCompleted && <div className="w-1 h-1 rounded-full bg-green-500" />}
                               </div>
@@ -630,7 +652,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 ))}
               </div>
               
-              <SupportSection />
+              <SupportSection settings={settings} t={t} />
             </motion.div>
           ) : (
             <motion.div
@@ -641,7 +663,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               className="min-h-full w-full bg-bg-main flex flex-col overflow-y-auto custom-scrollbar"
             >
               {/* Header Info */}
-              <div className="max-w-4xl mx-auto w-full px-6 pt-20 pb-12 text-center space-y-6">
+              <div className={`${activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-4xl'} mx-auto w-full px-6 pt-20 pb-12 text-center space-y-6`}>
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -656,13 +678,17 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 </motion.div>
               </div>
 
-              {/* Video Player Section with Elegant Frame */}
-              <div className="max-w-5xl mx-auto w-full px-4 sm:px-6 relative">
+              {/* Media Player Section with Elegant Frame */}
+              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.2 }}
-                  className="relative aspect-video overflow-hidden border border-white/20 bg-black shadow-[0_0_60px_-15px_rgba(255,255,255,0.1)]"
+                  className={`relative overflow-hidden border border-white/10 bg-black shadow-2xl transition-all duration-500 w-full ${
+                    activeChapter?.content_type === 'pdf' 
+                      ? 'aspect-[1/1.4] sm:aspect-[3/4] max-h-[85vh] rounded-[2rem] sm:rounded-[3rem] ring-8 ring-white/5 shadow-white/5' 
+                      : 'aspect-video rounded-xl border-white/20'
+                  }`}
                 >
                   {activeChapter?.content_type === 'video' ? (
                     renderVideo()
@@ -736,7 +762,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 </div>
 
                 {/* Support Section */}
-                <SupportSection />
+                <SupportSection settings={settings} t={t} />
 
                 {/* Lesson List (Sitemap feel) */}
                 {chapters.length > 1 && (

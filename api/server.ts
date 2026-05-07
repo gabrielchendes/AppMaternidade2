@@ -20,14 +20,18 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
-const API_PREFIX = '/api/v1';
+app.set('trust proxy', true);
 
-// Test Route (Public)
-app.get('/api/test', (req, res) => {
-  res.json({ ok: true, message: 'Server is reachable', env: process.env.NODE_ENV });
+// Diagnostic logger - MOVED TO TOP
+app.use((req, res, next) => {
+  next();
 });
 
-// VERY PUBLIC DEBUG (Safe info only)
+const API_PREFIX = '/api/v1';
+
+// Standalone functions handle /api/test and /api/public/test now.
+
+// Route definitions below...
 app.get('/api/env-status', async (req, res) => {
   const sa = process.env.FIREBASE_SERVICE_ACCOUNT || '';
   const su = !!process.env.VITE_SUPABASE_URL;
@@ -159,11 +163,6 @@ const getFirebaseAdmin = (): any => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
-
 const adminAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const supabaseAdmin = getSupabaseAdmin();
@@ -192,13 +191,7 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
 
     const email = user.email?.toLowerCase();
     
-    // 1. Hardcoded super-admin check
-    if (email === 'gabrielchendes@gmail.com') {
-      (req as any).user = user;
-      return next();
-    }
-
-    // 2. Database check for other admins
+    // 1. Check database settings for the primary admin email
     try {
       const { data: settings, error: settingsError } = await supabaseAdmin
         .from('app_settings')
@@ -210,14 +203,31 @@ const adminAuth = async (req: express.Request, res: express.Response, next: expr
         console.error('❌ adminAuth: Error fetching settings:', settingsError);
       }
 
-      const adminEmail = settings?.admin_email?.toLowerCase();
+      const adminEmailFromSettings = settings?.admin_email?.toLowerCase();
       
-      if (email && adminEmail && email === adminEmail) {
+      // 2. Check if user is the admin from settings
+      if (email && adminEmailFromSettings && email === adminEmailFromSettings) {
         (req as any).user = user;
         return next();
       }
     } catch (e) {
       console.error('❌ adminAuth: Settings check crash:', e);
+    }
+
+    // 3. Fallback: Security check via app_settings
+    try {
+      const { data: settings } = await supabaseAdmin
+        .from('app_settings')
+        .select('admin_email')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (email && settings?.admin_email && email.toLowerCase() === settings.admin_email.toLowerCase()) {
+        (req as any).user = user;
+        return next();
+      }
+    } catch (e) {
+      console.error('❌ adminAuth: Final fallback check failed:', e);
     }
 
     console.warn(`🛑 adminAuth: Access denied for ${email}`);
@@ -312,6 +322,13 @@ app.get(`${API_PREFIX}/ping`, (req, res) => {
   res.json({ pong: true, time: new Date().toISOString() });
 });
 
+// Public Health Check
+app.get('/api/public/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Empty space where magic login was
+
 app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
   const { email } = req.body;
   const supabaseAdmin = getSupabaseAdmin();
@@ -327,6 +344,107 @@ app.post(`${API_PREFIX}/login-verify`, async (req, res) => {
     await supabaseAdmin.auth.admin.updateUserById(user.id, { password: tempPassword });
     res.json({ success: true, tempPassword });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(`${API_PREFIX}/user-magic-link`, adminAuth, async (req, res) => {
+  const { email } = req.body;
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!email || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
+  
+  try {
+    // Tentar pegar a URL configurada
+    let baseUrl = process.env.VITE_APP_URL || `https://${req.get('host')}`;
+    try {
+      const { data: settings } = await supabaseAdmin.from('app_settings').select('app_url').eq('id', 1).maybeSingle();
+      if (settings?.app_url) baseUrl = settings.app_url;
+    } catch (e) {}
+
+    const { data, error } = await supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: email.trim().toLowerCase(),
+      options: { redirectTo: baseUrl.replace(/\/$/, '') }
+    });
+
+    if (error) throw error;
+    
+    res.json({ 
+      success: true, 
+      link: data.properties?.action_link || data.link || '',
+      email: data.user?.email
+    });
+  } catch (err: any) {
+    console.error('Magic Link Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(`${API_PREFIX}/generate-permanent-link`, adminAuth, async (req, res) => {
+  const { email } = req.body;
+  const authHeader = req.headers.authorization;
+  const supabaseAdmin = getSupabaseAdmin();
+  
+  console.log(`🔨 Generating permanent link for: ${email}`);
+
+  if (!email || !supabaseAdmin || !authHeader) return res.status(400).json({ error: 'Missing data' });
+
+  try {
+    // 1. Buscar o ID do usuário pelo email
+    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
+    if (listError) throw listError;
+    
+    const targetUser = users.find((u: any) => u.email?.toLowerCase() === email.trim().toLowerCase());
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Usuário não encontrado no sistema.' });
+    }
+
+    // 2. Gerar token seguro
+    const token = crypto.randomUUID();
+    
+    // 3. Salvar na nova tabela magic_login_tokens
+    const { error: insertError } = await supabaseAdmin
+      .from('magic_login_tokens')
+      .insert({
+        user_id: targetUser.id,
+        token: token,
+        active: true
+      });
+
+    if (insertError) {
+       console.error('❌ Error inserting magic token:', insertError);
+       throw insertError;
+    }
+
+    // Tentar pegar a URL configurada no banco
+    let configuredUrl = null;
+    try {
+      const { data: settings } = await supabaseAdmin.from('app_settings').select('app_url').eq('id', 1).maybeSingle();
+      configuredUrl = settings?.app_url;
+    } catch (e) {}
+
+    const host = req.get('host');
+    const protocol = req.protocol; 
+    
+    let baseUrl = `${protocol}://${host}`;
+    
+    if (configuredUrl && configuredUrl.startsWith('http')) {
+      baseUrl = configuredUrl.replace(/\/$/, '');
+    } else if (process.env.VITE_APP_URL) {
+      baseUrl = process.env.VITE_APP_URL.replace(/\/$/, '');
+    } else if (!host?.includes('localhost')) {
+       baseUrl = 'https://app-maternidade2.vercel.app';
+    }
+
+    const finalMagicLink = `${baseUrl}/api/magic-login?token=${token}`;
+    console.log('🔗 Generated permanent link:', finalMagicLink);
+
+    res.json({ 
+      success: true, 
+      link: finalMagicLink
+    });
+  } catch (err: any) {
+    console.error('🔥 Error generating magic link:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -533,7 +651,8 @@ app.post(`${API_PREFIX}/user-password-set`, adminAuth, async (req, res) => {
   if (!newPassword || !supabaseAdmin) return res.status(400).json({ error: 'Missing data' });
   try {
     const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).maybeSingle();
-    const adminEmail = settings?.admin_email || 'gabrielchendes@gmail.com';
+    const adminEmail = settings?.admin_email;
+    if (!adminEmail) return res.status(400).json({ error: 'Configuração de e-mail admin ausente' });
     const { data: { users } } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
     const adminUser = users.find((u: any) => u.email?.toLowerCase() === adminEmail.toLowerCase());
     if (!adminUser) return res.status(404).json({ error: 'Admin user not found' });
@@ -611,6 +730,17 @@ app.post(`${API_PREFIX}/settings/update`, adminAuth, async (req, res) => {
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('💥 Unhandled Error:', err);
   res.status(500).json({ error: 'Internal Server Error', message: err.message });
+});
+
+// Catch-all diagnostic for /api/*
+app.all('/api/*', (req, res) => {
+  console.warn(`⚠️ API 404: ${req.method} ${req.path} - No route matched.`);
+  res.status(404).json({ 
+    error: 'API Route not found', 
+    path: req.path,
+    method: req.method,
+    availablePrefixes: ['/api/v1', '/api/public']
+  });
 });
 
 // Static / Vite

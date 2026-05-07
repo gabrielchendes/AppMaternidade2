@@ -1,16 +1,45 @@
 {
   "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/test",
+      "destination": "/api/test.ts"
+    },
+    {
+      "source": "/api/magic-login",
+      "destination": "/api/magic-login.ts"
+    },
+    {
+      "source": "/api/public/magic-login",
+      "destination": "/api/magic-login.ts"
+    },
+    {
+      "source": "/api/v1/:path*",
       "destination": "/api/index.ts"
     },
     {
-      "source": "/internal/(.*)",
+      "source": "/api/health",
       "destination": "/api/index.ts"
     },
     {
-      "source": "/(.*)",
+      "source": "/api/env-status",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/api/((?!v1|health|env-status|test|magic-login|public/magic-login).*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/((?!api).*|)",
       "destination": "/index.html"
     }
   ]

@@ -24,59 +24,44 @@ export default function App() {
     }
 
     // Check current session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('Initial session check error:', error);
-        // If there's an error getting the session (like invalid refresh token),
-        // we MUST clear the state to prevent a lock-out or infinite error loops
-        if (
-          error.message?.includes('Refresh Token Not Found') || 
-          error.message?.includes('Invalid Refresh Token') ||
-          error.message?.includes('session_not_found') ||
-          (error as any).status === 401
-        ) {
-          console.warn('Stale session detected, clearing...');
-          // Use a more aggressive approach to clear storage if signOut fails
-          supabase.auth.signOut().finally(() => {
-            // Manually clear if needed as a fallback
-            try {
-              localStorage.removeItem('maternidade_premium_auth');
-              // Clear all supabase related items just in case
-              Object.keys(localStorage).forEach(key => {
-                if (key.includes('maternidade_premium_auth') || (key.startsWith('sb-') && key.endsWith('-auth-token'))) {
-                  localStorage.removeItem(key);
-                }
-              });
-            } catch (e) {}
-            setUser(null);
+    const checkInitialSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setUser(session.user);
+          setAuthLoading(false);
+        } else {
+          // If no session, only stop loading if we are NOT in the middle of a hash login
+          if (!window.location.hash.includes('access_token=')) {
             setAuthLoading(false);
-          });
-          return;
+          } else {
+            console.log('Detected hash fragment, keeping loading state for processing...');
+            // Safety timeout: if after 5 seconds nothing happened, stop loading
+            setTimeout(() => setAuthLoading(false), 5000);
+          }
         }
+      } catch (error) {
+        console.error('Initial session check error:', error);
+        setAuthLoading(false);
       }
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
+    };
+
+    checkInitialSession();
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`Auth Event: ${event}`);
       
-      if (event === 'SIGNED_OUT' || (event as any) === 'USER_DELETED') {
+      if (session?.user) {
+        setUser(session.user);
+        setAuthLoading(false);
+      } else if (event === 'SIGNED_OUT' || (event as any) === 'USER_DELETED') {
         setUser(null);
         setAuthLoading(false);
-        // Clear hash to ensure next login starts at home
         if (window.location.hash) {
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
         }
-        return;
       }
-
-      if (event === 'TOKEN_REFRESHED') {
-      }
-
-      // Handle potential refresh errors that might manifest asynchronously
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
     });
 
     return () => subscription.unsubscribe();

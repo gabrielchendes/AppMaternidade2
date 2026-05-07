@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Search,
   CheckCircle2,
   Clock,
@@ -42,6 +43,7 @@ import {
   Send,
   Zap,
   Shield,
+  ShieldCheck,
   Smartphone,
   Monitor,
   Apple,
@@ -162,7 +164,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [showAddPwaImageUrl, setShowAddPwaImageUrl] = useState<{ deviceId: string, currentUrls: string[], updateFn: (urls: string[]) => void } | null>(null);
   const [pwaUrlInput, setPwaUrlInput] = useState('');
 
-  const isAdminAuthorized = user.email?.toLowerCase() === (settings?.admin_email || 'gabrielchendes@gmail.com').toLowerCase();
+  const isAdminAuthorized = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
 
   useEffect(() => {
     if (!isAdminAuthorized) {
@@ -570,6 +572,54 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       toast.error('Erro ao excluir usuário: ' + err.message);
     } finally {
       setDeletingUser(false);
+    }
+  };
+
+  const generateMagicLink = async (targetEmail: string) => {
+    const toastId = toast.loading('Gerando link de acesso...');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await safeFetch('/api/v1/user-magic-link', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` 
+        },
+        body: JSON.stringify({ email: targetEmail })
+      });
+
+      if (response && response.link) {
+        await navigator.clipboard.writeText(response.link);
+        toast.success('Link de acesso temporário gerado e copiado!', { id: toastId });
+      } else {
+        toast.error('Erro ao gerar link de acesso', { id: toastId });
+      }
+    } catch (err: any) {
+      toast.error('Erro: ' + (err.message || 'Falha ao conectar com servidor'), { id: toastId });
+    }
+  };
+
+  const generatePermanentMagicLink = async (targetEmail: string) => {
+    const toastId = toast.loading('Gerando link eterno...');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await safeFetch('/api/v1/generate-permanent-link', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}` 
+        },
+        body: JSON.stringify({ email: targetEmail })
+      });
+
+      if (response && response.link) {
+        await navigator.clipboard.writeText(response.link);
+        toast.success('Link de acesso ETERNO gerado e copiado!', { id: toastId });
+      } else {
+        toast.error('Erro ao gerar link eterno', { id: toastId });
+      }
+    } catch (err: any) {
+      toast.error('Erro: ' + (err.message || 'Falha ao conectar com servidor'), { id: toastId });
     }
   };
 
@@ -1006,9 +1056,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   <td className="px-6 py-4 text-right pr-8">
                                     <div className="flex justify-end gap-2 text-right">
                                       <button 
-                                        onClick={() => {
-                                          setSelectedUserForCourses(u);
-                                          fetchUserPurchases(u.id);
+                                        onClick={() => generatePermanentMagicLink(u.email)}
+                                        className="p-2.5 bg-blue-600/10 hover:bg-blue-600 rounded-xl text-blue-500 hover:text-white transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/5 hover:shadow-blue-600/20 active:scale-95"
+                                        title="Gerar Link de Acesso ETERNO"
+                                      >
+                                        <ShieldCheck size={14} /> Link Eterno
+                                      </button>
+                                      <button 
+                                         onClick={() => {
+                                           setSelectedUserForCourses(u);
+                                           fetchUserPurchases(u.id);
                                           setView('user_details');
                                         }}
                                         className="p-2.5 bg-blue-600/10 hover:bg-blue-600 rounded-xl text-blue-500 hover:text-white transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/5 hover:shadow-blue-600/20 active:scale-95"
@@ -1033,8 +1090,26 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           >
                             <X size={20} /> Voltar para Lista
                           </button>
-                          <button 
-                            onClick={() => setConfirmationModal({
+                          <div className="flex items-center gap-3">
+                            <div className="flex bg-zinc-900 border border-white/10 rounded-xl overflow-hidden p-1 gap-1">
+                              <button 
+                                onClick={() => generateMagicLink(selectedUserForCourses.email)}
+                                className="flex items-center gap-2 hover:bg-purple-600/20 text-purple-400 px-4 py-2 rounded-lg font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap"
+                                title="Válido por 24 horas"
+                              >
+                                <ExternalLink size={14} /> Link 24h
+                              </button>
+                              <div className="w-px bg-white/5 my-1" />
+                              <button 
+                                onClick={() => generatePermanentMagicLink(selectedUserForCourses.email)}
+                                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95 text-[10px] uppercase tracking-widest whitespace-nowrap"
+                                title="Link de acesso que nunca expira"
+                              >
+                                <ShieldCheck size={14} /> Link Eterno
+                              </button>
+                            </div>
+                            <button 
+                              onClick={() => setConfirmationModal({
                               isOpen: true,
                               title: 'Excluir Usuário',
                               message: 'Tem certeza que deseja excluir permanentemente este usuário e todos os seus dados? Esta ação não pode ser desfeita.',
@@ -1052,8 +1127,9 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             Excluir Usuário
                           </button>
                         </div>
+                      </div>
 
-                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-12">
+                      <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-12">
                           <div className="flex items-center gap-6">
                             <div className="w-20 h-20 rounded-full bg-blue-600/20 flex items-center justify-center text-blue-500 font-bold text-3xl">
                               {selectedUserForCourses?.email?.[0].toUpperCase()}
@@ -1836,6 +1912,28 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               </button>
                             </div>
                           </div>
+
+                          <div className="space-y-2 pt-4 border-t border-white/5">
+                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest text-blue-500 italic">URL do Aplicativo</label>
+                            <div className="relative group">
+                              <input 
+                                type="text" 
+                                value={localSettings?.app_url || ''}
+                                onChange={(e) => setLocalSettings({ ...localSettings, app_url: e.target.value })}
+                                onBlur={() => {
+                                  if (localSettings?.app_url && localSettings.app_url !== settings.app_url) {
+                                    updateSettings({ app_url: localSettings.app_url });
+                                  }
+                                }}
+                                className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
+                                placeholder="https://app-maternidade2.vercel.app"
+                              />
+                              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                                <Globe size={14} />
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-gray-600">Usada para gerar links de acesso mágicos e redirecionamentos. Certifique-se de incluir o https://</p>
+                          </div>
                         </div>
                       </div>
 
@@ -2050,6 +2148,18 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             LOGIN
                           </button>
                           <button 
+                            onClick={() => setActivePageTab('community')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'community' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            Comunidade
+                          </button>
+                          <button 
+                            onClick={() => setActivePageTab('profile')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'profile' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            Perfil
+                          </button>
+                          <button 
                             onClick={() => setActivePageTab('nav')}
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'nav' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                           >
@@ -2065,19 +2175,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             onClick={() => setActivePageTab('course')}
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'course' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                           >
-                            Aulas
-                          </button>
-                          <button 
-                            onClick={() => setActivePageTab('community')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'community' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
-                          >
-                            Comunidade
-                          </button>
-                          <button 
-                            onClick={() => setActivePageTab('profile')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'profile' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
-                          >
-                            Perfil
+                            Cursos
                           </button>
                           <button 
                             onClick={() => setActivePageTab('push')}
@@ -3171,7 +3269,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-500">
                               <BookOpen size={20} />
                             </div>
-                            <h4 className="font-bold text-white">Visualizador de Aula</h4>
+                            <h4 className="font-bold text-white">Visualizador de Cursos</h4>
                           </div>
 
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -3200,7 +3298,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.progress_error', label: 'Erro: Atualizar Progresso' },
                                 { key: 'course.video_lesson', label: 'Tag: Videoaula' },
                                 { key: 'course.pdf_material', label: 'Tag: Material PDF' },
-                                { key: 'course.reading', label: 'Tag: Leitura' }
+                                { key: 'course.reading', label: 'Tag: Leitura' },
+                                { key: 'course.view_fullscreen', label: 'Botão Fullscreen (Aula PDF)' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3232,6 +3331,21 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 <div className="w-full space-y-2">
                                    <p className="text-[10px] font-black text-white italic uppercase">{draftCustomTexts['course.materials'] || settings.custom_texts?.['course.materials'] || languagePresets.pt['course.materials']}</p>
                                    <div className="h-10 bg-white/5 rounded-lg border border-dashed border-white/10" />
+                                </div>
+                              </div>
+
+                              <div className="mt-8 pt-8 border-t border-white/10">
+                                <div className="flex items-center justify-between p-4 bg-black/40 rounded-xl border border-white/5">
+                                  <div className="space-y-1">
+                                    <p className="text-xs font-black text-white uppercase italic">Auto-concluir Aula ao Abrir PDF</p>
+                                    <p className="text-[10px] text-gray-500">Marca a aula como completa automaticamente ao abrir o fullscreen no PDF.</p>
+                                  </div>
+                                  <button 
+                                    onClick={() => updateSettings({ course_pdf_auto_complete_fullscreen: !settings.course_pdf_auto_complete_fullscreen })}
+                                    className={`w-12 h-6 rounded-full transition-all relative ${settings.course_pdf_auto_complete_fullscreen ? 'bg-blue-600' : 'bg-zinc-700'}`}
+                                  >
+                                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${settings.course_pdf_auto_complete_fullscreen ? 'right-1' : 'left-1'}`} />
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -3325,9 +3439,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'community.delete_success', label: 'Toast: Post Excluído' },
                                 { key: 'community.delete_error', label: 'Toast: Erro Excluir Post' },
                                 { key: 'community.comment_delete_success', label: 'Toast: Comentário Excluído' },
-                                { key: 'community.comment_delete_error', label: 'Toast: Erro Excluir Comentário' },
-                                { key: 'community.date_format', label: 'Formato da Data (Ex: d MMM, HH:mm)' },
-                                { key: 'community.locale', label: 'Código do Idioma (ptBR, enUS, es)' }
+                                { key: 'community.comment_delete_error', label: 'Toast: Erro Excluir Comentário' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -3340,6 +3452,29 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   />
                                 </div>
                               ))}
+
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest text-primary italic">Formato da Data</label>
+                                <div className="relative group">
+                                  <select 
+                                    value={draftCustomTexts['community.date_format'] !== undefined ? draftCustomTexts['community.date_format'] : (settings.custom_texts?.['community.date_format'] || 'd MMM, HH:mm')}
+                                    onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'community.date_format': e.target.value })}
+                                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none appearance-none cursor-pointer transition-all hover:border-white/20"
+                                  >
+                                    <option value="d MMM, HH:mm">d MMM, HH:mm (Português - Ex: 6 Mai, 14:30)</option>
+                                    <option value="d 'de' MMMM, HH:mm">d de MMMM, HH:mm (Português - Ex: 6 de Maio, 14:30)</option>
+                                    <option value="MMM d, h:mm a">MMM d, h:mm a (Inglês - Ex: May 6, 2:30 PM)</option>
+                                    <option value="MMMM d, h:mm a">MMMM d, h:mm a (Inglês - Ex: May 6, 2:30 PM)</option>
+                                    <option value="d 'de' MMM, HH:mm">d de MMM, HH:mm (Espanhol - Ex: 6 de May, 14:30)</option>
+                                    <option value="dd/MM/yyyy HH:mm">dd/MM/yyyy HH:mm (Universal - Ex: 06/05/2026 14:30)</option>
+                                    <option value="MM/dd/yyyy h:mm a">MM/dd/yyyy h:mm a (EUA - Ex: 05/06/2026 2:30 PM)</option>
+                                    <option value="HH:mm, d MMM">HH:mm, d MMM (Alternativo - Ex: 14:30, 6 Mai)</option>
+                                  </select>
+                                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500 group-hover:text-blue-500 transition-colors">
+                                    <ChevronDown size={16} />
+                                  </div>
+                                </div>
+                              </div>
                             </div>
 
                             <div className="space-y-4">
@@ -3353,9 +3488,24 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     {draftCustomTexts['community.subtitle'] || settings.custom_texts?.['community.subtitle'] || languagePresets.pt['community.subtitle']}
                                   </p>
                                 </div>
-                                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-3 text-gray-600 text-[10px] font-bold uppercase tracking-wider text-left">
-                                  <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 shrink-0" />
-                                  {draftCustomTexts['community.input_placeholder'] || settings.custom_texts?.['community.input_placeholder'] || languagePresets.pt['community.input_placeholder']}
+                                <div className="p-5 bg-white/5 border border-white/10 rounded-2xl space-y-4 shadow-xl">
+                                  <div className="flex gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 shrink-0" />
+                                    <div className="flex-1 p-3 bg-black/40 rounded-xl text-gray-500 text-[10px] font-bold uppercase tracking-wider text-left border border-white/5">
+                                      {draftCustomTexts['community.input_placeholder'] || settings.custom_texts?.['community.input_placeholder'] || languagePresets.pt['community.input_placeholder']}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/5">
+                                      <ImageIcon size={12} className="text-blue-500" />
+                                      <span className="text-[8px] font-black uppercase text-white tracking-widest">
+                                        {draftCustomTexts['community.add_photo'] || settings.custom_texts?.['community.add_photo'] || languagePresets.pt['community.add_photo']}
+                                      </span>
+                                    </div>
+                                    <div className="px-5 py-1.5 bg-blue-600 rounded-full text-[8px] font-black uppercase text-white tracking-widest shadow-lg shadow-blue-500/20">
+                                      {draftCustomTexts['community.post'] || settings.custom_texts?.['community.post'] || languagePresets.pt['community.post']}
+                                    </div>
+                                  </div>
                                 </div>
                                 <div className="space-y-3 opacity-40">
                                   <div className="h-24 bg-zinc-900 border border-white/5 rounded-2xl p-4 space-y-2">
@@ -3433,28 +3583,61 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                             <div className="space-y-4">
                               <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview do Perfil</label>
-                              <div className="rounded-3xl border border-white/10 p-8 flex flex-col items-center shadow-2xl space-y-6" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                <div className="w-20 h-20 rounded-full border-4 border-blue-500/20 bg-white/5 flex items-center justify-center">
-                                   <UserIcon className="text-white/20" size={32} />
+                              <div className="rounded-[2.5rem] border border-white/10 p-8 flex flex-col items-center shadow-2xl space-y-8 min-h-[400px] relative overflow-hidden" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-blue-500/10 to-transparent" />
+                                
+                                <div className="relative mt-4">
+                                  <div className="w-24 h-24 rounded-full border-4 border-blue-500/30 bg-zinc-900 flex items-center justify-center overflow-hidden shadow-2xl">
+                                    <UserIcon className="text-white/20" size={40} />
+                                  </div>
+                                  <div className="absolute bottom-1 right-1 p-2 bg-blue-600 rounded-full border-2 border-zinc-950 shadow-lg">
+                                    <ImageIcon size={12} className="text-white" />
+                                  </div>
                                 </div>
-                                <div className="text-center space-y-1">
-                                  <h3 className="text-lg font-black text-white uppercase tracking-tighter italic">
+
+                                <div className="text-center space-y-2">
+                                  <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">
                                     {draftCustomTexts['profile.title'] || settings.custom_texts?.['profile.title'] || languagePresets.pt['profile.title']}
                                   </h3>
                                   <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest leading-relaxed">
                                     {draftCustomTexts['profile.subtitle'] || settings.custom_texts?.['profile.subtitle'] || languagePresets.pt['profile.subtitle']}
                                   </p>
                                 </div>
+
                                 <div className="w-full h-px bg-white/5" />
-                                <div className="w-full space-y-3">
-                                  <div className="flex items-center gap-2 text-blue-500 font-bold text-[10px] tracking-widest uppercase">
-                                    <UserIcon size={14} />
-                                    {draftCustomTexts['profile.info_title'] || settings.custom_texts?.['profile.info_title'] || languagePresets.pt['profile.info_title']}
+
+                                <div className="w-full space-y-4">
+                                  <div className="p-4 bg-white/5 border border-white/5 rounded-2xl space-y-3">
+                                    <div className="flex items-center gap-3 text-blue-500 font-black text-[10px] tracking-widest uppercase italic">
+                                      <div className="p-1.5 bg-blue-500/20 rounded-lg">
+                                        <UserIcon size={14} />
+                                      </div>
+                                      {draftCustomTexts['profile.info_title'] || settings.custom_texts?.['profile.info_title'] || languagePresets.pt['profile.info_title']}
+                                    </div>
+                                    <div className="space-y-2 mt-1">
+                                      <div className="h-6 bg-black/40 rounded-lg border border-white/5" />
+                                      <div className="h-6 bg-black/40 rounded-lg border border-white/5" />
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-2 text-white/40 font-bold text-[10px] tracking-widest uppercase">
-                                    <Bell size={14} />
-                                    {draftCustomTexts['profile.push_title'] || settings.custom_texts?.['profile.push_title'] || languagePresets.pt['profile.push_title']}
+
+                                  <div className="p-4 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-between">
+                                    <div className="flex items-center gap-3 text-white/40 font-black text-[10px] tracking-widest uppercase italic">
+                                      <div className="p-1.5 bg-white/5 rounded-lg">
+                                        <Bell size={14} />
+                                      </div>
+                                      {draftCustomTexts['profile.push_title'] || settings.custom_texts?.['profile.push_title'] || languagePresets.pt['profile.push_title']}
+                                    </div>
+                                    <div className="w-10 h-5 bg-blue-600/20 rounded-full relative">
+                                      <div className="absolute right-1 top-1 w-3 h-3 bg-blue-500 rounded-full" />
+                                    </div>
                                   </div>
+                                </div>
+
+                                <div className="w-full pt-4">
+                                   <div className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-center gap-2">
+                                      <LogOut size={12} className="text-red-500" />
+                                      <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Sair da Conta</span>
+                                   </div>
                                 </div>
                               </div>
                             </div>
