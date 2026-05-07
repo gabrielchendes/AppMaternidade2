@@ -274,6 +274,13 @@ export default function Dashboard({ user }: DashboardProps) {
 
     } catch (error: any) {
       console.error('Error fetching data:', error);
+      if (error && error.message?.includes('Refresh Token Not Found')) {
+        console.warn('Session expired during usage, clearing...');
+        localStorage.removeItem('maternidade_premium_auth');
+        await supabase.auth.signOut();
+        window.location.reload();
+        return;
+      }
       toast.error(t('dashboard.loading_error') || 'Erro ao carregar conteúdos');
     } finally {
       setLoading(false);

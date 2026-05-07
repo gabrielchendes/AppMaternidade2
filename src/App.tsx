@@ -26,7 +26,30 @@ export default function App() {
     // Check current session
     const checkInitialSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Session error:', error.message);
+          // If we have a refresh token error, we need to clear local state
+          if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant')) {
+            console.warn('Handling stale session...');
+            await supabase.auth.signOut();
+            // Fallback: manually clear if signOut doesn't clean everything
+            try {
+              localStorage.removeItem('maternidade_premium_auth');
+              // Clear any other supabase-related keys
+              for (const key in localStorage) {
+                if (key.includes('supabase') || key.includes('-auth-token') || key.includes('maternidade_premium')) {
+                  localStorage.removeItem(key);
+                }
+              }
+            } catch (e) {}
+          }
+          setUser(null);
+          setAuthLoading(false);
+          return;
+        }
+
         if (session) {
           setUser(session.user);
           setAuthLoading(false);
@@ -42,6 +65,7 @@ export default function App() {
         }
       } catch (error) {
         console.error('Initial session check error:', error);
+        setUser(null);
         setAuthLoading(false);
       }
     };

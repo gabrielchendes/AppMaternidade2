@@ -152,6 +152,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.error('Supabase error fetching settings:', error);
+        // If it's an auth error, it might be a stale token
+        if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant')) {
+          console.warn('Stale auth detected in SettingsProvider, clearing...');
+          localStorage.removeItem('maternidade_premium_auth');
+        }
       }
 
       if (data) {
