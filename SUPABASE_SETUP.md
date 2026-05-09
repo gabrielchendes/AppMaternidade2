@@ -338,16 +338,12 @@ CREATE POLICY "Permitir leitura pública de tenants" ON public.tenants FOR SELEC
 -- Função para verificar se o usuário é admin
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN AS $$
-DECLARE
-  current_user_email TEXT;
 BEGIN
-  current_user_email := (SELECT email FROM auth.users WHERE id = auth.uid());
-  
   RETURN (
-    -- Opção 1: Email configurado em app_settings
+    -- Opção 1: Email configurado em app_settings (JWT é seguro e rápido)
     EXISTS (
       SELECT 1 FROM public.app_settings 
-      WHERE id = 1 AND admin_email = current_user_email
+      WHERE id = 1 AND admin_email = auth.jwt() ->> 'email'
     )
     OR
     -- Opção 2: Flag is_admin na tabela profiles

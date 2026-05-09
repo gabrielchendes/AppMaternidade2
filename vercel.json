@@ -3,6 +3,66 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/api/v1/login-verify",
+      "destination": "/api/v1/auth"
+    },
+    {
+      "source": "/api/v1/user-magic-link",
+      "destination": "/api/v1/auth"
+    },
+    {
+      "source": "/api/v1/user-password-set",
+      "destination": "/api/v1/auth"
+    },
+    {
+      "source": "/api/v1/users-list",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/user-create",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/user-access-toggle",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/grant-access",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/purchases-list",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/info",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/user-delete/:id",
+      "destination": "/api/v1/admin"
+    },
+    {
+      "source": "/api/v1/notification-push",
+      "destination": "/api/v1/notifications"
+    },
+    {
+      "source": "/api/v1/notification-history",
+      "destination": "/api/v1/notifications"
+    },
+    {
+      "source": "/api/v1/notification-details",
+      "destination": "/api/v1/notifications"
+    },
+    {
+      "source": "/api/v1/notification-clear",
+      "destination": "/api/v1/notifications"
+    },
+    {
+      "source": "/api/v1/sub-topic",
+      "destination": "/api/v1/notifications"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },
