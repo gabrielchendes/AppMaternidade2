@@ -58,11 +58,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .then();
 
     // 4. Determinar URL base dinâmica
-    const host = req.headers.host;
-    let baseUrl = `https://${host}`;
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    let baseUrl = process.env.VITE_APP_URL || process.env.APP_URL;
 
-    if (!host) {
-      baseUrl = process.env.VITE_APP_URL || 'https://app-maternidade2.vercel.app';
+    if (!baseUrl && host) {
+      baseUrl = `https://${host}`;
+    }
+
+    if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+      baseUrl = 'https://app-maternidade2.vercel.app';
     }
 
     const cleanBaseUrl = baseUrl.replace(/\/$/, '');

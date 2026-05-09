@@ -55,7 +55,8 @@ import {
   ArrowRight,
   ExternalLink,
   Type,
-  LogOut
+  LogOut,
+  HelpCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
@@ -122,7 +123,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const { settings, refreshSettings } = useSettings();
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages'>('packages');
+  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions'>('packages');
   const [activePageTab, setActivePageTab] = useState<'home' | 'community' | 'profile' | 'login' | 'nav' | 'course' | 'push' | 'pwa'>('home');
   const [loading, setLoading] = useState(true);
   
@@ -163,6 +164,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [pwaImageInputs, setPwaImageInputs] = useState<Record<string, string>>({});
   const [showAddPwaImageUrl, setShowAddPwaImageUrl] = useState<{ deviceId: string, currentUrls: string[], updateFn: (urls: string[]) => void } | null>(null);
   const [pwaUrlInput, setPwaUrlInput] = useState('');
+  const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
+  const [answerText, setAnswerText] = useState('');
+  const [sendingAnswer, setSendingAnswer] = useState(false);
 
   const isAdminAuthorized = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
 
@@ -336,7 +341,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'users' || activeTab === 'courses' || activeTab === 'vendas' || activeTab === 'packages') {
+      if (activeTab === 'users' || activeTab === 'courses' || activeTab === 'vendas' || activeTab === 'packages' || activeTab === 'questions') {
         const fetchCourses = async () => {
           const { data: coursesData, error: coursesError } = await supabase
             .from('courses')
@@ -371,12 +376,36 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           setCoursePackages(packagesData || []);
         };
 
-        await Promise.all([fetchCourses(), fetchPackages()]);
+        const fetchQuestions = async () => {
+          const { data, error } = await supabase
+            .from('chapter_questions')
+            .select('*, chapters(title, modules(courses(title)))')
+            .order('created_at', { ascending: false });
+          
+          if (error) throw error;
+          setPendingQuestions(data || []);
+          
+          // Mark all as read when opening the tab
+          if (activeTab === 'questions' && data) {
+            const unreadIds = data.filter(q => !q.is_read_by_admin).map(q => q.id);
+            if (unreadIds.length > 0) {
+              await supabase.from('chapter_questions').update({ is_read_by_admin: true }).in('id', unreadIds);
+            }
+          }
+        };
+
+        await Promise.all([fetchCourses(), fetchPackages(), fetchQuestions()]);
 
         if (activeTab === 'users') {
           const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            console.error('No session found for users-list');
+            setAllUsers([]);
+            setLoading(false);
+            return;
+          }
           const data = await safeFetch('/api/v1/users-list', {
-            headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
           });
           
           if (data && data.error) {
@@ -390,8 +419,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
         if (activeTab === 'vendas') {
           const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            console.error('No session found for purchases-list');
+            setAllPurchases([]);
+            setLoading(false);
+            return;
+          }
           const data = await safeFetch('/api/v1/purchases-list', {
-            headers: { 'Authorization': `Bearer ${session?.access_token}` }
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
           });
           
           if (data && data.error) {
@@ -872,6 +907,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             onClick={() => { setActiveTab('pages'); setIsMobileMenuOpen(false); }} 
           />
           <SidebarItem 
+            icon={<HelpCircle size={20} />} 
+            label={t('admin.questions_tab') || "Dúvidas"} 
+            active={activeTab === 'questions'} 
+            onClick={() => { setActiveTab('questions'); setIsMobileMenuOpen(false); }} 
+            badge={pendingQuestions.filter(q => !q.is_read_by_admin).length || undefined}
+          />
+          <SidebarItem 
             icon={<MessageSquare size={20} />} 
             label="Comunidade" 
             active={activeTab === 'community'} 
@@ -938,6 +980,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                activeTab === 'languages' ? 'Idiomas / Textos' :
                activeTab === 'settings' ? 'Configurações' :
                activeTab === 'security' ? 'Segurança' :
+               activeTab === 'questions' ? (t('admin.questions_tab') || 'Dúvidas') :
                activeTab}
             </h2>
           </div>
@@ -963,6 +1006,143 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                 exit={{ opacity: 0, y: -10 }}
                 className="h-full"
               >
+                {activeTab === 'questions' && (
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-900 border border-white/5 p-6 rounded-3xl">
+                      <div>
+                        <h3 className="text-xl font-black text-white italic uppercase tracking-tighter leading-none">
+                          {t('admin.questions_tab') || 'Gestão de Dúvidas'}
+                        </h3>
+                        <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-2">
+                          {pendingQuestions.filter(q => !q.answer).length} perguntas aguardando resposta
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                         <div className="flex bg-black/40 rounded-xl p-1 border border-white/5">
+                            <button className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white rounded-lg">Todas</button>
+                         </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4">
+                      {pendingQuestions.length === 0 ? (
+                        <div className="text-center py-20 bg-zinc-900/50 rounded-3xl border border-dashed border-white/10">
+                          <HelpCircle size={48} className="mx-auto text-gray-700 mb-4 opacity-20" />
+                          <p className="text-gray-500 font-bold italic uppercase tracking-widest text-xs">Nenhuma dúvida encontrada</p>
+                        </div>
+                      ) : (
+                        pendingQuestions.map((q) => (
+                          <motion.div
+                            key={q.id}
+                            layout
+                            className={`bg-zinc-900 border ${q.answer ? 'border-white/5' : 'border-blue-500/30'} rounded-3xl p-6 space-y-4 hover:border-blue-500/50 transition-all`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-600 border border-white/5 overflow-hidden">
+                                  {q.user_avatar_url ? <img src={q.user_avatar_url} className="w-full h-full object-cover" /> : <UserIcon size={20} />}
+                                </div>
+                                <div>
+                                  <h4 className="font-bold text-white text-sm">{q.user_name}</h4>
+                                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                    {q.chapters?.modules?.courses?.title} • {q.chapters?.title}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-[10px] font-black text-gray-600 uppercase tracking-widest text-right">
+                                {new Date(q.created_at).toLocaleDateString()} {new Date(q.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+
+                            <div className="bg-black/30 rounded-2xl p-4 border border-white/5">
+                              <p className="text-gray-300 text-sm italic">"{q.question}"</p>
+                            </div>
+
+                            {q.answer ? (
+                              <div className="space-y-2 pt-2">
+                                <div className="flex items-center gap-2 text-green-500 text-[10px] font-black uppercase tracking-widest italic">
+                                  <Check size={12} /> Sua Resposta
+                                </div>
+                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4">
+                                  <p className="text-white text-sm whitespace-pre-wrap">{q.answer}</p>
+                                  <div className="mt-2 flex justify-end">
+                                     <button 
+                                      onClick={() => { setAnsweringQuestionId(q.id); setAnswerText(q.answer); }}
+                                      className="text-[9px] font-black text-blue-500 hover:text-white uppercase tracking-widest italic"
+                                     >
+                                      Editar Resposta
+                                     </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="pt-2">
+                                {answeringQuestionId === q.id ? (
+                                  <div className="space-y-3">
+                                    <textarea
+                                      autoFocus
+                                      value={answerText}
+                                      onChange={(e) => setAnswerText(e.target.value)}
+                                      placeholder={t('admin.reply_placeholder') || "Digite sua resposta aqui..."}
+                                      className="w-full bg-black/60 border border-blue-500/50 rounded-2xl p-4 text-white text-sm outline-none focus:border-blue-500 min-h-[120px] shadow-inner"
+                                    />
+                                    <div className="flex justify-end gap-3">
+                                      <button 
+                                        onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}
+                                        className="px-6 py-2 bg-white/5 hover:bg-white/10 text-gray-400 font-black text-[10px] uppercase tracking-widest rounded-xl transition-all"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button 
+                                        disabled={!answerText.trim() || sendingAnswer}
+                                        onClick={async () => {
+                                          setSendingAnswer(true);
+                                          try {
+                                            const { error } = await supabase
+                                              .from('chapter_questions')
+                                              .update({ 
+                                                answer: answerText.trim(),
+                                                answered_at: new Date().toISOString(),
+                                                answered_by: user.id
+                                              })
+                                              .eq('id', q.id);
+                                            
+                                            if (error) throw error;
+                                            toast.success('Resposta enviada!');
+                                            setAnsweringQuestionId(null);
+                                            setAnswerText('');
+                                            fetchData();
+                                          } catch (e) {
+                                            toast.error('Erro ao enviar resposta');
+                                          } finally {
+                                            setSendingAnswer(false);
+                                          }
+                                        }}
+                                        className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                                      >
+                                        {sendingAnswer ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                                        {t('admin.reply_send') || 'ENVIAR RESPOSTA'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    onClick={() => setAnsweringQuestionId(q.id)}
+                                    className="w-full py-3 bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all border border-blue-500/20 flex items-center justify-center gap-2"
+                                  >
+                                    <MessageSquare size={14} />
+                                    Responder Estudante
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </motion.div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === 'users' && (
                   <div className="space-y-6">
                     {view === 'list' ? (
@@ -4558,14 +4738,21 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   );
 }
 
-function SidebarItem({ icon, label, active, onClick }: { icon: any, label: string, active: boolean, onClick: () => void }) {
+function SidebarItem({ icon, label, active, onClick, badge }: { icon: any, label: string, active: boolean, onClick: () => void, badge?: number }) {
   return (
     <button 
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
     >
-      {icon}
-      {label}
+      <div className="flex items-center gap-3">
+        {icon}
+        {label}
+      </div>
+      {badge ? (
+        <span className="min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-black rounded-full px-1 border border-black/20 animate-pulse transition-all">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      ) : null}
     </button>
   );
 }

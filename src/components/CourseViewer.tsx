@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import ReactPlayer from 'react-player';
 import { useI18n } from '../contexts/I18nContext';
 import { useSettings } from '../contexts/SettingsContext';
+import ChapterQuestions from './ChapterQuestions';
 import FloatingWhatsApp from './FloatingWhatsApp';
 
 interface CourseViewerProps {
@@ -635,7 +636,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             <div className="space-y-0.5 px-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] italic leading-none">
-                                  {chapter.content_type === 'video' ? (t('course.video_lesson') || 'Videoaula') : chapter.content_type === 'pdf' ? '' : (t('course.reading') || 'Leitura')}
+                                  {chapter.content_type === 'video' ? '' : chapter.content_type === 'pdf' ? '' : (t('course.reading') || 'Leitura')}
                                 </span>
                                 {isCompleted && <div className="w-1 h-1 rounded-full bg-green-500" />}
                               </div>
@@ -760,6 +761,16 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     </span>
                   </button>
                 </div>
+
+                {/* Lesson Questions Section */}
+                {activeChapter && (
+                  <ChapterQuestions 
+                    chapterId={activeChapter.id} 
+                    userId={userId}
+                    userName={course?.title === 'Admin' ? 'Admin' : (progress[0]?.user_id === userId ? 'Você' : 'Estudante')} // Simple fallback, better get from auth/profile
+                    userAvatarUrl={undefined}
+                  />
+                )}
 
                 {/* Support Section */}
                 <SupportSection settings={settings} t={t} />

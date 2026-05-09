@@ -46,6 +46,21 @@ export interface UserProgress {
   completed_at?: string;
 }
 
+export interface ChapterQuestion {
+  id: string;
+  chapter_id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar_url?: string;
+  question: string;
+  answer?: string;
+  is_read_by_admin: boolean;
+  answered_at?: string;
+  answered_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CoursePackage {
   id: string;
   title: string;

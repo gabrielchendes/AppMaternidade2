@@ -54,6 +54,32 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);
   const postInputRef = useRef<HTMLTextAreaElement>(null);
 
+  const notifyAdmin = async (content: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data: admins } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      const adminIds = admins?.map(a => a.id) || [];
+
+      if (adminIds.length > 0) {
+        const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
+        await fetch('/api/v1/notification-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            title: t('admin.notifications_community'),
+            body: `${authorName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`,
+            userIds: adminIds
+          })
+        });
+      }
+    } catch (e) {
+      console.error('Error notifying admin:', e);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -356,6 +382,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
       if (newPost) {
         setPosts(prev => [newPost as CommunityPost, ...prev]);
+        // Notify Admin if not admin posting
+        if (!adminMode) {
+          notifyAdmin(content);
+        }
       }
 
       setNewPostContent('');
@@ -463,6 +493,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
           ...prev,
           [postId]: (prev[postId] || []).map(c => c.id === tempComment.id ? data : c)
         }));
+        // Notify Admin if not admin commenting
+        if (!adminMode) {
+          notifyAdmin(content);
+        }
       }
       
       // Realtime listener will sync counts globally
