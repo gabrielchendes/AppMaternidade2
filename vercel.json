@@ -1,18 +1,10 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false,
-  "functions": {
-    "api/v1/*.ts": {
-      "runtime": "nodejs20.x",
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/v1/:path*",
-      "destination": "/api/v1/:path*"
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
     },
     {
       "source": "/((?!api/|manifest\\.json|sw\\.js|favicon\\.svg|.*\\.).*)",

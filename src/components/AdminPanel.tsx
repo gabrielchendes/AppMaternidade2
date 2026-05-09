@@ -1110,10 +1110,32 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                           .eq('id', q.id);
                                         
                                         if (error) throw error;
+                                        
+                                        // Notify the student
+                                        try {
+                                          const { data: { session } } = await supabase.auth.getSession();
+                                          if (session && q.user_id) {
+                                            await fetch('/api/v1/notification-push', {
+                                              method: 'POST',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': `Bearer ${session.access_token}`
+                                              },
+                                              body: JSON.stringify({
+                                                title: t('notifications.user_answer') || 'Sua dúvida foi respondida!',
+                                                body: answerText.trim().substring(0, 100) + (answerText.length > 100 ? '...' : ''),
+                                                userIds: [q.user_id]
+                                              })
+                                            });
+                                          }
+                                        } catch (notifyErr) {
+                                          console.error('Error notifying user:', notifyErr);
+                                        }
+
                                         toast.success('Resposta salva!');
                                         setAnsweringQuestionId(null);
                                         setAnswerText('');
-                                        fetchQuestions();
+                                        fetchData();
                                       } catch (e) {
                                         toast.error('Erro ao salvar resposta');
                                       } finally {

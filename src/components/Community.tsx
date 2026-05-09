@@ -509,6 +509,30 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         if (!adminMode) {
           notifyAdmin(content);
         }
+
+        // Notify Post Owner if it's not the user themselves commenting
+        try {
+          const { data: post } = await supabase.from('community_posts').select('user_id').eq('id', postId).single();
+          if (post && post.user_id && post.user_id !== user.id) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              await fetch('/api/v1/notification-push', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                  title: t('notifications.user_comment') || 'Novo comentário no seu post',
+                  body: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+                  userIds: [post.user_id]
+                })
+              });
+            }
+          }
+        } catch (notifyErr) {
+          console.error('Error notifying post owner:', notifyErr);
+        }
       }
       
       // Realtime listener will sync counts globally
