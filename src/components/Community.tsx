@@ -74,7 +74,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
       if (adminIds.length > 0) {
         const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
-        await fetch('/api/v1/notification-push', {
+        await fetch('/api/v1/notifications?action=notification-push', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -343,6 +343,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     let finalAvatarUrl = manualAvatarUrl;
 
     try {
+      // Ensure fresh user session
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) throw new Error('Sessão expirada. Por favor faça login novamente.');
+
       if (adminMode && manualAvatarFile) {
         finalAvatarUrl = await uploadManualAvatar();
       }
@@ -357,7 +361,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         const compressedFile = await imageCompression(selectedImage, options);
         
         const fileExt = selectedImage.name.split('.').pop();
-        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+        const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
         const filePath = `posts/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
@@ -379,10 +383,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
       console.log('🔎 Query Supabase: community_posts (insert)');
       const { data: newPost, error } = await supabase.from('community_posts').insert({
-        user_id: user.id,
-        user_email: user.email,
-        user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
-        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
+        user_id: currentUser.id,
+        user_email: currentUser.email,
+        user_name: (adminMode && personaActive) ? manualAuthorName : (currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]),
+        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (currentUser.user_metadata?.avatar_url || null),
         content: content,
         image_url: imageUrl || null,
         reply_to_id: replyingTo?.id || null,
@@ -396,7 +400,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         setPosts(prev => [newPost as CommunityPost, ...prev]);
         // Notify Admin if not admin posting
         if (!adminMode) {
-          notifyAdmin(content);
+          notifyAdmin(content).catch(e => console.warn('Notification failed:', e));
         }
       }
 
@@ -488,12 +492,15 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     setNewComment(prev => ({ ...prev, [postId]: '' }));
 
     try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) throw new Error('Sessão expirada');
+
       console.log('🔎 Query Supabase: post_comments (insert)');
       const { data, error } = await supabase.from('post_comments').insert({
         post_id: postId,
-        user_id: user.id,
-        user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
-        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
+        user_id: currentUser.id,
+        user_name: (adminMode && personaActive) ? manualAuthorName : (currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]),
+        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (currentUser.user_metadata?.avatar_url || null),
         content: content,
       }).select().single();
 
@@ -516,7 +523,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
           if (post && post.user_id && post.user_id !== user.id) {
             const { data: { session } } = await supabase.auth.getSession();
             if (session) {
-              await fetch('/api/v1/notification-push', {
+              await fetch('/api/v1/notifications?action=notification-push', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

@@ -66,6 +66,7 @@ function getFallbackTranslations(key: string): string {
     'auth.whatsapp_label': 'Chamar no WhatsApp',
     'auth.email_label': 'Enviar um E-mail',
     'auth.user_not_found': 'Usuário não encontrado',
+    'auth.invalid_password': 'Senha incorreta. Verifique e tente novamente.',
     'auth.fill_this_field': 'Por favor, preencha este campo',
     'auth.invalid_email': 'Por favor, digite um endereço de e-mail válido',
     'auth.invalid_response': 'Falha na comunicação com o servidor. Tente novamente em instantes.',

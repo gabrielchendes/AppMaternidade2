@@ -43,7 +43,34 @@ async function startServer() {
     console.log(`[API Request] ${req.method} ${req.path}`);
 
     try {
-      const apiPath = req.path.replace(/^\/api\//, '');
+      let apiPath = req.path.replace(/^\/api\//, '');
+      
+      // Simulate vercel.json rewrites
+      const rewrites: Record<string, string> = {
+        'v1/login-verify': 'v1/auth?action=login-verify',
+        'v1/user-magic-link': 'v1/auth?action=user-magic-link',
+        'v1/user-password-set': 'v1/auth?action=user-password-set',
+        'v1/users-list': 'v1/admin?action=users-list',
+        'v1/user-create': 'v1/admin?action=user-create',
+        'v1/notification-push': 'v1/notifications?action=notification-push',
+        'v1/notification-history': 'v1/notifications?action=notification-history',
+        'v1/notification-clear': 'v1/notifications?action=notification-clear',
+        'v1/notify-admin': 'v1/notifications?action=notify-admin',
+        'v1/sub-topic': 'v1/notifications?action=sub-topic',
+        'v1/generate-permanent-link': 'v1/admin?action=generate-permanent-link',
+      };
+
+      if (rewrites[apiPath]) {
+        const [newPath, newQuery] = rewrites[apiPath].split('?');
+        apiPath = newPath;
+        if (newQuery) {
+          const params = new URLSearchParams(newQuery);
+          params.forEach((value, key) => {
+            req.query[key] = value;
+          });
+        }
+      }
+
       const segments = apiPath.split('/');
       
       // Try to find the file in /api directory

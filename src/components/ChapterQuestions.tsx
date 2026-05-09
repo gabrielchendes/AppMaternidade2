@@ -17,13 +17,35 @@ interface ChapterQuestionsProps {
   isProfessor?: boolean;
 }
 
-export default function ChapterQuestions({ chapterId, userId, userName, userAvatarUrl, isProfessor = false }: ChapterQuestionsProps) {
+export default function ChapterQuestions({ chapterId, userId: initialUserId, userName: initialUserName, userAvatarUrl: initialAvatar, isProfessor = false }: ChapterQuestionsProps) {
   const { t } = useI18n();
   const { settings } = useSettings();
   const [questions, setQuestions] = useState<ChapterQuestion[]>([]);
   const [newQuestion, setNewQuestion] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  
+  // Real user data from session/profile
+  const [userData, setUserData] = useState({
+    id: initialUserId,
+    name: initialUserName,
+    avatar: initialAvatar
+  });
+
+  useEffect(() => {
+    async function getRealProfile() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).maybeSingle();
+        setUserData({
+          id: user.id,
+          name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Estudante',
+          avatar: profile?.avatar_url || user.user_metadata?.avatar_url || initialAvatar
+        });
+      }
+    }
+    getRealProfile();
+  }, [initialUserId]);
 
   useEffect(() => {
     fetchQuestions();
@@ -70,41 +92,25 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      const adminEmail = settings?.admin_email;
-      const { data: profileAdmins } = await supabase.from('profiles').select('id, email').eq('is_admin', true);
+      const title = type === 'question' ? t('admin.notifications_question') : t('admin.notifications_community');
       
-      let adminIds: string[] = [];
-      if (profileAdmins && profileAdmins.length > 0) {
-        adminIds = profileAdmins.map(a => a.id);
-      } else if (adminEmail) {
-        // Fallback search by email
-        const { data: fallbackProfiles } = await supabase.from('profiles')
-          .select('id')
-          .eq('email', adminEmail.toLowerCase());
-        adminIds = fallbackProfiles?.map(p => p.id) || [];
-      }
+      // We directly call the API backend - the backend will find the admins to notify
+      const response = await fetch('/api/v1/notify-admin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          title,
+          body: `${userData.name}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+        })
+      });
 
-      if (adminIds.length > 0) {
-        const title = type === 'question' ? t('admin.notifications_question') : t('admin.notifications_community');
-        
-        const response = await fetch('/api/v1/notification-push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({
-            title,
-            body: `${userName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`,
-            userIds: adminIds
-          })
-        });
-
-        if (!response.ok) {
-           console.error('Failed to notify admin via API:', response.status);
-        } else {
-           console.log('Admin notified successfully');
-        }
+      if (!response.ok) {
+         console.error('Failed to notify admin via API:', response.status);
+      } else {
+         console.log('Admin notified successfully');
       }
     } catch (e) {
       console.error('Error notifying admin:', e);
@@ -113,30 +119,43 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newQuestion.trim() || sending) return;
+    const questionText = newQuestion.trim();
+    if (!questionText || sending) return;
 
     setSending(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Sessão expirada. Por favor, saia e entre novamente.');
+      }
+      
+      const currentUserId = session.user.id;
+
+      console.log('🔎 Enviando dúvida...', { chapter_id: chapterId, user_id: currentUserId });
+      
       const { error } = await supabase.from('chapter_questions').insert({
         chapter_id: chapterId,
-        user_id: userId,
-        user_name: userName,
-        user_avatar_url: userAvatarUrl,
-        question: newQuestion.trim()
+        user_id: currentUserId,
+        user_name: userData.name,
+        user_avatar_url: userData.avatar,
+        question: questionText
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[ChapterQuestions] Erro no Banco de Dados:', error);
+        throw new Error(error.message || 'Erro ao salvar sua dúvida');
+      }
 
       toast.success(t('course.question_sent') || 'Dúvida enviada com sucesso!');
       
-      // Notify Admin
-      notifyAdmin('question', newQuestion);
+      // Notify Admin (async, don't block UI)
+      notifyAdmin('question', questionText).catch(err => console.warn('Notification failed:', err));
       
       setNewQuestion('');
       fetchQuestions();
     } catch (error: any) {
       console.error('Error sending question:', error);
-      toast.error('Erro ao enviar dúvida');
+      toast.error(error.message || 'Erro ao enviar dúvida');
     } finally {
       setSending(false);
     }
@@ -221,7 +240,7 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
                 </div>
                 {!q.answer && (
                   <div className="px-3 py-1 bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase tracking-widest rounded-full border border-yellow-500/20 italic">
-                    Aguardando Resposta
+                    {t('course.waiting_answer') || 'Aguardando Resposta'}
                   </div>
                 )}
               </div>
@@ -249,7 +268,7 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
                       </p>
                       <div className="mt-2 flex items-center justify-end gap-2 text-[9px] font-black text-primary/40 uppercase tracking-widest italic">
                         <CheckCircle2 size={10} />
-                        Respondido em {formatDate(q.answered_at || q.updated_at)}
+                        {t('course.answered_at') || 'Respondido em'} {formatDate(q.answered_at || q.updated_at)}
                       </div>
                     </div>
                   </motion.div>

@@ -40,8 +40,16 @@ export default function AuthForm() {
       });
     } catch (e) {}
 
+    const isMasterEmail = email.toLowerCase() === MASTER_EMAIL?.toLowerCase() || email.toLowerCase() === 'gabrielchendes@gmail.com';
+
     try {
-      if (email.toLowerCase() === MASTER_EMAIL && step === 'initial') {
+      if (isMasterEmail && step === 'initial') {
+        // Call login-verify to ensure user exists and password is synced if needed
+        await safeFetch('/api/v1/auth?action=login-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
         setStep('master_password');
         setLoading(false);
         return;
@@ -59,7 +67,7 @@ export default function AuthForm() {
         if (error) throw error;
       } else {
         // Direct login for passwordless using temporary password
-        const data = await safeFetch('/api/v1/login-verify', {
+        const data = await safeFetch('/api/v1/auth?action=login-verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email })
@@ -101,7 +109,11 @@ export default function AuthForm() {
     } catch (error: any) {
       const errorMsg = error.message || '';
       if (errorMsg.includes('Invalid login credentials')) {
-        toast.error(t('auth.user_not_found'));
+        if (step === 'master_password') {
+          toast.error(t('auth.invalid_password'));
+        } else {
+          toast.error(t('auth.user_not_found'));
+        }
       } else {
         toast.error(error.message || t('auth.generic_error'));
       }

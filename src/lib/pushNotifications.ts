@@ -90,10 +90,10 @@ async function setupPushInBackground(userId: string, messaging: any) {
 
     if (token) {
       // 1. Subscribe to topic
-      fetch('/api/v1/sub-topic', {
+      fetch('/api/v1/notifications?action=sub-topic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, topic: 'all' })
+        body: JSON.stringify({ userId, token, topic: 'all' })
       }).catch(e => console.error('❌ Failed to subscribe to topic:', e));
 
       // 2. Save to Supabase

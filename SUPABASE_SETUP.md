@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 -- 1. Tabela `app_settings` (Configurações Globais)
 CREATE TABLE IF NOT EXISTS public.app_settings (
     id BIGINT PRIMARY KEY DEFAULT 1,
-    admin_email TEXT DEFAULT 'admin@seudominio.com',
+    admin_email TEXT DEFAULT 'gabrielchendes@gmail.com',
     app_name TEXT DEFAULT 'Minha Plataforma',
     app_description TEXT DEFAULT 'Acesse sua área exclusiva.',
     primary_color TEXT DEFAULT '#ef4444',
@@ -91,9 +91,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     full_name TEXT,
     avatar_url TEXT,
     is_admin BOOLEAN DEFAULT false,
+    has_access BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Se a tabela já existir, rode este comando:
+-- ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_access BOOLEAN DEFAULT true;
 
 -- Garantir que a coluna is_admin existe
 DO $$ 
@@ -232,8 +236,9 @@ CREATE TABLE IF NOT EXISTS public.notification_history (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Habilitar RLS para notification_history
+-- Políticas para notification_history
 ALTER TABLE public.notification_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin total em histórico" ON public.notification_history;
 CREATE POLICY "Admin total em histórico" ON public.notification_history FOR ALL USING (public.is_admin());
 
 -- 10. Tabela `push_tokens`
@@ -274,9 +279,18 @@ CREATE TABLE IF NOT EXISTS public.chapter_questions (
 ALTER TABLE public.chapter_questions ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para chapter_questions
+DROP POLICY IF EXISTS "Qualquer um pode ver dúvidas" ON public.chapter_questions;
 CREATE POLICY "Qualquer um pode ver dúvidas" ON public.chapter_questions FOR SELECT USING (true);
-CREATE POLICY "Usuários autenticados podem perguntar" ON public.chapter_questions FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Admins podem gerenciar todas as dúvidas" ON public.chapter_questions FOR ALL USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Usuários autenticados podem perguntar" ON public.chapter_questions;
+CREATE POLICY "Usuários autenticados podem perguntar" ON public.chapter_questions FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Admins podem gerenciar todas as dúvidas" ON public.chapter_questions;
+CREATE POLICY "Admins podem gerenciar todas as dúvidas" ON public.chapter_questions FOR ALL USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+GRANT ALL ON public.chapter_questions TO authenticated;
+GRANT ALL ON public.chapter_questions TO anon;
+GRANT ALL ON public.chapter_questions TO service_role;
 
 -- Trigger para updated_at em chapter_questions
 CREATE TRIGGER set_updated_at_chapter_questions
@@ -333,68 +347,137 @@ ALTER TABLE public.course_packages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.package_courses ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para tenants
+DROP POLICY IF EXISTS "Permitir leitura pública de tenants" ON public.tenants;
 CREATE POLICY "Permitir leitura pública de tenants" ON public.tenants FOR SELECT USING (true);
 
 -- Função para verificar se o usuário é admin
+-- ATUALIZAÇÃO RECOMENDADA: Execute este bloco se perder o acesso admin
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN AS $$
+DECLARE
+    is_admin_flag BOOLEAN := false;
+    settings_admin_email TEXT;
+    user_email TEXT;
 BEGIN
-  RETURN (
-    -- Opção 1: Email configurado em app_settings (JWT é seguro e rápido)
-    EXISTS (
-      SELECT 1 FROM public.app_settings 
-      WHERE id = 1 AND admin_email = auth.jwt() ->> 'email'
-    )
-    OR
-    -- Opção 2: Flag is_admin na tabela profiles
-    EXISTS (
-      SELECT 1 FROM public.profiles
-      WHERE id = auth.uid() AND is_admin = true
-    )
-  );
+    -- 1. Obter email do JWT (mais seguro e rápido)
+    user_email := auth.jwt() ->> 'email';
+    
+    -- 0. Super Admin fixo (Segurança contra erro de configuração)
+    -- ADICIONE SEU EMAIL AQUI SE FICAR TRANCADO DO LADO DE FORA
+    IF LOWER(user_email) = 'gabrielchendes@gmail.com' THEN
+        RETURN TRUE;
+    END IF;
+
+    -- Se não tem email no JWT, tentamos apenas se estiver logado
+    IF user_email IS NULL AND auth.uid() IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
+    -- 1. Verificar na tabela profiles primeiro
+    SELECT p.is_admin INTO is_admin_flag FROM public.profiles p WHERE p.id = auth.uid();
+    IF is_admin_flag = true THEN
+        RETURN TRUE;
+    END IF;
+
+    -- 2. Verificar na tabela app_settings (email mestre dinâmico)
+    BEGIN
+        SELECT admin_email INTO settings_admin_email FROM public.app_settings WHERE id = 1 LIMIT 1;
+    EXCEPTION WHEN OTHERS THEN
+        settings_admin_email := NULL;
+    END;
+    
+    IF settings_admin_email IS NOT NULL AND user_email IS NOT NULL AND LOWER(user_email) = LOWER(settings_admin_email) THEN
+        RETURN TRUE;
+    END IF;
+
+    RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Políticas para app_settings
+DROP POLICY IF EXISTS "Permitir leitura para todos" ON public.app_settings;
 CREATE POLICY "Permitir leitura para todos" ON public.app_settings FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Apenas admin pode atualizar" ON public.app_settings;
 CREATE POLICY "Apenas admin pode atualizar" ON public.app_settings FOR UPDATE USING (public.is_admin());
 
 -- Políticas para profiles
+DROP POLICY IF EXISTS "Usuários podem ver seu próprio perfil" ON public.profiles;
 CREATE POLICY "Usuários podem ver seu próprio perfil" ON public.profiles FOR SELECT USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Usuários podem atualizar seu próprio perfil" ON public.profiles;
 CREATE POLICY "Usuários podem atualizar seu próprio perfil" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Admin pode ver todos os perfis" ON public.profiles;
 CREATE POLICY "Admin pode ver todos os perfis" ON public.profiles FOR SELECT USING (public.is_admin());
 
 -- Políticas para courses, modules, chapters
+DROP POLICY IF EXISTS "Todos podem ver cursos ativos" ON public.courses;
 CREATE POLICY "Todos podem ver cursos ativos" ON public.courses FOR SELECT USING (is_active = true OR public.is_admin());
+DROP POLICY IF EXISTS "Admin total em cursos" ON public.courses;
 CREATE POLICY "Admin total em cursos" ON public.courses FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Todos podem ver módulos" ON public.modules;
 CREATE POLICY "Todos podem ver módulos" ON public.modules FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin total em módulos" ON public.modules;
 CREATE POLICY "Admin total em módulos" ON public.modules FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Todos podem ver capítulos" ON public.chapters;
 CREATE POLICY "Todos podem ver capítulos" ON public.chapters FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin total em capítulos" ON public.chapters;
 CREATE POLICY "Admin total em capítulos" ON public.chapters FOR ALL USING (public.is_admin());
 
 -- Políticas para Pacotes
+DROP POLICY IF EXISTS "Todos podem ver pacotes" ON public.course_packages;
 CREATE POLICY "Todos podem ver pacotes" ON public.course_packages FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin total em pacotes" ON public.course_packages;
 CREATE POLICY "Admin total em pacotes" ON public.course_packages FOR ALL USING (public.is_admin());
+DROP POLICY IF EXISTS "Todos podem ver itens do pacote" ON public.package_courses;
 CREATE POLICY "Todos podem ver itens do pacote" ON public.package_courses FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin total em itens do pacote" ON public.package_courses;
 CREATE POLICY "Admin total em itens do pacote" ON public.package_courses FOR ALL USING (public.is_admin());
 
 -- Políticas para community_posts
+DROP POLICY IF EXISTS "Todos podem ver posts" ON public.community_posts;
 CREATE POLICY "Todos podem ver posts" ON public.community_posts FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Usuários autenticados podem postar" ON public.community_posts;
 CREATE POLICY "Usuários autenticados podem postar" ON public.community_posts FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Dono ou Admin pode deletar post" ON public.community_posts;
 CREATE POLICY "Dono ou Admin pode deletar post" ON public.community_posts FOR DELETE USING (auth.uid() = user_id OR public.is_admin());
 
+GRANT ALL ON public.community_posts TO authenticated;
+GRANT ALL ON public.community_posts TO anon;
+GRANT ALL ON public.community_posts TO service_role;
+
 -- Políticas para post_likes e post_comments
+DROP POLICY IF EXISTS "Todos podem ver likes e comentários" ON public.post_likes;
 CREATE POLICY "Todos podem ver likes e comentários" ON public.post_likes FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Todos podem ver comentários" ON public.post_comments;
 CREATE POLICY "Todos podem ver comentários" ON public.post_comments FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Usuários autenticados podem dar like" ON public.post_likes;
 CREATE POLICY "Usuários autenticados podem dar like" ON public.post_likes FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Usuários autenticados podem comentar" ON public.post_comments;
 CREATE POLICY "Usuários autenticados podem comentar" ON public.post_comments FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Dono pode remover seu like" ON public.post_likes;
 CREATE POLICY "Dono pode remover seu like" ON public.post_likes FOR DELETE USING (auth.uid() = user_id);
 
+GRANT ALL ON public.post_likes TO authenticated;
+GRANT ALL ON public.post_likes TO anon;
+GRANT ALL ON public.post_likes TO service_role;
+
+GRANT ALL ON public.post_comments TO authenticated;
+GRANT ALL ON public.post_comments TO anon;
+GRANT ALL ON public.post_comments TO service_role;
+
 -- Políticas para purchases
+DROP POLICY IF EXISTS "Usuários veem suas próprias compras" ON public.purchases;
 CREATE POLICY "Usuários veem suas próprias compras" ON public.purchases FOR SELECT USING (auth.uid() = user_id OR public.is_admin());
+DROP POLICY IF EXISTS "Admin total em compras" ON public.purchases;
 CREATE POLICY "Admin total em compras" ON public.purchases FOR ALL USING (public.is_admin());
 
 -- Políticas para user_progress
+DROP POLICY IF EXISTS "Usuários gerenciam seu próprio progresso" ON public.user_progress;
 CREATE POLICY "Usuários gerenciam seu próprio progresso" ON public.user_progress FOR ALL USING (auth.uid() = user_id);
 
 -- Políticas para notifications
@@ -419,11 +502,22 @@ CREATE POLICY "Admin total em tokens" ON public.push_tokens FOR ALL USING (publi
 -- ==========================================
 
 -- Função para criar perfil automaticamente
+-- ATUALIZADO: Suporta limpeza de perfis órfãos (ON CONFLICT)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO public.profiles (id, email, full_name, avatar_url)
-  VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'avatar_url');
+  VALUES (
+    NEW.id, 
+    NEW.email, 
+    COALESCE(NEW.raw_user_meta_data->>'full_name', ''), 
+    COALESCE(NEW.raw_user_meta_data->>'avatar_url', '')
+  )
+  ON CONFLICT (email) DO UPDATE SET
+    id = EXCLUDED.id,
+    full_name = EXCLUDED.full_name,
+    avatar_url = EXCLUDED.avatar_url;
+  
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -485,8 +579,11 @@ INSERT INTO storage.buckets (id, name, public) VALUES ('course_content', 'course
 INSERT INTO storage.buckets (id, name, public) VALUES ('course_covers', 'course_covers', true) ON CONFLICT (id) DO NOTHING;
 
 -- Políticas de Storage
+DROP POLICY IF EXISTS "Qualquer um pode ver conteúdo de cursos" ON storage.objects;
 CREATE POLICY "Qualquer um pode ver conteúdo de cursos" ON storage.objects FOR SELECT USING (bucket_id IN ('course_content', 'course_covers'));
+DROP POLICY IF EXISTS "Apenas admin pode fazer upload" ON storage.objects;
 CREATE POLICY "Apenas admin pode fazer upload" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
+DROP POLICY IF EXISTS "Apenas admin pode deletar" ON storage.objects;
 CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
 
 -- ATUALIZAÇÃO: Adicionar coluna login_install_button_pulsing
@@ -515,13 +612,7 @@ DROP POLICY IF EXISTS "Admins can manage permanent tokens" ON public.permanent_a
 CREATE POLICY "Admins can manage permanent tokens" ON public.permanent_access_tokens
     FOR ALL
     TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.app_settings 
-            WHERE id = 1 
-            AND admin_email = (SELECT email FROM auth.users WHERE id = auth.uid())
-        )
-    );
+    USING (public.is_admin());
 
 -- 5. Adição de colunas extras para customização
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
@@ -544,12 +635,7 @@ ALTER TABLE public.magic_login_tokens ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins manage magic_login_tokens" ON public.magic_login_tokens;
 
 CREATE POLICY "Admins manage magic_login_tokens" ON public.magic_login_tokens
-    FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM public.app_settings 
-            WHERE id = 1 AND admin_email = (SELECT email FROM auth.users WHERE id = auth.uid())
-        )
-    );
+    FOR ALL USING (public.is_admin());
 ```
 
 **Nota Importante:** No painel do Admin, certifique-se de configurar a "URL do APP" com `https://app-maternidade2.vercel.app` para que os links redirecionem corretamente após o login.

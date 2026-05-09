@@ -169,15 +169,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [answerText, setAnswerText] = useState('');
   const [sendingAnswer, setSendingAnswer] = useState(false);
 
-  const isAdminAuthorized = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
-
-  useEffect(() => {
-    if (!isAdminAuthorized) {
-      toast.error('Aviso: Seu e-mail não coincide com o e-mail administrativo configurado. Algumas funções podem não carregar dados.', {
-        duration: 10000
-      });
-    }
-  }, [isAdminAuthorized]);
+  const isAdminAuthorized = !settings?.admin_email || user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
 
   useEffect(() => {
     if (activeTab === 'notifications') {
@@ -190,7 +182,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setLoadingHistory(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const data = await safeFetch('/api/v1/notification-history', {
+      const data = await safeFetch('/api/v1/notifications?action=notification-history', {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
       if (Array.isArray(data)) {
@@ -208,7 +200,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setLoadingDetails(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const data = await safeFetch(`/api/v1/notification-details/${broadcast.id}`, {
+      const data = await safeFetch(`/api/v1/notifications?action=notification-details&id=${broadcast.id}`, {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
       if (Array.isArray(data)) {
@@ -224,7 +216,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const checkFirebaseStatus = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const status = await safeFetch('/api/v1/info', {
+      const status = await safeFetch('/api/v1/admin?action=info', {
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
       if (status) setFirebaseStatus(status);
@@ -415,7 +407,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           }
           
           try {
-            const data = await safeFetch('/api/v1/users-list', {
+            const data = await safeFetch('/api/v1/admin?action=users-list', {
               headers: { 'Authorization': `Bearer ${session.access_token}` }
             });
             
@@ -446,7 +438,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             setLoading(false);
             return;
           }
-          const data = await safeFetch('/api/v1/purchases-list', {
+          const data = await safeFetch('/api/v1/admin?action=purchases-list', {
             headers: { 'Authorization': `Bearer ${session.access_token}` }
           });
           
@@ -464,6 +456,43 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       toast.error('Erro ao carregar dados');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [adminPassword, setAdminPassword] = useState('');
+
+  const saveAuthSettings = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await safeFetch('/api/v1/admin?action=update-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          settings: {
+            admin_email: localSettings?.admin_email,
+            auth_method: localSettings?.auth_method,
+            app_url: localSettings?.app_url
+          },
+          adminPassword: adminPassword || undefined
+        })
+      });
+
+      if (response && response.error) throw new Error(response.error);
+      
+      // Safety: Ensure the current user who is performing this action is also an admin in their profile
+      if (user?.id) {
+        await supabase.from('profiles').update({ is_admin: true }).eq('id', user.id);
+      }
+
+      setAdminPassword(''); // Clear after save
+      toast.success('Configurações de autenticação salvas!');
+      refreshSettings();
+    } catch (err: any) {
+      console.error('Error saving auth settings:', err);
+      toast.error('Erro ao salvar: ' + (err.message || 'Erro desconhecido'));
     }
   };
 
@@ -505,7 +534,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      const response = await safeFetch('/api/v1/user-access-toggle', {
+      const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -538,7 +567,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      const response = await safeFetch('/api/v1/user-access-toggle', {
+      const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -576,7 +605,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setCreatingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const data = await safeFetch('/api/v1/user-create', {
+      const data = await safeFetch('/api/v1/admin?action=user-create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -612,7 +641,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setDeletingUser(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const data = await safeFetch(`/api/v1/user-delete/${userId}`, {
+      const data = await safeFetch(`/api/v1/admin?action=user-delete&id=${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session?.access_token}`
@@ -635,7 +664,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     const toastId = toast.loading('Gerando link de acesso...');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await safeFetch('/api/v1/user-magic-link', {
+      const response = await safeFetch('/api/v1/auth?action=user-magic-link', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -659,7 +688,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     const toastId = toast.loading('Gerando link eterno...');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await safeFetch('/api/v1/generate-permanent-link', {
+      const response = await safeFetch('/api/v1/admin?action=generate-permanent-link', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -725,7 +754,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
       if (!usersToNotify || usersToNotify.length === 0) {
         const { data: { session } } = await supabase.auth.getSession();
-        const authUsers = await safeFetch('/api/v1/users-list', {
+        const authUsers = await safeFetch('/api/v1/admin?action=users-list', {
           headers: { 'Authorization': `Bearer ${session?.access_token}` }
         });
         if (authUsers && Array.isArray(authUsers)) {
@@ -760,7 +789,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       const { data: { session } } = await supabase.auth.getSession();
       const isBroadcast = !selectedUserForCourses && !searchQuery.trim() && !notificationExclusionCourseId;
 
-      const response = await safeFetch('/api/v1/notification-push', {
+      const response = await safeFetch('/api/v1/notifications?action=notification-push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -794,7 +823,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const handleClearHistory = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await safeFetch('/api/v1/notification-clear', {
+      const response = await safeFetch('/api/v1/notifications?action=notification-clear', {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${session?.access_token}` }
       });
@@ -825,7 +854,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     setUpdatingPassword(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const data = await safeFetch('/api/v1/user-password-set', {
+      const data = await safeFetch('/api/v1/auth?action=user-password-set', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -1115,7 +1144,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                         try {
                                           const { data: { session } } = await supabase.auth.getSession();
                                           if (session && q.user_id) {
-                                            await fetch('/api/v1/notification-push', {
+                                            await fetch('/api/v1/notifications?action=notification-push', {
                                               method: 'POST',
                                               headers: {
                                                 'Content-Type': 'application/json',
@@ -1135,7 +1164,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                         toast.success('Resposta salva!');
                                         setAnsweringQuestionId(null);
                                         setAnswerText('');
-                                        fetchData();
+                                        // Use fetchData to refresh list
+                                        if (typeof fetchData === 'function') fetchData();
                                       } catch (e) {
                                         toast.error('Erro ao salvar resposta');
                                       } finally {
@@ -2107,13 +2137,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {/* Auth Settings */}
+                      {/* URL Settings */}
                       <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
-                            <LockIcon size={20} />
+                            <Globe size={20} />
                           </div>
-                          <h4 className="font-bold text-white">Autenticação</h4>
+                          <h4 className="font-bold text-white">Domínio e Fluxo</h4>
                         </div>
                         
                         <div className="space-y-4">
@@ -2121,32 +2151,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Método de Login Padrão</label>
                             <div className="flex p-1 bg-black rounded-xl border border-white/10">
                               <button 
-                                onClick={() => updateSettings({ auth_method: 'passwordless' })}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${settings.auth_method === 'passwordless' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                                onClick={() => setLocalSettings({ ...localSettings, auth_method: 'passwordless' })}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${localSettings?.auth_method === 'passwordless' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                               >
                                 SEM SENHA
                               </button>
                               <button 
-                                onClick={() => updateSettings({ auth_method: 'password' })}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${settings.auth_method === 'password' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                                onClick={() => setLocalSettings({ ...localSettings, auth_method: 'password' })}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${localSettings?.auth_method === 'password' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                               >
                                 COM SENHA
                               </button>
                             </div>
                           </div>
 
-                          <div className="space-y-2 pt-4 border-t border-white/5">
+                          <div className="space-y-2 pt-2">
                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest text-blue-500 italic">URL do Aplicativo</label>
                             <div className="relative group">
                               <input 
                                 type="text" 
                                 value={localSettings?.app_url || ''}
                                 onChange={(e) => setLocalSettings({ ...localSettings, app_url: e.target.value })}
-                                onBlur={() => {
-                                  if (localSettings?.app_url && localSettings.app_url !== settings.app_url) {
-                                    updateSettings({ app_url: localSettings.app_url });
-                                  }
-                                }}
                                 className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
                                 placeholder="https://app-maternidade2.vercel.app"
                               />
@@ -2156,6 +2181,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             </div>
                             <p className="text-[10px] text-gray-600">Usada para gerar links de acesso mágicos e redirecionamentos. Certifique-se de incluir o https://</p>
                           </div>
+
+                          <button
+                            onClick={saveAuthSettings}
+                            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <Save size={16} />
+                            Salvar Configurações
+                          </button>
                         </div>
                       </div>
 
@@ -3521,7 +3554,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.video_lesson', label: 'Tag: Videoaula' },
                                 { key: 'course.pdf_material', label: 'Tag: Material PDF' },
                                 { key: 'course.reading', label: 'Tag: Leitura' },
-                                { key: 'course.view_fullscreen', label: 'Botão Fullscreen (Aula PDF)' }
+                                { key: 'course.view_fullscreen', label: 'Botão Fullscreen (Aula PDF)' },
+                                { key: 'course.questions_title', label: 'Título Dúvidas' },
+                                { key: 'course.question_placeholder', label: 'Placeholder Dúvida' },
+                                { key: 'course.send_question', label: 'Botão Enviar Dúvida' },
+                                { key: 'course.no_questions', label: 'Texto Sem Dúvidas' },
+                                { key: 'course.waiting_answer', label: 'Status: Aguardando Resposta' },
+                                { key: 'course.answered_at', label: 'Status: Respondido em' },
+                                { key: 'course.admin_answer', label: 'Label: Resposta do Professor' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -4390,45 +4430,63 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   </div>
                 )}
                 {activeTab === 'security' && (
-                  <div className="max-w-2xl space-y-8">
+                  <div className="max-w-2xl space-y-8 pb-20">
                     <div>
-                      <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Segurança do Administrador</h3>
-                      <p className="text-sm text-gray-500">Altere a senha de acesso ao painel administrativo.</p>
+                      <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Segurança</h3>
+                      <p className="text-sm text-gray-500">Gerencie o acesso mestre e sua senha de administrador.</p>
                     </div>
 
+                    {/* Change My Password (Current Admin) */}
                     <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-purple-600/20 rounded-lg text-purple-500">
+                          <UserIcon size={20} />
+                        </div>
+                        <h4 className="font-bold text-white tracking-tight">Alterar Minha Senha</h4>
+                      </div>
+
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Nova Senha</label>
-                          <input 
-                            type="password" 
-                            value={newAdminPassword}
-                            onChange={e => setNewAdminPassword(e.target.value)}
-                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                            placeholder="Digite a nova senha..."
-                          />
+                          <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Nova Senha Pessoal</label>
+                          <div className="relative">
+                            <input 
+                              type="password" 
+                              value={newAdminPassword}
+                              onChange={e => setNewAdminPassword(e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none pr-10"
+                              placeholder="Digite a nova senha..."
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600">
+                              <LockIcon size={14} />
+                            </div>
+                          </div>
                         </div>
 
                         <div className="space-y-2">
                           <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Confirmar Nova Senha</label>
-                          <input 
-                            type="password" 
-                            value={confirmAdminPassword}
-                            onChange={e => setConfirmAdminPassword(e.target.value)}
-                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                            placeholder="Confirme a nova senha..."
-                          />
+                          <div className="relative">
+                            <input 
+                              type="password" 
+                              value={confirmAdminPassword}
+                              onChange={e => setConfirmAdminPassword(e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none pr-10"
+                              placeholder="Confirme a nova senha..."
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600">
+                              <CheckCircle2 size={14} />
+                            </div>
+                          </div>
                         </div>
                       </div>
 
                       <button 
                         onClick={async () => {
-                          if (newAdminPassword.length < 4) {
-                            toast.error(settings.custom_texts?.['admin.security.error_length'] || 'A senha deve ter pelo menos 4 caracteres');
+                          if (newAdminPassword.length < 6) {
+                            toast.error('A senha deve ter pelo menos 6 caracteres');
                             return;
                           }
                           if (newAdminPassword !== confirmAdminPassword) {
-                            toast.error(settings.custom_texts?.['admin.security.error_mismatch'] || 'As senhas não coincidem');
+                            toast.error('As senhas não coincidem');
                             return;
                           }
                           
@@ -4436,24 +4494,82 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           try {
                             const { error } = await supabase.auth.updateUser({ password: newAdminPassword });
                             if (error) throw error;
-                            toast.success(settings.custom_texts?.['admin.security.success'] || 'Senha do administrador atualizada com sucesso!');
+                            
+                            toast.success('Sua senha foi atualizada com sucesso!');
                             setNewAdminPassword('');
                             setConfirmAdminPassword('');
+                            
+                            // Re-verify login status after clear
                           } catch (error: any) {
-                            toast.error('Erro ao atualizar senha: ' + error.message);
+                            console.error('Password update error:', error);
+                            toast.error('Erro ao atualizar senha: ' + (error.message || 'Erro desconhecido'));
                           } finally {
                             setUpdatingPassword(false);
                           }
                         }}
                         disabled={updatingPassword}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-3"
+                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-black py-4 rounded-xl transition-all shadow-lg flex items-center justify-center gap-3 active:scale-95 border border-white/5"
                       >
                         {updatingPassword ? <Loader2 className="animate-spin" size={20} /> : (
                           <>
-                            <Save size={20} /> Atualizar Senha
+                            <Save size={20} /> Atualizar Minha Senha
                           </>
                         )}
                       </button>
+                    </div>
+
+                    {/* Master Admin Settings (Moved from general settings) */}
+                    <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
+                          <Shield size={20} />
+                        </div>
+                        <h4 className="font-bold text-white tracking-tight">E-mail Mestre e Senha Global</h4>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-blue-500 uppercase tracking-widest">E-mail do Super Admin (Mestre)</label>
+                          <div className="relative group">
+                            <input 
+                              type="email" 
+                              value={localSettings?.admin_email || ''}
+                              onChange={(e) => setLocalSettings({ ...localSettings, admin_email: e.target.value })}
+                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
+                              placeholder="admin@seudominio.com"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                              <Mail size={14} />
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-gray-600">Este e-mail terá acesso total ao painel. Padrão: gabrielchendes@gmail.com</p>
+                        </div>
+
+                        <div className="space-y-2">
+                           <label className="text-xs font-black text-blue-500 uppercase tracking-widest">Definir Senha do Admin (Master)</label>
+                           <div className="relative group">
+                             <input 
+                               type="password" 
+                               value={adminPassword}
+                               onChange={(e) => setAdminPassword(e.target.value)}
+                               className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
+                               placeholder="Digite para definir uma nova senha master"
+                             />
+                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                               <LockIcon size={14} />
+                             </div>
+                           </div>
+                           <p className="text-[10px] text-gray-600">Use este campo para definir ou resetar a senha vinculada ao e-mail admin mestre acima.</p>
+                         </div>
+                         
+                         <button
+                            onClick={saveAuthSettings}
+                            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <Save size={16} />
+                            Salvar Alterações de Mestre
+                          </button>
+                      </div>
                     </div>
                   </div>
                 )}
