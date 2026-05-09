@@ -68,33 +68,30 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
   const notifyAdmin = async (type: 'question' | 'community', content: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       
-      // Get admin email from settings to identify admin if column is missing
       const adminEmail = settings?.admin_email;
-      
-      // Try to get admins from profiles
-      const { data: profileAdmins, error } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      const { data: profileAdmins } = await supabase.from('profiles').select('id, email').eq('is_admin', true);
       
       let adminIds: string[] = [];
-      if (error) {
-        // Fallback: search for profile by admin email if is_admin column fails
-        const { data: fallbackAdmin } = await supabase.from('profiles')
+      if (profileAdmins && profileAdmins.length > 0) {
+        adminIds = profileAdmins.map(a => a.id);
+      } else if (adminEmail) {
+        // Fallback search by email
+        const { data: fallbackProfiles } = await supabase.from('profiles')
           .select('id')
-          .eq('email', adminEmail?.toLowerCase())
-          .maybeSingle();
-        if (fallbackAdmin) adminIds = [fallbackAdmin.id];
-      } else {
-        adminIds = profileAdmins?.map(a => a.id) || [];
+          .eq('email', adminEmail.toLowerCase());
+        adminIds = fallbackProfiles?.map(p => p.id) || [];
       }
 
       if (adminIds.length > 0) {
         const title = type === 'question' ? t('admin.notifications_question') : t('admin.notifications_community');
         
-        await fetch('/api/v1/notification-push', {
+        const response = await fetch('/api/v1/notification-push', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`
+            'Authorization': `Bearer ${session.access_token}`
           },
           body: JSON.stringify({
             title,
@@ -102,6 +99,12 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
             userIds: adminIds
           })
         });
+
+        if (!response.ok) {
+           console.error('Failed to notify admin via API:', response.status);
+        } else {
+           console.log('Admin notified successfully');
+        }
       }
     } catch (e) {
       console.error('Error notifying admin:', e);

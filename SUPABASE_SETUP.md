@@ -211,13 +211,14 @@ CREATE TABLE IF NOT EXISTS public.post_comments (
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    broadcast_id UUID, -- Referência para a tabela de logs (notification_broadcasts)
+    broadcast_id UUID REFERENCES public.notification_history(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     message TEXT, -- Alias para body para retrocompatibilidade
     is_read BOOLEAN DEFAULT false,
     read BOOLEAN DEFAULT false, -- Alias para is_read para retrocompatibilidade
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    read_at TIMESTAMPTZ
 );
 
 -- Tabela de Histórico de Notificações
@@ -334,14 +335,26 @@ ALTER TABLE public.package_courses ENABLE ROW LEVEL SECURITY;
 -- Políticas para tenants
 CREATE POLICY "Permitir leitura pública de tenants" ON public.tenants FOR SELECT USING (true);
 
--- Função para verificar se o usuário é admin (baseado no email em app_settings)
+-- Função para verificar se o usuário é admin
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN AS $$
+DECLARE
+  current_user_email TEXT;
 BEGIN
+  current_user_email := (SELECT email FROM auth.users WHERE id = auth.uid());
+  
   RETURN (
-    SELECT (auth.jwt() ->> 'email' = admin_email)
-    FROM public.app_settings
-    WHERE id = 1
+    -- Opção 1: Email configurado em app_settings
+    EXISTS (
+      SELECT 1 FROM public.app_settings 
+      WHERE id = 1 AND admin_email = current_user_email
+    )
+    OR
+    -- Opção 2: Flag is_admin na tabela profiles
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid() AND is_admin = true
+    )
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

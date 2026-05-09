@@ -68,28 +68,15 @@ export default function NotificationBell({ user }: NotificationBellProps) {
     try {
       const { data, error } = await supabase
         .from('notifications')
-        .select(`
-          *,
-          broadcast:notification_broadcasts!broadcast_id (
-            type
-          )
-        `)
+        .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(20);
 
       if (error) throw error;
       
-      // Filter out notifications that are only for tracking push purposes
-      const filteredData = (data as any[] || []).filter(n => {
-        // If there's no associated broadcast (older ones or manual), show them
-        if (!n.broadcast) return true;
-        // Only show in the bell if it's 'in_app' or 'both'
-        return n.broadcast.type === 'in_app' || n.broadcast.type === 'both';
-      });
-
-      setNotifications(filteredData);
-      setUnreadCount(filteredData.filter(n => !n.is_read).length || 0);
+      setNotifications(data || []);
+      setUnreadCount(data?.filter(n => !n.is_read).length || 0);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {

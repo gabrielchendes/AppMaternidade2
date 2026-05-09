@@ -3,17 +3,19 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "functions": {
-    "api/**/*.ts": {
-      "runtime": "nodejs20.x"
+    "api/v1/*.ts": {
+      "runtime": "nodejs20.x",
+      "memory": 1024,
+      "maxDuration": 10
     }
   },
   "rewrites": [
     {
-      "source": "/api/v1/user-delete/:id",
-      "destination": "/api/v1/user-delete/[id]"
+      "source": "/api/v1/:path*",
+      "destination": "/api/v1/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|manifest\\.json|sw\\.js|favicon\\.svg|.*\\.).*)",
       "destination": "/index.html"
     }
   ]

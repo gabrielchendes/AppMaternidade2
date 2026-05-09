@@ -57,23 +57,19 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const notifyAdmin = async (content: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       
-      // Get admin email from settings to identify admin if column is missing
       const adminEmail = settings?.admin_email;
-      
-      // Try to get admins from profiles
-      const { data: profileAdmins, error } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      const { data: profileAdmins } = await supabase.from('profiles').select('id').eq('is_admin', true);
       
       let adminIds: string[] = [];
-      if (error) {
-        // Fallback: search for profile by admin email if is_admin column fails
-        const { data: fallbackAdmin } = await supabase.from('profiles')
+      if (profileAdmins && profileAdmins.length > 0) {
+        adminIds = profileAdmins.map(a => a.id);
+      } else if (adminEmail) {
+        const { data: fallbackProfiles } = await supabase.from('profiles')
           .select('id')
-          .eq('email', adminEmail?.toLowerCase())
-          .maybeSingle();
-        if (fallbackAdmin) adminIds = [fallbackAdmin.id];
-      } else {
-        adminIds = profileAdmins?.map(a => a.id) || [];
+          .eq('email', adminEmail.toLowerCase());
+        adminIds = fallbackProfiles?.map(p => p.id) || [];
       }
 
       if (adminIds.length > 0) {
@@ -82,7 +78,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`
+            'Authorization': `Bearer ${session.access_token}`
           },
           body: JSON.stringify({
             title: t('admin.notifications_community'),

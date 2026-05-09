@@ -385,6 +385,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             
             if (error) {
               console.warn('Questions table might not exist yet:', error.message);
+              setPendingQuestions([]);
+              if (error.code === '42P01') {
+                toast.error('Tabela de questões não encontrada no Supabase. Execute o SQL de SETUP.');
+              }
               return;
             }
             setPendingQuestions(data || []);
@@ -1075,17 +1079,65 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               <p className="text-gray-300 text-sm italic">"{q.question}"</p>
                             </div>
 
-                            {q.answer ? (
+                            {answeringQuestionId === q.id ? (
+                              <div className="pt-2 space-y-3">
+                                <textarea
+                                  autoFocus
+                                  value={answerText}
+                                  onChange={(e) => setAnswerText(e.target.value)}
+                                  placeholder={t('admin.reply_placeholder') || "Digite sua resposta aqui..."}
+                                  className="w-full bg-black/60 border border-blue-500/50 rounded-2xl p-4 text-white text-sm outline-none focus:border-blue-500 min-h-[120px] shadow-inner"
+                                />
+                                <div className="flex justify-end gap-3">
+                                  <button 
+                                    onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}
+                                    className="px-6 py-2 bg-white/5 hover:bg-white/10 text-gray-400 font-black text-[10px] uppercase tracking-widest rounded-xl transition-all"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button 
+                                    disabled={!answerText.trim() || sendingAnswer}
+                                    onClick={async () => {
+                                      setSendingAnswer(true);
+                                      try {
+                                        const { error } = await supabase
+                                          .from('chapter_questions')
+                                          .update({ 
+                                            answer: answerText.trim(),
+                                            answered_at: new Date().toISOString(),
+                                            answered_by: user.id
+                                          })
+                                          .eq('id', q.id);
+                                        
+                                        if (error) throw error;
+                                        toast.success('Resposta salva!');
+                                        setAnsweringQuestionId(null);
+                                        setAnswerText('');
+                                        fetchQuestions();
+                                      } catch (e) {
+                                        toast.error('Erro ao salvar resposta');
+                                      } finally {
+                                        setSendingAnswer(false);
+                                      }
+                                    }}
+                                    className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                                  >
+                                    {sendingAnswer ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                                    {t('admin.reply_send') || 'ENVIAR RESPOSTA'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : q.answer ? (
                               <div className="space-y-2 pt-2">
                                 <div className="flex items-center gap-2 text-green-500 text-[10px] font-black uppercase tracking-widest italic">
                                   <Check size={12} /> Sua Resposta
                                 </div>
-                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4">
+                                <div className="bg-blue-500/5 border border-blue-500/20 rounded-2xl p-4 group/answer relative">
                                   <p className="text-white text-sm whitespace-pre-wrap">{q.answer}</p>
                                   <div className="mt-2 flex justify-end">
                                      <button 
                                       onClick={() => { setAnsweringQuestionId(q.id); setAnswerText(q.answer); }}
-                                      className="text-[9px] font-black text-blue-500 hover:text-white uppercase tracking-widest italic"
+                                      className="text-[9px] font-black text-blue-500 hover:text-white uppercase tracking-widest italic opacity-60 hover:opacity-100 transition-opacity"
                                      >
                                       Editar Resposta
                                      </button>
@@ -1094,65 +1146,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               </div>
                             ) : (
                               <div className="pt-2">
-                                {answeringQuestionId === q.id ? (
-                                  <div className="space-y-3">
-                                    <textarea
-                                      autoFocus
-                                      value={answerText}
-                                      onChange={(e) => setAnswerText(e.target.value)}
-                                      placeholder={t('admin.reply_placeholder') || "Digite sua resposta aqui..."}
-                                      className="w-full bg-black/60 border border-blue-500/50 rounded-2xl p-4 text-white text-sm outline-none focus:border-blue-500 min-h-[120px] shadow-inner"
-                                    />
-                                    <div className="flex justify-end gap-3">
-                                      <button 
-                                        onClick={() => { setAnsweringQuestionId(null); setAnswerText(''); }}
-                                        className="px-6 py-2 bg-white/5 hover:bg-white/10 text-gray-400 font-black text-[10px] uppercase tracking-widest rounded-xl transition-all"
-                                      >
-                                        Cancelar
-                                      </button>
-                                      <button 
-                                        disabled={!answerText.trim() || sendingAnswer}
-                                        onClick={async () => {
-                                          setSendingAnswer(true);
-                                          try {
-                                            const { error } = await supabase
-                                              .from('chapter_questions')
-                                              .update({ 
-                                                answer: answerText.trim(),
-                                                answered_at: new Date().toISOString(),
-                                                answered_by: user.id
-                                              })
-                                              .eq('id', q.id);
-                                            
-                                            if (error) throw error;
-                                            toast.success('Resposta enviada!');
-                                            setAnsweringQuestionId(null);
-                                            setAnswerText('');
-                                            fetchData();
-                                          } catch (e) {
-                                            toast.error('Erro ao enviar resposta');
-                                          } finally {
-                                            setSendingAnswer(false);
-                                          }
-                                        }}
-                                        className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
-                                      >
-                                        {sendingAnswer ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                                        {t('admin.reply_send') || 'ENVIAR RESPOSTA'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <button 
-                                    onClick={() => setAnsweringQuestionId(q.id)}
-                                    className="w-full py-3 bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all border border-blue-500/20 flex items-center justify-center gap-2"
-                                  >
-                                    <MessageSquare size={14} />
-                                    Responder Estudante
-                                  </button>
-                                )}
+                                <button 
+                                  onClick={() => { setAnsweringQuestionId(q.id); setAnswerText(''); }}
+                                  className="w-full py-3 bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all border border-blue-500/20 flex items-center justify-center gap-2"
+                                >
+                                  <MessageSquare size={14} />
+                                  Responder Estudante
+                                </button>
                               </div>
                             )}
+
                           </motion.div>
                         ))
                       )}

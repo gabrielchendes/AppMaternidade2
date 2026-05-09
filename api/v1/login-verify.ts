@@ -58,7 +58,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
         password: tempPassword
       });
-      if (updateError) console.error('[LOGIN-VERIFY] Falha ao atualizar senha:', updateError);
+      if (updateError) {
+        console.error('[LOGIN-VERIFY] Falha ao atualizar senha:', updateError);
+        return res.status(500).json({ 
+          error: 'Falha ao sincronizar senha temporária. Verifique se a chave SUPABASE_SERVICE_ROLE_KEY está correta no Vercel.', 
+          details: updateError.message 
+        });
+      }
+    } else {
+       console.warn('[LOGIN-VERIFY] authUserId não encontrado para sync de senha');
     }
 
     return res.status(200).json({ 
