@@ -57,8 +57,24 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const notifyAdmin = async (content: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const { data: admins } = await supabase.from('profiles').select('id').eq('is_admin', true);
-      const adminIds = admins?.map(a => a.id) || [];
+      
+      // Get admin email from settings to identify admin if column is missing
+      const adminEmail = settings?.admin_email;
+      
+      // Try to get admins from profiles
+      const { data: profileAdmins, error } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      
+      let adminIds: string[] = [];
+      if (error) {
+        // Fallback: search for profile by admin email if is_admin column fails
+        const { data: fallbackAdmin } = await supabase.from('profiles')
+          .select('id')
+          .eq('email', adminEmail?.toLowerCase())
+          .maybeSingle();
+        if (fallbackAdmin) adminIds = [fallbackAdmin.id];
+      } else {
+        adminIds = profileAdmins?.map(a => a.id) || [];
+      }
 
       if (adminIds.length > 0) {
         const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);

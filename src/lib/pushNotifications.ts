@@ -97,10 +97,10 @@ async function setupPushInBackground(userId: string, messaging: any) {
       }).catch(e => console.error('❌ Failed to subscribe to topic:', e));
 
       // 2. Save to Supabase
-      supabase.from('push_tokens').insert({
+      supabase.from('push_tokens').upsert({
         user_id: userId,
         token: token
-      }).then(({ error }) => {
+      }, { onConflict: 'token' }).then(({ error }) => {
         if (!error) console.log('✅ Token saved to Supabase');
       }).catch(e => console.error('❌ Supabase error:', e));
     }

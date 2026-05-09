@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     CONSTRAINT one_row CHECK (id = 1)
 );
 
+-- Função utilitária para atualizar timestamps
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
 -- 2. Tabela `profiles` (Perfis de Usuário)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -85,6 +94,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Garantir que a coluna is_admin existe
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'profiles' AND COLUMN_NAME = 'is_admin') THEN 
+        ALTER TABLE public.profiles ADD COLUMN is_admin BOOLEAN DEFAULT false;
+    END IF;
+END $$;
 
 -- 3. Tabela `courses` (Cursos)
 CREATE TABLE IF NOT EXISTS public.courses (
@@ -203,17 +220,20 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Tabela de Histórico de Envios (Broadcasts)
-CREATE TABLE IF NOT EXISTS public.notification_broadcasts (
+-- Tabela de Histórico de Notificações
+CREATE TABLE IF NOT EXISTS public.notification_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     body TEXT NOT NULL,
-    type TEXT NOT NULL, -- 'in_app', 'push', 'both'
-    sent_at TIMESTAMPTZ DEFAULT NOW(),
     target_count INTEGER DEFAULT 0,
-    exclusion_course_id UUID, -- Caso tenha sido usado filtro
-    created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
+    status TEXT DEFAULT 'sent',
+    type TEXT DEFAULT 'both',
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Habilitar RLS para notification_history
+ALTER TABLE public.notification_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admin total em histórico" ON public.notification_history FOR ALL USING (public.is_admin());
 
 -- 10. Tabela `push_tokens`
 CREATE TABLE IF NOT EXISTS public.push_tokens (
@@ -233,7 +253,36 @@ CREATE TABLE IF NOT EXISTS public.user_progress (
     PRIMARY KEY (user_id, chapter_id)
 );
 
--- 12. Tabela `course_packages` (Pacotes de Cursos)
+-- 12. Tabela `chapter_questions` (Dúvidas/Suporte em Aulas)
+CREATE TABLE IF NOT EXISTS public.chapter_questions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chapter_id UUID REFERENCES public.chapters(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_name TEXT NOT NULL,
+    user_avatar_url TEXT,
+    question TEXT NOT NULL,
+    answer TEXT,
+    is_read_by_admin BOOLEAN DEFAULT false,
+    answered_at TIMESTAMPTZ,
+    answered_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Habilitar RLS para chapter_questions
+ALTER TABLE public.chapter_questions ENABLE ROW LEVEL SECURITY;
+
+-- Políticas para chapter_questions
+CREATE POLICY "Qualquer um pode ver dúvidas" ON public.chapter_questions FOR SELECT USING (true);
+CREATE POLICY "Usuários autenticados podem perguntar" ON public.chapter_questions FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Admins podem gerenciar todas as dúvidas" ON public.chapter_questions FOR ALL USING (public.is_admin());
+
+-- Trigger para updated_at em chapter_questions
+CREATE TRIGGER set_updated_at_chapter_questions
+BEFORE UPDATE ON public.chapter_questions
+FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- 13. Tabela `course_packages` (Pacotes de Cursos)
 CREATE TABLE IF NOT EXISTS public.course_packages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,

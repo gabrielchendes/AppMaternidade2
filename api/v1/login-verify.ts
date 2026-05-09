@@ -43,8 +43,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 2. Retornar a senha padrão para o flow "passwordless" simulado
+    // 2. Garantir que o usuário tenha essa senha no Auth (Reset via Admin)
     const tempPassword = 'Maternidade@2024';
+    
+    // Buscar o ID do usuário se não tiver vindo do profile (fallback Auth)
+    let authUserId = profile?.id;
+    if (!authUserId) {
+      const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
+      const user = (userList.users as any[]).find(u => u.email?.toLowerCase() === (email as string).toLowerCase());
+      if (user) authUserId = user.id;
+    }
+
+    if (authUserId) {
+      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+        password: tempPassword
+      });
+      if (updateError) console.error('[LOGIN-VERIFY] Falha ao atualizar senha:', updateError);
+    }
 
     return res.status(200).json({ 
       success: true, 

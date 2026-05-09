@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (error) {
        // If table doesn't exist yet, return empty array instead of error
-       if (error.code === '42P01') return res.status(200).json([]);
+       if (error.code === '42P01' || error.message?.includes('schema cache')) return res.status(200).json([]);
        throw error;
     }
     return res.status(200).json(data || []);

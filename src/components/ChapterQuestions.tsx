@@ -50,7 +50,13 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
         .eq('chapter_id', chapterId)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42P01') {
+          console.warn('Questions table not found. Please run the SQL setup in SUPABASE_SETUP.md');
+          return;
+        }
+        throw error;
+      }
       setQuestions(data || []);
     } catch (error) {
       console.error('Error fetching questions:', error);
@@ -63,9 +69,23 @@ export default function ChapterQuestions({ chapterId, userId, userName, userAvat
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      // Internal notification for Admin users
-      const { data: admins } = await supabase.from('profiles').select('id').eq('is_admin', true);
-      const adminIds = admins?.map(a => a.id) || [];
+      // Get admin email from settings to identify admin if column is missing
+      const adminEmail = settings?.admin_email;
+      
+      // Try to get admins from profiles
+      const { data: profileAdmins, error } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      
+      let adminIds: string[] = [];
+      if (error) {
+        // Fallback: search for profile by admin email if is_admin column fails
+        const { data: fallbackAdmin } = await supabase.from('profiles')
+          .select('id')
+          .eq('email', adminEmail?.toLowerCase())
+          .maybeSingle();
+        if (fallbackAdmin) adminIds = [fallbackAdmin.id];
+      } else {
+        adminIds = profileAdmins?.map(a => a.id) || [];
+      }
 
       if (adminIds.length > 0) {
         const title = type === 'question' ? t('admin.notifications_question') : t('admin.notifications_community');

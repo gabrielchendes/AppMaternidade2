@@ -377,20 +377,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         };
 
         const fetchQuestions = async () => {
-          const { data, error } = await supabase
-            .from('chapter_questions')
-            .select('*, chapters(title, modules(courses(title)))')
-            .order('created_at', { ascending: false });
-          
-          if (error) throw error;
-          setPendingQuestions(data || []);
-          
-          // Mark all as read when opening the tab
-          if (activeTab === 'questions' && data) {
-            const unreadIds = data.filter(q => !q.is_read_by_admin).map(q => q.id);
-            if (unreadIds.length > 0) {
-              await supabase.from('chapter_questions').update({ is_read_by_admin: true }).in('id', unreadIds);
+          try {
+            const { data, error } = await supabase
+              .from('chapter_questions')
+              .select('*, chapters:chapter_id(title, modules:module_id(courses:course_id(title)))')
+              .order('created_at', { ascending: false });
+            
+            if (error) {
+              console.warn('Questions table might not exist yet:', error.message);
+              return;
             }
+            setPendingQuestions(data || []);
+            
+            // Mark all as read when opening the tab
+            if (activeTab === 'questions' && data) {
+              const unreadIds = data.filter((q: any) => !q.is_read_by_admin).map((q: any) => q.id);
+              if (unreadIds.length > 0) {
+                await supabase.from('chapter_questions').update({ is_read_by_admin: true }).in('id', unreadIds);
+              }
+            }
+          } catch (e) {
+            console.error('Error in fetchQuestions:', e);
           }
         };
 
@@ -399,21 +406,31 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         if (activeTab === 'users') {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session?.access_token) {
-            console.error('No session found for users-list');
             setAllUsers([]);
-            setLoading(false);
             return;
           }
-          const data = await safeFetch('/api/v1/users-list', {
-            headers: { 'Authorization': `Bearer ${session.access_token}` }
-          });
           
-          if (data && data.error) {
-            console.error('API returned error for users:', data.error);
-            toast.error('Erro ao carregar usuários: ' + data.error);
-            setAllUsers([]);
-          } else {
-            setAllUsers(Array.isArray(data) ? data : []);
+          try {
+            const data = await safeFetch('/api/v1/users-list', {
+              headers: { 'Authorization': `Bearer ${session.access_token}` }
+            });
+            
+            if (data && !data.error) {
+              setAllUsers(Array.isArray(data) ? data : []);
+            } else {
+              // Fallback to profiles table if API fails
+              const { data: profiles } = await supabase
+                .from('profiles')
+                .select('*')
+                .order('created_at', { ascending: false });
+              setAllUsers(profiles || []);
+            }
+          } catch (e) {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('*')
+              .order('created_at', { ascending: false });
+            setAllUsers(profiles || []);
           }
         }
 
