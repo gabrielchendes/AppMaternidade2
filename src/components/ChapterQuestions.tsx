@@ -92,10 +92,14 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      const title = type === 'question' ? t('admin.notifications_question') : t('admin.notifications_community');
+      const title = type === 'question' 
+        ? (t('admin.notifications_question') || 'Nova dúvida na aula') 
+        : (t('admin.notifications_community') || 'Nova atividade na comunidade');
       
+      console.log('🔔 Chamando API de notificação para admin:', { title, type });
+
       // We directly call the API backend - the backend will find the admins to notify
-      const response = await fetch('/api/v1/notify-admin', {
+      const response = await fetch('/api/v1/notifications?action=notify-admin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,9 +112,10 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
       });
 
       if (!response.ok) {
-         console.error('Failed to notify admin via API:', response.status);
+         const errorData = await response.json().catch(() => ({}));
+         console.error('Failed to notify admin via API:', response.status, errorData);
       } else {
-         console.log('Admin notified successfully');
+         console.log('Admin notified successfully via API');
       }
     } catch (e) {
       console.error('Error notifying admin:', e);

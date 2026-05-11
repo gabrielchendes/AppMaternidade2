@@ -76,16 +76,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(404).json({ error: 'Action not found: ' + action });
     }
   } catch (error: any) {
-    console.error(`[Admin API] Error:`, error);
-    return res.status(500).json({ error: error.message });
+    console.error(`[Admin API] Error details:`, {
+      message: (error as any).message,
+      code: (error as any).code,
+      details: (error as any).details,
+      hint: (error as any).hint,
+      stack: (error as any).stack
+    });
+    return res.status(500).json({ 
+      error: (error as any).message || 'Internal Server Error',
+      details: (error as any).details || null
+    });
   }
 }
 
 async function handleUsersList(req: VercelRequest, res: VercelResponse) {
   try {
-    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
     if (listError) throw listError;
     
+    const users = listData?.users || [];
     const { data: profiles } = await supabaseAdmin.from('profiles').select('*');
     const { data: pushTokens } = await supabaseAdmin.from('push_tokens').select('user_id');
     
@@ -139,7 +149,11 @@ async function handleAccessToggle(req: VercelRequest, res: VercelResponse) {
     }
     return res.status(200).json({ success: true });
   } catch (err: any) {
-    console.error('[Admin API] Toggle access error:', err);
+    console.error('[Admin API] Toggle access error details:', {
+      message: err.message,
+      code: err.code,
+      details: err.details
+    });
     return res.status(200).json({ success: true, warning: err.message });
   }
 }
@@ -161,28 +175,57 @@ async function handleGeneratePermanentLink(req: VercelRequest, res: VercelRespon
   
   let targetId = userId;
   if (!targetId && email) {
-    const { data: userList } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: userList, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    if (listError) throw listError;
     const targetUser = userList?.users?.find((u: any) => u.email?.toLowerCase() === (email as string).toLowerCase());
     if (targetUser) targetId = targetUser.id;
   }
 
   if (!targetId) return res.status(404).json({ error: 'Usuário não encontrado' });
 
-  const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  // Generate a long random token
+  const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   
+  // Try to clean up existing tokens for this user first to be safe if UNIQUE isn't set
+  try {
+    await supabaseAdmin.from('magic_login_tokens').delete().eq('user_id', targetId);
+  } catch (e) {
+    console.warn('[Admin API] Failed to cleanup old tokens, maybe table missing?', e);
+  }
+
   const { error } = await supabaseAdmin
     .from('magic_login_tokens')
-    .upsert({
+    .insert({
       user_id: targetId,
       token,
       active: true,
       created_at: new Date().toISOString()
-    }, { onConflict: 'user_id' });
+    });
 
-  if (error) throw error;
+  if (error) {
+    console.error('[Admin API] Error inserting magic token:', error);
+    // If table is missing, give a helpful hint
+    if (error.code === '42P01') {
+      return res.status(500).json({ 
+        error: 'Tabela magic_login_tokens não existe no banco de dados. Por favor, execute o SQL em SUPABASE_SETUP.md' 
+      });
+    }
+    throw error;
+  }
 
-  const baseUrl = process.env.VITE_APP_URL || 'https://app-maternidade2.vercel.app';
-  const link = `${baseUrl}?magic=${token}`;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  let baseUrl = process.env.VITE_APP_URL || process.env.APP_URL;
+
+  if (!baseUrl && host) {
+    baseUrl = `https://${host}`;
+  }
+
+  if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+    baseUrl = 'https://app-maternidade2.vercel.app';
+  }
+
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const link = `${cleanBaseUrl}/api/magic-login?t=${token}`;
   
   return res.status(200).json({ success: true, link });
 }
@@ -236,7 +279,11 @@ async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
       });
 
       if (createError) {
-        console.error(`[Admin API] Error creating admin user:`, createError);
+        console.error(`[Admin API] Error creating admin user details:`, {
+          message: (createError as any).message,
+          code: (createError as any).code,
+          details: (createError as any).details
+        });
       } else if (userData.user) {
         await supabaseAdmin.from('profiles').upsert({
           id: userData.user.id,
@@ -254,7 +301,13 @@ async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
           password: adminPassword,
           user_metadata: { ...existingUser.user_metadata, temp_password: adminPassword }
         });
-        if (updateAuthError) console.error(`[Admin API] Error updating admin password:`, updateAuthError);
+        if (updateAuthError) {
+          console.error(`[Admin API] Error updating admin password details:`, {
+            message: (updateAuthError as any).message,
+            code: (updateAuthError as any).code,
+            details: (updateAuthError as any).details
+          });
+        }
       }
       
       // Ensure profile is admin

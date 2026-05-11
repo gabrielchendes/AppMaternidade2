@@ -19,7 +19,7 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
 
   return (
     <div className="relative group/carousel mb-8 sm:mb-12">
-      <h2 className="text-xl sm:text-2xl font-black mb-4 sm:mb-6 px-6 md:px-16 text-gray-200 uppercase tracking-tighter italic">
+      <h2 className="text-xl sm:text-2xl font-black mb-4 sm:mb-6 px-6 md:px-16 text-gray-200 uppercase tracking-tighter italic whitespace-pre-wrap">
         {title}
       </h2>
 

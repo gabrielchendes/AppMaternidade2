@@ -534,12 +534,13 @@ BEGIN
   IF (TG_OP = 'INSERT') THEN
     UPDATE public.community_posts SET likes_count = likes_count + 1 WHERE id = NEW.post_id;
   ELSIF (TG_OP = 'DELETE') THEN
-    UPDATE public.community_posts SET likes_count = likes_count - 1 WHERE id = OLD.post_id;
+    UPDATE public.community_posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = OLD.post_id;
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_post_like ON public.post_likes;
 CREATE TRIGGER on_post_like AFTER INSERT OR DELETE ON public.post_likes FOR EACH ROW EXECUTE FUNCTION public.handle_post_likes_count();
 
 -- Função para atualizar contagem de comentários
@@ -549,13 +550,33 @@ BEGIN
   IF (TG_OP = 'INSERT') THEN
     UPDATE public.community_posts SET comments_count = comments_count + 1 WHERE id = NEW.post_id;
   ELSIF (TG_OP = 'DELETE') THEN
-    UPDATE public.community_posts SET comments_count = comments_count - 1 WHERE id = OLD.post_id;
+    UPDATE public.community_posts SET comments_count = GREATEST(0, comments_count - 1) WHERE id = OLD.post_id;
   END IF;
   RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_post_comment ON public.post_comments;
 CREATE TRIGGER on_post_comment AFTER INSERT OR DELETE ON public.post_comments FOR EACH ROW EXECUTE FUNCTION public.handle_post_comments_count();
+
+-- CONFIGURAÇÃO DE REALTIME (Habilitar mudanças ao vivo)
+-- Execute este bloco se as tabelas da comunidade não estiverem atualizando sozinhas
+DO $$ 
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.community_posts;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+    
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.post_likes;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+    
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.post_comments;
+    EXCEPTION WHEN duplicate_object THEN NULL; END;
+  END IF;
+END $$;
 
 -- Inserir tenant padrão
 INSERT INTO public.tenants (name, subdomain, primary_color)
@@ -622,7 +643,7 @@ ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS app_url TEXT DEFAULT 'h
 -- Tabela para Magic Login Permanente (Sistema Próprio)
 CREATE TABLE IF NOT EXISTS public.magic_login_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     token TEXT UNIQUE NOT NULL,
     active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),

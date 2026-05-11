@@ -8,9 +8,11 @@ import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
 import FloatingWhatsApp from '../components/FloatingWhatsApp';
 import PWAInstallModal from '../components/PWAInstallModal';
+import PullToRefresh from '../components/PullToRefresh';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 import { getDeviceType, isPWAInstalled } from '../lib/pwa';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Phone, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
@@ -38,35 +40,47 @@ const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community'
   if (!whatsappEnabled && !emailEnabled) return null;
 
   return (
-    <div className="px-6 md:px-16 pt-12 pb-20">
-      <div className="bg-zinc-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
-        <div className="space-y-2 text-center md:text-left">
-          <h3 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter italic">
-            {settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
-          </h3>
-          <p className="text-gray-500 font-medium max-w-md">
-            {settings.custom_texts?.['auth.support_description'] || t('auth.support_description') || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-4">
-          {whatsappEnabled && settings.support_whatsapp && (
-            <a 
-              href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}${settings.support_whatsapp_message ? `?text=${encodeURIComponent(settings.support_whatsapp_message)}` : ''}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-black rounded-2xl shadow-xl shadow-green-500/20 transition-all active:scale-95"
-            >
-              <Phone size={24} /> {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
-            </a>
-          )}
-          {emailEnabled && settings.support_email && (
-            <a 
-              href={`mailto:${settings.support_email}`}
-              className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-black rounded-2xl border border-white/10 transition-all active:scale-95"
-            >
-              <MailIcon size={24} /> {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
-            </a>
-          )}
+    <div className="px-6 md:px-12 pt-16 pb-24 max-w-4xl mx-auto">
+      <div className="relative group">
+        {/* Subtle animated glow */}
+        <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-white/10 to-primary/20 rounded-[3rem] blur-2xl opacity-40 group-hover:opacity-60 transition-opacity duration-500" />
+        
+        <div className="relative bg-zinc-900/40 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-8 md:p-12 flex flex-col items-center text-center gap-3 md:gap-8 overflow-hidden">
+          {/* Abstract geometric decoration */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -ml-32 -mb-32" />
+
+          <div className="relative space-y-2 md:space-y-3 max-w-2xl px-4">
+            <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter italic uppercase leading-none">
+              {settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
+            </h3>
+            <p className="text-zinc-400 text-sm md:text-base font-medium leading-relaxed">
+              {settings.custom_texts?.['auth.support_description'] || t('auth.support_description') || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
+            </p>
+          </div>
+
+          <div className="relative flex flex-col items-center gap-3 md:gap-4 w-full sm:max-w-xs px-4">
+            {whatsappEnabled && settings.support_whatsapp && (
+              <a 
+                href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-green-500/20 shadow-2xl shadow-green-500/10 active:scale-[0.97] group/btn"
+              >
+                <WhatsAppIcon size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
+                {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
+              </a>
+            )}
+            {emailEnabled && settings.support_email && (
+              <a 
+                href={`mailto:${settings.support_email}`}
+                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-primary/10 hover:bg-primary/20 text-primary rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-primary/20 shadow-2xl shadow-primary/10 active:scale-[0.97] group/btn"
+              >
+                <MailIcon size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
+                {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -86,6 +100,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [purchases, setPurchases] = useState<string[]>([]);
   const [userProgress, setUserProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
@@ -95,6 +110,15 @@ export default function Dashboard({ user }: DashboardProps) {
     }
     return 'home';
   });
+
+  const handleGlobalRefresh = async () => {
+    setRefreshKey(prev => prev + 1);
+    if (activeTab === 'home') {
+      await fetchData();
+    }
+    // Give a little extra feedback time
+    await new Promise(resolve => setTimeout(resolve, 800));
+  };
 
   useEffect(() => {
     // Only update hash if it's not already correct to avoid unnecessary history changes
@@ -417,101 +441,198 @@ export default function Dashboard({ user }: DashboardProps) {
         onInstall={() => setShowPWAInstall(true)}
       />
 
-      {activeTab === 'home' ? (
+      {getDeviceType() === 'desktop' ? (
         <>
-          {/* Banner Section */}
-          <div className="w-full pb-8">
-            <BannerCarousel 
-              images={(settings.banner_sync !== false) 
-                ? (settings.banner_images || []) 
-                : (getDeviceType() !== 'desktop' ? (settings.banner_images_mobile || settings.banner_images || []) : (settings.banner_images || []))
-              } 
-              interval={settings.banner_interval || 5000} 
-              config={(settings.banner_sync !== false)
-                ? (settings.banner_config || [])
-                : (getDeviceType() !== 'desktop' ? (settings.banner_config_mobile || settings.banner_config || []) : (settings.banner_config || []))
-              }
-            />
-          </div>
+          {activeTab === 'home' ? (
+            <>
+              {/* Banner Section */}
+              <div className="w-full pb-8">
+                <BannerCarousel 
+                  images={(settings.banner_images || [])} 
+                  interval={settings.banner_interval || 5000} 
+                  config={(settings.banner_config || [])}
+                />
+              </div>
 
-          {/* Content Sections */}
-          <div className="relative z-10 space-y-12 pb-20">
-            <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || 'Meus Cursos'}>
-              {unlockedCourses.length > 0 ? (
-                unlockedCourses.map(course => (
-                  <ProductCard
-                    key={course.id}
-                    product={course}
-                    isUnlocked={true}
-                    progress={getCourseProgress(course.id)}
-                    stats={courseStats[course.id]}
-                    onOpen={handleOpenCourse}
-                  />
-                ))
-              ) : (
-                <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
-                  <Book size={32} className="mb-4 opacity-20" />
-                  <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
-                </div>
-              )}
-            </Carousel>
+              {/* Content Sections */}
+              <div className="relative z-10 space-y-12 pb-20">
+                <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Meus Cursos  📚'}>
+                  {unlockedCourses.length > 0 ? (
+                    unlockedCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={true}
+                        progress={getCourseProgress(course.id)}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))
+                  ) : (
+                    <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
+                      <Book size={32} className="mb-4 opacity-20" />
+                      <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
+                    </div>
+                  )}
+                </Carousel>
 
-            <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || 'Produtos Principais'}>
-              {lockedCourses.length > 0 ? (
-                lockedCourses.map(course => (
-                  <ProductCard
-                    key={course.id}
-                    product={course}
-                    isUnlocked={false}
-                    stats={courseStats[course.id]}
-                    onOpen={handleOpenCourse}
-                  />
-                ))
-              ) : (
-                <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
-                  <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
-                </div>
-              )}
-            </Carousel>
+                {bonusCourses.length > 0 && (
+                  <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Meus Bônus  🎁'}>
+                    {bonusCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={true}
+                        progress={getCourseProgress(course.id)}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))}
+                  </Carousel>
+                )}
 
-            {bonusCourses.length > 0 && (
-              <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || 'Meus Bônus'}>
-                {bonusCourses.map(course => (
-                  <ProductCard
-                    key={course.id}
-                    product={course}
-                    isUnlocked={true}
-                    progress={getCourseProgress(course.id)}
-                    stats={courseStats[course.id]}
-                    onOpen={handleOpenCourse}
-                  />
-                ))}
-              </Carousel>
-            )}
+                <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
+                  {lockedCourses.length > 0 ? (
+                    lockedCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={false}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))
+                  ) : (
+                    <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                      <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
+                    </div>
+                  )}
+                </Carousel>
 
-            <SupportSection page="home" settings={settings} t={t} />
-          </div>
+                <SupportSection page="home" settings={settings} t={t} />
+              </div>
+            </>
+          ) : activeTab === 'community' ? (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <Community user={user} />
+              </Suspense>
+              <SupportSection page="community" settings={settings} t={t} />
+            </div>
+          ) : activeTab === 'admin' ? (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <AdminPanel user={user} />
+              </Suspense>
+            </div>
+          ) : (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <Profile user={user} />
+              </Suspense>
+              <SupportSection page="profile" settings={settings} t={t} />
+            </div>
+          )}
         </>
-      ) : activeTab === 'community' ? (
-        <div className="pt-24">
-          <Suspense fallback={<ComponentLoader />}>
-            <Community user={user} />
-          </Suspense>
-          <SupportSection page="community" settings={settings} t={t} />
-        </div>
-      ) : activeTab === 'admin' ? (
-        <div className="pt-24">
-          <Suspense fallback={<ComponentLoader />}>
-            <AdminPanel user={user} />
-          </Suspense>
-        </div>
       ) : (
-        <div className="pt-24">
-          <Suspense fallback={<ComponentLoader />}>
-            <Profile user={user} />
-          </Suspense>
-          <SupportSection page="profile" settings={settings} t={t} />
-        </div>
+        <PullToRefresh onRefresh={handleGlobalRefresh}>
+          {activeTab === 'home' ? (
+            <>
+              {/* Banner Section */}
+              <div className="w-full pb-8">
+                <BannerCarousel 
+                  images={(settings.banner_sync !== false) 
+                    ? (settings.banner_images || []) 
+                    : (getDeviceType() !== 'desktop' ? (settings.banner_images_mobile || settings.banner_images || []) : (settings.banner_images || []))
+                  } 
+                  interval={settings.banner_interval || 5000} 
+                  config={(settings.banner_sync !== false)
+                    ? (settings.banner_config || [])
+                    : (getDeviceType() !== 'desktop' ? (settings.banner_config_mobile || settings.banner_config || []) : (settings.banner_config || []))
+                  }
+                />
+              </div>
+
+              {/* Content Sections */}
+              <div className="relative z-10 space-y-12 pb-20">
+                <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Meus Cursos  📚'}>
+                  {unlockedCourses.length > 0 ? (
+                    unlockedCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={true}
+                        progress={getCourseProgress(course.id)}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))
+                  ) : (
+                    <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
+                      <Book size={32} className="mb-4 opacity-20" />
+                      <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
+                    </div>
+                  )}
+                </Carousel>
+
+                {bonusCourses.length > 0 && (
+                  <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Meus Bônus  🎁'}>
+                    {bonusCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={true}
+                        progress={getCourseProgress(course.id)}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))}
+                  </Carousel>
+                )}
+
+                <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
+                  {lockedCourses.length > 0 ? (
+                    lockedCourses.map(course => (
+                      <ProductCard
+                        key={course.id}
+                        product={course}
+                        isUnlocked={false}
+                        stats={courseStats[course.id]}
+                        onOpen={handleOpenCourse}
+                      />
+                    ))
+                  ) : (
+                    <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                      <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
+                    </div>
+                  )}
+                </Carousel>
+
+                <SupportSection page="home" settings={settings} t={t} />
+              </div>
+            </>
+          ) : activeTab === 'community' ? (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <Community key={`community-${refreshKey}`} user={user} />
+              </Suspense>
+              <SupportSection page="community" settings={settings} t={t} />
+            </div>
+          ) : activeTab === 'admin' ? (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <AdminPanel key={`admin-${refreshKey}`} user={user} />
+              </Suspense>
+            </div>
+          ) : (
+            <div className="pt-24">
+              <Suspense fallback={<ComponentLoader />}>
+                <Profile key={`profile-${refreshKey}`} user={user} />
+              </Suspense>
+              <SupportSection page="profile" settings={settings} t={t} />
+            </div>
+          )}
+        </PullToRefresh>
       )}
 
       {/* Course Detail / Purchase Modal */}

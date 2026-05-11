@@ -39,6 +39,10 @@
       "destination": "/api/v1/admin?action=user-delete&id=:id"
     },
     {
+      "source": "/api/v1/notify-admin",
+      "destination": "/api/v1/notifications?action=notify-admin"
+    },
+    {
       "source": "/api/v1/notification-push",
       "destination": "/api/v1/notifications?action=notification-push"
     },

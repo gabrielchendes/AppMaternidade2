@@ -58,6 +58,7 @@ import {
   LogOut,
   HelpCircle
 } from 'lucide-react';
+import WhatsAppIcon from './WhatsAppIcon';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
@@ -1144,7 +1145,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                         try {
                                           const { data: { session } } = await supabase.auth.getSession();
                                           if (session && q.user_id) {
-                                            await fetch('/api/v1/notifications?action=notification-push', {
+                                            console.log('🔔 Notificando aluno sobre resposta...', q.user_id);
+                                            const notifyRes = await fetch('/api/v1/notifications?action=notification-push', {
                                               method: 'POST',
                                               headers: {
                                                 'Content-Type': 'application/json',
@@ -1153,9 +1155,17 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                               body: JSON.stringify({
                                                 title: t('notifications.user_answer') || 'Sua dúvida foi respondida!',
                                                 body: answerText.trim().substring(0, 100) + (answerText.length > 100 ? '...' : ''),
-                                                userIds: [q.user_id]
+                                                userIds: [q.user_id],
+                                                skipPush: false
                                               })
                                             });
+                                            
+                                            if (!notifyRes.ok) {
+                                              const errData = await notifyRes.json().catch(() => ({}));
+                                              console.error('Failed to notify user:', notifyRes.status, errData);
+                                            } else {
+                                              console.log('✅ Aluno notificado com sucesso');
+                                            }
                                           }
                                         } catch (notifyErr) {
                                           console.error('Error notifying user:', notifyErr);
@@ -2294,7 +2304,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="p-2 bg-green-500/20 rounded-lg text-green-500">
-                            <Phone size={20} />
+                            <WhatsAppIcon size={20} />
                           </div>
                           <h4 className="font-bold text-white">Dados de Suporte</h4>
                         </div>
@@ -2686,7 +2696,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                            </p>
                                            <div className="grid grid-cols-2 gap-2">
                                              <div className="flex items-center justify-center gap-1.5 py-2 bg-green-500/10 border border-green-500/20 rounded-lg text-green-500 text-[8px] font-black uppercase">
-                                               <Phone size={10} /> {draftCustomTexts['auth.whatsapp_label'] || settings.custom_texts?.['auth.whatsapp_label'] || languagePresets.pt['auth.whatsapp_label'] || 'Whats'}
+                                               <WhatsAppIcon size={10} /> {draftCustomTexts['auth.whatsapp_label'] || settings.custom_texts?.['auth.whatsapp_label'] || languagePresets.pt['auth.whatsapp_label'] || 'Whats'}
                                              </div>
                                              <div className="flex items-center justify-center gap-1.5 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-500 text-[8px] font-black uppercase">
                                                <Mail size={10} /> {draftCustomTexts['auth.email_label'] || settings.custom_texts?.['auth.email_label'] || languagePresets.pt['auth.email_label'] || 'Email'}

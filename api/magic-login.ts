@@ -66,7 +66,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-      baseUrl = 'https://app-maternidade2.vercel.app';
+      // Check if we are on a .run.app (AI Studio)
+      if (host && (host.includes('.run.app') || host.includes('.vercel.app'))) {
+        baseUrl = `https://${host}`;
+      } else {
+        baseUrl = 'https://app-maternidade2.vercel.app';
+      }
     }
 
     const cleanBaseUrl = baseUrl.replace(/\/$/, '');
@@ -75,25 +80,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[MAGIC-LOGIN] Token OK para ${user.email}. Redirecionando via Supabase Auth para ${redirectUrl}`);
 
     // 5. Gerar Magic Link do Supabase (válido para login imediato)
-    const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'magiclink',
-      email: user.email!,
-      options: { redirectTo: redirectUrl }
-    });
+    try {
+      const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: user.email!,
+        options: { redirectTo: redirectUrl }
+      });
 
-    if (linkError) {
-      console.error('[MAGIC-LOGIN] Erro ao gerar link do Supabase:', linkError);
-      throw linkError;
-    }
+      if (linkError) {
+        console.error('[MAGIC-LOGIN] Erro ao gerar link do Supabase:', linkError);
+        throw linkError;
+      }
 
-    const finalLink = linkData.properties?.action_link || (linkData as any).link;
-    if (!finalLink) {
-      console.error('[MAGIC-LOGIN] Falha: linkData sem action_link', linkData);
-      throw new Error('Falha ao gerar link final de autenticação');
+      const finalLink = linkData.properties?.action_link || (linkData as any).link;
+      if (!finalLink) {
+        console.error('[MAGIC-LOGIN] Falha: linkData sem action_link', linkData);
+        throw new Error('Falha ao gerar link final de autenticação');
+      }
+      
+      // Redirecionamento 302
+      console.log(`[MAGIC-LOGIN] Sucesso! Redirecionando para link do Supabase`);
+      return res.redirect(finalLink);
+    } catch (genError: any) {
+       console.error('[MAGIC-LOGIN] Erro na geração do link Supabase:', genError);
+       // Fallback: try simple sign in if possible, but generateLink is the way for admin-initiated
+       return res.status(500).send(`<h1>Erro de Autenticação</h1><p>Não foi possível gerar o link de login: ${genError.message}</p>`);
     }
-    
-    // Redirecionamento 302
-    return res.redirect(finalLink);
 
   } catch (err: any) {
     console.error('[MAGIC-LOGIN] Erro Crítico:', err);

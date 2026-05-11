@@ -59,34 +59,19 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      const adminEmail = settings?.admin_email;
-      const { data: profileAdmins } = await supabase.from('profiles').select('id').eq('is_admin', true);
+      const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
       
-      let adminIds: string[] = [];
-      if (profileAdmins && profileAdmins.length > 0) {
-        adminIds = profileAdmins.map(a => a.id);
-      } else if (adminEmail) {
-        const { data: fallbackProfiles } = await supabase.from('profiles')
-          .select('id')
-          .eq('email', adminEmail.toLowerCase());
-        adminIds = fallbackProfiles?.map(p => p.id) || [];
-      }
-
-      if (adminIds.length > 0) {
-        const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
-        await fetch('/api/v1/notifications?action=notification-push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          },
-          body: JSON.stringify({
-            title: t('admin.notifications_community'),
-            body: `${authorName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`,
-            userIds: adminIds
-          })
-        });
-      }
+      await fetch('/api/v1/notifications?action=notify-admin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          title: t('admin.notifications_community') || 'Nova atividade na comunidade',
+          body: `${authorName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+        })
+      });
     } catch (e) {
       console.error('Error notifying admin:', e);
     }
@@ -126,14 +111,39 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'community_posts' },
-        () => fetchPosts()
+        (payload: any) => {
+          if (payload.eventType === 'INSERT') {
+            const newPost = payload.new as CommunityPost;
+            setPosts(prev => {
+              if (prev.some(p => p.id === newPost.id)) return prev;
+              return [newPost, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedPost = payload.new as CommunityPost;
+            setPosts(prev => prev.map(p => {
+              if (p.id === updatedPost.id) {
+                // Preserve internal properties that might not be in the payload
+                return { ...p, ...updatedPost };
+              }
+              return p;
+            }));
+          } else if (payload.eventType === 'DELETE') {
+            setPosts(prev => prev.filter(p => p.id !== payload.old.id));
+          }
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'post_likes' },
-        () => {
-          fetchPosts(); // Update counts
-          fetchUserLikes(); // Update user's liked status (handles multi-device sync)
+        (payload: any) => {
+          // Only fetch user likes from server if the change came from another device/user
+          // This prevents the "oscillation" flicker during the local optimistic phase
+          if ((payload.new?.user_id === user.id || payload.old?.user_id === user.id)) {
+             // Optional: verify sync, but for immediate UI we rely on handleLike
+             return;
+          }
+          // If another user liked/unliked, we don't need to do anything here 
+          // because community_posts listener handles the count update.
         }
       )
       .on(
@@ -142,21 +152,32 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         (payload: any) => {
           const postId = payload.new?.post_id || payload.old?.post_id;
           if (postId) {
-            fetchComments(postId);
-            fetchPosts(); // Update comments_count
+            if (payload.eventType === 'INSERT') {
+              const newComment = payload.new as PostComment;
+              setComments(prev => {
+                const postComments = prev[postId] || [];
+                if (postComments.some(c => c.id === newComment.id)) return prev;
+                return { ...prev, [postId]: [...postComments, newComment] };
+              });
+            } else if (payload.eventType === 'DELETE') {
+              setComments(prev => ({
+                ...prev,
+                [postId]: (prev[postId] || []).filter(c => c.id !== payload.old.id)
+              }));
+            }
           }
         }
       )
       .subscribe();
 
-    // Polling fallback every 30 seconds for better reliability
-    const interval = setInterval(fetchPosts, 30000);
+    // Polling fallback every 60 seconds (less frequent now that realtime is surgical)
+    const interval = setInterval(() => fetchPosts(0, false), 60000);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(interval);
     };
-  }, []);
+  }, [user.id]);
 
   const fetchPosts = async (pageNum = 0, isInitial = false) => {
     try {
@@ -180,14 +201,19 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       if (isInitial) {
         setPosts(data || []);
       } else {
-        setPosts(prev => [...prev, ...(data || [])]);
+        setPosts(prev => {
+          // Filter out any duplicates that might have been added via realtime
+          const existingIds = new Set(prev.map(p => p.id));
+          const newPosts = (data || []).filter(p => !existingIds.has(p.id));
+          return [...prev, ...newPosts];
+        });
       }
 
       setHasMore((data || []).length === POSTS_PER_PAGE);
       setPage(pageNum);
     } catch (error: any) {
       console.error('Error fetching posts:', error);
-      toast.error('Erro ao carregar posts');
+      toast.error(t('community.load_error'));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -245,6 +271,11 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     if (!postToDelete) return;
     const { id: postId, imageUrl } = postToDelete;
 
+    // Optimistic delete
+    const previousPosts = [...posts];
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    setPostToDelete(null); // Close modal immediately
+
     try {
       // Delete image from storage if exists
       if (imageUrl) {
@@ -257,13 +288,11 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       const { error } = await supabase.from('community_posts').delete().eq('id', postId);
       if (error) throw error;
 
-      setPosts(prev => prev.filter(p => p.id !== postId));
       toast.success(t('community.delete_success'));
     } catch (error) {
       console.error('Error deleting post:', error);
-      toast.error(t('community.delete_error') || 'Erro ao excluir publicação');
-    } finally {
-      setPostToDelete(null);
+      setPosts(previousPosts); // Revert on failure
+      toast.error(t('community.delete_error'));
     }
   };
 
@@ -340,13 +369,42 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
     setSending(true);
     let imageUrl = '';
+    const tempId = `temp-${Date.now()}`;
     let finalAvatarUrl = manualAvatarUrl;
 
-    try {
-      // Ensure fresh user session
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) throw new Error('Sessão expirada. Por favor faça login novamente.');
+    const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
+    const authorAvatar = (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null);
 
+    // Create optimistic post
+    const optimisticPost: CommunityPost = {
+      id: tempId,
+      user_id: user.id,
+      user_name: authorName,
+      user_avatar_url: authorAvatar,
+      content: content,
+      image_url: imagePreview || null, // Show preview immediately
+      likes_count: 0,
+      comments_count: 0,
+      user_email: user.email || '',
+      created_at: new Date().toISOString(),
+      reply_to_id: replyingTo?.id || null,
+      reply_to_content: replyingTo?.content || null,
+      reply_to_user_name: replyingTo?.user_name || null,
+    };
+
+    // 1. Update UI immediately
+    setPosts(prev => [optimisticPost, ...prev]);
+    
+    // Clear inputs immediately for better UX
+    setNewPostContent('');
+    setSelectedImage(null);
+    setImagePreview(null);
+    setReplyingTo(null);
+
+    // Scroll to top to show the new post
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    try {
       if (adminMode && manualAvatarFile) {
         finalAvatarUrl = await uploadManualAvatar();
       }
@@ -361,7 +419,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         const compressedFile = await imageCompression(selectedImage, options);
         
         const fileExt = selectedImage.name.split('.').pop();
-        const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
+        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
         const filePath = `posts/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
@@ -370,8 +428,9 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
         if (uploadError) {
           console.error('Upload error details:', uploadError);
-          // Generic error for users
-          throw new Error('Não foi possível enviar a foto. Verifique sua conexão ou tente novamente mais tarde.');
+          // Revert optimistic update if upload fails
+          setPosts(prev => prev.filter(p => p.id !== tempId));
+          throw new Error(t('community.upload_error'));
         }
 
         const { data: { publicUrl } } = supabase.storage
@@ -383,36 +442,39 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
       console.log('🔎 Query Supabase: community_posts (insert)');
       const { data: newPost, error } = await supabase.from('community_posts').insert({
-        user_id: currentUser.id,
-        user_email: currentUser.email,
-        user_name: (adminMode && personaActive) ? manualAuthorName : (currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]),
-        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (currentUser.user_metadata?.avatar_url || null),
+        user_id: user.id,
+        user_email: user.email,
+        user_name: authorName,
+        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : authorAvatar,
         content: content,
         image_url: imageUrl || null,
-        reply_to_id: replyingTo?.id || null,
-        reply_to_content: replyingTo?.content || null,
-        reply_to_user_name: replyingTo?.user_name || null,
+        reply_to_id: optimisticPost.reply_to_id,
+        reply_to_content: optimisticPost.reply_to_content,
+        reply_to_user_name: optimisticPost.reply_to_user_name,
       }).select().single();
 
-      if (error) throw error;
+      if (error) {
+        // Revert optimistic update
+        setPosts(prev => prev.filter(p => p.id !== tempId));
+        throw error;
+      }
 
       if (newPost) {
-        setPosts(prev => [newPost as CommunityPost, ...prev]);
+        // Replace temp post with real one
+        setPosts(prev => prev.map(p => p.id === tempId ? newPost as CommunityPost : p));
+        
         // Notify Admin if not admin posting
         if (!adminMode) {
           notifyAdmin(content).catch(e => console.warn('Notification failed:', e));
         }
       }
 
-      setNewPostContent('');
-      setSelectedImage(null);
-      setImagePreview(null);
-      setReplyingTo(null);
-      // Don't reset manual name/avatar if in admin mode to allow multiple posts as same person
       toast.success(t('community.post_sent'));
     } catch (error: any) {
       console.error('Error creating post:', error);
-      toast.error(error.message || 'Erro ao enviar post');
+      toast.error(error.message || t('community.create_error'));
+      // If we didn't already remove it in the specific catch above
+      setPosts(prev => prev.filter(p => p.id !== tempId));
     } finally {
       setSending(false);
     }
@@ -438,29 +500,31 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const handleLike = async (postId: string) => {
     const isLiked = likedPosts.includes(postId);
     
-    // Optimistic update
+    // 1. Optimistic Update (Immediate UI feedback)
     if (isLiked) {
       setLikedPosts(prev => prev.filter(id => id !== postId));
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: Math.max(0, p.likes_count - 1) } : p));
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: Math.max(0, (p.likes_count || 0) - 1) } : p));
     } else {
       setLikedPosts(prev => [...prev, postId]);
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: p.likes_count + 1 } : p));
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: (p.likes_count || 0) + 1 } : p));
     }
 
     try {
       if (isLiked) {
         console.log('🔎 Query Supabase: post_likes (delete)');
-        await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
+        const { error } = await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
+        if (error) throw error;
       } else {
         console.log('🔎 Query Supabase: post_likes (insert)');
-        await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
+        const { error } = await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
+        if (error) throw error;
       }
-      // Realtime listener will sync counts globally
+      // Realtime listener triggers updates for everyone else
     } catch (error) {
       console.error('Error toggling like:', error);
-      // Revert on error
-      fetchPosts();
+      // Revert optimistic update only on error
       fetchUserLikes();
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p } : p)); // Force re-render/refetch logic if needed
     }
   };
 
@@ -473,57 +537,68 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       finalAvatarUrl = await uploadManualAvatar();
     }
 
+    const tempCommentId = `temp-comment-${Date.now()}`;
+    const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
+    const authorAvatar = (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null);
+
     const tempComment: PostComment = {
-      id: Math.random().toString(),
+      id: tempCommentId,
       post_id: postId,
       user_id: user.id,
-      user_name: (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]),
-      user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (user.user_metadata?.avatar_url || null),
+      user_name: authorName,
+      user_avatar_url: authorAvatar,
       content: content,
       created_at: new Date().toISOString(),
     };
 
-    // Optimistic update
+    // 1. Optimistic update (Show comment and bump count immediately)
     setComments(prev => ({
       ...prev,
       [postId]: [...(prev[postId] || []), tempComment]
     }));
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: p.comments_count + 1 } : p));
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: (p.comments_count || 0) + 1 } : p));
     setNewComment(prev => ({ ...prev, [postId]: '' }));
 
-    try {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) throw new Error('Sessão expirada');
+    // Auto expand comments to show the new one
+    if (!expandedComments.includes(postId)) {
+      setExpandedComments(prev => [...prev, postId]);
+    }
 
-      console.log('🔎 Query Supabase: post_comments (insert)');
+    try {
       const { data, error } = await supabase.from('post_comments').insert({
         post_id: postId,
-        user_id: currentUser.id,
-        user_name: (adminMode && personaActive) ? manualAuthorName : (currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]),
-        user_avatar_url: (adminMode && personaActive) ? finalAvatarUrl : (currentUser.user_metadata?.avatar_url || null),
+        user_id: user.id,
+        user_name: authorName,
+        user_avatar_url: authorAvatar,
         content: content,
       }).select().single();
 
-      if (error) throw error;
+      if (error) {
+        // Revert on error
+        setComments(prev => ({
+          ...prev,
+          [postId]: (prev[postId] || []).filter(c => c.id !== tempCommentId)
+        }));
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, comments_count: Math.max(0, (p.comments_count || 0) - 1) } : p));
+        throw error;
+      }
       
-      // Update the optimistic comment with the real ID from DB to allow immediate deletion
       if (data) {
         setComments(prev => ({
           ...prev,
-          [postId]: (prev[postId] || []).map(c => c.id === tempComment.id ? data : c)
+          [postId]: (prev[postId] || []).map(c => c.id === tempCommentId ? data : c)
         }));
-        // Notify Admin if not admin commenting
-        if (!adminMode) {
-          notifyAdmin(content);
-        }
+        
+        // Notify Admin if not admin
+        if (!adminMode) notifyAdmin(content).catch(e => console.warn(e));
 
-        // Notify Post Owner if it's not the user themselves commenting
+        // Notify Post Owner
         try {
           const { data: post } = await supabase.from('community_posts').select('user_id').eq('id', postId).single();
           if (post && post.user_id && post.user_id !== user.id) {
             const { data: { session } } = await supabase.auth.getSession();
             if (session) {
-              await fetch('/api/v1/notifications?action=notification-push', {
+              fetch('/api/v1/notifications?action=notification-push', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -534,21 +609,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   body: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
                   userIds: [post.user_id]
                 })
-              });
+              }).catch(e => console.warn(e));
             }
           }
-        } catch (notifyErr) {
-          console.error('Error notifying post owner:', notifyErr);
-        }
+        } catch (e) {}
       }
-      
-      // Realtime listener will sync counts globally
     } catch (error) {
       console.error('Error adding comment:', error);
-      toast.error('Erro ao comentar');
-      // Revert on error
-      fetchComments(postId);
-      fetchPosts();
+      toast.error(t('community.comment_error'));
     }
   };
 
@@ -618,7 +686,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                         <div className="flex-1 space-y-2">
                           <input 
                             type="text" 
-                            placeholder="Nome do Autor (ex: Maria Silva)"
+                            placeholder={t('admin.persona_name_placeholder')}
                             value={manualAuthorName}
                             onChange={e => setManualAuthorName(e.target.value)}
                             className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-${isImportMode ? 'blue-500' : 'primary'}`}
@@ -626,15 +694,15 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                           <button 
                             onClick={() => {
                               if (!manualAuthorName.trim()) {
-                                toast.error('Informe um nome para a persona');
+                                toast.error(t('admin.persona_name_required'));
                                 return;
                               }
                               setPersonaActive(true);
-                              toast.success(`Agora postando como ${manualAuthorName}`);
+                              toast.success(`${t('admin.persona_active')} ${manualAuthorName}`);
                             }}
                             className={`w-full ${isImportMode ? 'bg-blue-500/20 hover:bg-blue-500/40 text-blue-500' : 'bg-primary/20 hover:bg-primary/40 text-primary'} text-[10px] font-black py-2 rounded-lg transition-all`}
                           >
-                            CONFIRMAR PERSONA
+                            {t('admin.confirm_persona')}
                           </button>
                         </div>
                       </div>
@@ -652,7 +720,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                           )}
                         </div>
                         <div>
-                          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Postando como</p>
+                          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{t('admin.posting_as')}</p>
                           <p className="text-sm font-bold text-white">{manualAuthorName}</p>
                         </div>
                       </div>
@@ -660,7 +728,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                         onClick={() => setPersonaActive(false)}
                         className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-[10px] font-black rounded-lg transition-all"
                       >
-                        TROCAR PERSONA
+                        {t('admin.change_persona')}
                       </button>
                     </div>
                   )}

@@ -36,8 +36,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(404).json({ error: 'Action not found' });
     }
   } catch (error: any) {
-    console.error(`[Auth API] Error in ${action}:`, error);
-    return res.status(500).json({ error: error.message });
+    console.error(`[Auth API] Error in ${action} details:`, {
+      message: (error as any).message,
+      code: (error as any).code,
+      details: (error as any).details,
+      stack: (error as any).stack
+    });
+    return res.status(500).json({ 
+      error: (error as any).message || 'Erro interno no servidor de autenticação',
+      details: (error as any).details || null
+    });
   }
 }
 
@@ -54,33 +62,47 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
     .eq('email', emailLower)
     .maybeSingle();
 
-  if (profileError) throw profileError;
+  if (profileError && profileError.code !== '42P01') {
+    console.error('[Auth API] Profile fetch error:', profileError);
+    throw profileError;
+  }
 
   let authUserId = profile?.id;
   
   if (!authUserId) {
     // Check Auth directly
-    const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    if (listError) {
+      console.error('[Auth API] Auth list error:', listError);
+      // If service role is invalid, we can't do auto-admin-creation, but maybe we can proceed if it's just a regular user?
+      // Actually regular users should already have a profile if they were created via standard signup.
+    }
     const users = listData?.users || [];
     const user = users.find((u: any) => u.email?.toLowerCase() === emailLower);
     
     if (user) {
       authUserId = user.id;
       // If user exists in Auth but not in profiles, sync it now
-      await supabaseAdmin.from('profiles').upsert({
+      const { error: upsertError } = await supabaseAdmin.from('profiles').upsert({
         id: user.id,
         email: emailLower,
         is_admin: false // Default
       });
+      if (upsertError && upsertError.code !== '42P01') console.error('[Auth API] Profile sync error:', upsertError);
     } else {
       // SPECIAL CASE: Check if this is the Master Admin email from settings
-      const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
-      const masterEmail = settings?.admin_email?.toLowerCase() || 'gabrielchendes@gmail.com';
+      let masterEmail = 'gabrielchendes@gmail.com';
+      try {
+        const { data: settings, error: sError } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
+        if (!sError && settings?.admin_email) masterEmail = settings.admin_email.toLowerCase();
+      } catch (settingsErr) {
+        console.warn('[Auth API] Could not fetch master email from settings, using hardcoded default');
+      }
       
       if (emailLower === masterEmail || emailLower === 'gabrielchendes@gmail.com') {
         // Handle orphaned profile before creation to avoid UNIQUE constraint violation in trigger
-        const { data: orphaned } = await supabaseAdmin.from('profiles').select('id').eq('email', emailLower).maybeSingle();
-        if (orphaned) {
+        const { data: orphaned, error: orphanedError } = await supabaseAdmin.from('profiles').select('id').eq('email', emailLower).maybeSingle();
+        if (orphaned && !orphanedError) {
           console.log(`[Auth API] Deleting orphaned profile for ${emailLower}`);
           await supabaseAdmin.from('profiles').delete().eq('id', orphaned.id);
         }
@@ -97,7 +119,7 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
         
         if (neoError) {
           console.error('[Auth API] Failed to create Super Admin:', neoError);
-          return res.status(404).json({ error: 'Usuário não encontrado e falha ao criar admin mestre.' });
+          return res.status(404).json({ error: 'Usuário não encontrado. O banco de dados Supabase pode não estar configurado corretamente (RLS ou tabelas ausentes). Verifique o console do servidor.' });
         }
         
         authUserId = neo.user?.id;
@@ -116,8 +138,12 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
   }
 
   // Get master email to check if we should skip password reset
-  const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
-  const masterEmail = settings?.admin_email?.toLowerCase() || 'gabrielchendes@gmail.com';
+  let masterEmail = 'gabrielchendes@gmail.com';
+  try {
+    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
+    if (settings?.admin_email) masterEmail = settings.admin_email.toLowerCase();
+  } catch (e) {}
+  
   const isMasterAdmin = emailLower === masterEmail || emailLower === 'gabrielchendes@gmail.com';
 
   // Only reset password to 'Wilson@2024' if NOT the master admin

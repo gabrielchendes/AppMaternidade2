@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Loader2, Key, ShieldAlert, MessageSquare, Phone, Smartphone } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, Key, ShieldAlert, MessageSquare, Smartphone } from 'lucide-react';
+import WhatsAppIcon from './WhatsAppIcon';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
@@ -322,12 +323,12 @@ export default function AuthForm() {
               <div className="flex flex-col gap-2">
                 {settings.support_whatsapp_login_enabled && settings.support_whatsapp && (
                   <a 
-                    href={`https://wa.me/${settings.support_whatsapp}`}
+                    href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-lg text-xs font-bold transition-all"
                   >
-                    <Phone size={14} /> {t('auth.whatsapp_label')}
+                    <WhatsAppIcon size={14} /> {t('auth.whatsapp_label')}
                   </a>
                 )}
                 {settings.support_email_login_enabled && settings.support_email && (
