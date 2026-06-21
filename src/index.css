@@ -62,6 +62,22 @@ body {
   contain-intrinsic-size: 0 500px;
 }
 
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-area-pt {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Glassmorphism utilities */
+.glass {
+  background: rgba(15, 15, 15, 0.7);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* Prevent auto-zoom on mobile inputs */
 @layer base {
   input, select, textarea {

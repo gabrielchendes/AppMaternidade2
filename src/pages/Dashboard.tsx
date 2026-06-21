@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo, lazy, Suspense, useRef } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
@@ -6,10 +6,13 @@ import BottomNav from '../components/BottomNav';
 import BannerCarousel from '../components/BannerCarousel';
 import Carousel from '../components/Carousel';
 import ProductCard from '../components/ProductCard';
+import CoursePurchaseModal from '../components/CoursePurchaseModal';
 import FloatingWhatsApp from '../components/FloatingWhatsApp';
+import SupportSection from '../components/SupportSection';
 import PWAInstallModal from '../components/PWAInstallModal';
 import PullToRefresh from '../components/PullToRefresh';
 import WhatsAppIcon from '../components/WhatsAppIcon';
+import SmartHomeHeader from '../components/SmartHomeHeader';
 import { getDeviceType, isPWAInstalled } from '../lib/pwa';
 import { toast } from 'sonner';
 import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone } from 'lucide-react';
@@ -20,72 +23,20 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
 import { dataCache } from '../lib/cache';
+import { cn } from '../lib/utils';
 
 // Lazy load heavy components
 const Profile = lazy(() => import('../components/Profile'));
 const Community = lazy(() => import('../components/Community'));
 const AdminPanel = lazy(() => import('../components/AdminPanel'));
 const CourseViewer = lazy(() => import('../components/CourseViewer'));
+const CoursePreviewViewer = lazy(() => import('../components/CoursePreviewViewer'));
 
 const ComponentLoader = () => (
   <div className="w-full py-20 flex items-center justify-center">
     <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
   </div>
 );
-
-const SupportSection = memo(({ page, settings, t }: { page: 'home' | 'community' | 'profile', settings: any, t: any }) => {
-  const whatsappEnabled = settings[`support_whatsapp_${page}_enabled` as keyof typeof settings] && settings.support_whatsapp;
-  const emailEnabled = settings[`support_email_${page}_enabled` as keyof typeof settings] && settings.support_email;
-
-  if (!whatsappEnabled && !emailEnabled) return null;
-
-  return (
-    <div className="px-6 md:px-12 pt-16 pb-24 max-w-4xl mx-auto">
-      <div className="relative group">
-        {/* Subtle animated glow */}
-        <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-white/10 to-primary/20 rounded-[3rem] blur-2xl opacity-40 group-hover:opacity-60 transition-opacity duration-500" />
-        
-        <div className="relative bg-zinc-900/40 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-8 md:p-12 flex flex-col items-center text-center gap-3 md:gap-8 overflow-hidden">
-          {/* Abstract geometric decoration */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -ml-32 -mb-32" />
-
-          <div className="relative space-y-2 md:space-y-3 max-w-2xl px-4">
-            <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter italic uppercase leading-none">
-              {settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
-            </h3>
-            <p className="text-zinc-400 text-sm md:text-base font-medium leading-relaxed">
-              {settings.custom_texts?.['auth.support_description'] || t('auth.support_description') || 'Nossa equipe está pronta para te ajudar com qualquer dúvida ou problema técnico.'}
-            </p>
-          </div>
-
-          <div className="relative flex flex-col items-center gap-3 md:gap-4 w-full sm:max-w-xs px-4">
-            {whatsappEnabled && settings.support_whatsapp && (
-              <a 
-                href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-green-500/20 shadow-2xl shadow-green-500/10 active:scale-[0.97] group/btn"
-              >
-                <WhatsAppIcon size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
-                {settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
-              </a>
-            )}
-            {emailEnabled && settings.support_email && (
-              <a 
-                href={`mailto:${settings.support_email}`}
-                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-primary/10 hover:bg-primary/20 text-primary rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-primary/20 shadow-2xl shadow-primary/10 active:scale-[0.97] group/btn"
-              >
-                <MailIcon size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
-                {settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 interface DashboardProps {
   user: User;
@@ -97,34 +48,52 @@ export default function Dashboard({ user }: DashboardProps) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseChapters, setCourseChapters] = useState<Record<string, string[]>>({});
   const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
-  const [purchases, setPurchases] = useState<string[]>([]);
+  const [purchases, setPurchases] = useState<{product_id: string, created_at: any}[]>([]);
   const [userProgress, setUserProgress] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
+  const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (['home', 'profile', 'community', 'admin'].includes(hash)) {
-      return hash as any;
-    }
+    try {
+      const hash = window.location.hash.replace('#', '');
+      if (['home', 'profile', 'community', 'admin'].includes(hash)) {
+        return hash as any;
+      }
+    } catch (e) {}
     return 'home';
   });
 
   const handleGlobalRefresh = async () => {
-    setRefreshKey(prev => prev + 1);
     if (activeTab === 'home') {
-      await fetchData();
+      await fetchData(true); // Force refresh from DB when switching to home
     }
+    setRefreshKey(prev => prev + 1);
     // Give a little extra feedback time
     await new Promise(resolve => setTimeout(resolve, 800));
   };
+
+  // Refresh data when closing course viewer
+  useEffect(() => {
+    if (!viewingCourseId && courses.length > 0) {
+      const cacheKey = `dashboard_data_${user.id}`;
+      dataCache.invalidate(cacheKey);
+      fetchData(true);
+    }
+  }, [viewingCourseId]);
 
   useEffect(() => {
     // Only update hash if it's not already correct to avoid unnecessary history changes
     if (window.location.hash !== `#${activeTab}`) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
+    
+    // If switching back to home, refresh progress
+    if (activeTab === 'home' && courses.length > 0) {
+       fetchData(true);
+    }
+
     // Always scroll to top when changing tabs
     window.scrollTo(0, 0);
   }, [activeTab]);
@@ -133,6 +102,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [canInstall, setCanInstall] = useState(!isPWAInstalled());
 
+  // Check installation status less frequently
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -142,14 +112,11 @@ export default function Dashboard({ user }: DashboardProps) {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     
-    // Check if actually installed
-    const checkInstallation = () => {
+    const interval = setInterval(() => {
       if (isPWAInstalled()) {
         setCanInstall(false);
       }
-    };
-    
-    const interval = setInterval(checkInstallation, 2000);
+    }, 10000);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -158,64 +125,91 @@ export default function Dashboard({ user }: DashboardProps) {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    let mounted = true;
     
-    // Preload banner images
+    const init = async () => {
+      if (mounted) {
+        await fetchData();
+      }
+    };
+
+    init();
+
+    // Subscribe to real-time progress updates
+    const channel = supabase
+      .channel(`user_progress_dashboard_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_progress',
+          filter: `user_id=eq.${user.id}`
+        },
+        async () => {
+          console.log('Real-time progress update detected');
+          // Invalidate cache and fetch only progress
+          const cacheKey = `dashboard_data_${user.id}`;
+          dataCache.invalidate(cacheKey);
+          
+          const { data: progressData } = await supabase
+            .from('user_progress')
+            .select('*')
+            .eq('user_id', user.id);
+            
+          if (mounted && progressData) {
+            setUserProgress(progressData);
+          }
+        }
+      )
+      .subscribe();
+    
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 8000);
+    
+    return () => {
+      mounted = false;
+      clearTimeout(safetyTimeout);
+      supabase.removeChannel(channel);
+    };
+  }, [user.id]);
+
+  useEffect(() => {
+    // Preload important assets
     if (settings.banner_images?.length) {
-      settings.banner_images.slice(0, 3).forEach((url: string) => {
+      settings.banner_images.slice(0, 2).forEach((url: string) => {
         const img = new Image();
         img.src = url;
       });
     }
 
-    // Check if we should show the welcome notification modal
-    const checkInitialNotifications = async () => {
+    // Low-friction registration check
+    const checkStatus = async () => {
       if (typeof window === 'undefined') return;
       
-      // If permission is already granted, refresh token
-      if ('Notification' in window && Notification.permission === 'granted') {
-        onForegroundMessage();
-        await requestNotificationPermission(user.id);
-        return;
-      }
+      onForegroundMessage();
 
-      // If default, show the modal right after login if not dismissed before
-      if ('Notification' in window && Notification.permission === 'default') {
-        const dismissed = localStorage.getItem(`push_modal_dismissed_${user.id}`);
-        if (!dismissed) {
-          // Delay slightly to ensure smooth entrance
-          setTimeout(() => setShowWelcomeModal(true), 500);
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          await requestNotificationPermission(user.id);
+        } else if (Notification.permission === 'default') {
+          const dismissed = localStorage.getItem(`push_modal_dismissed_${user.id}`);
+          if (!dismissed) {
+            setTimeout(() => setShowWelcomeModal(true), 2000);
+          }
         }
       }
     };
 
-    checkInitialNotifications();
+    checkStatus();
+  }, [user.id, settings.banner_images]);
 
-    // Low-friction registration check
-    const checkPushStatus = async () => {
-      if (typeof window === 'undefined' || !('Notification' in window)) return;
-      
-      // Always try to listen for foreground messages if supported
-      onForegroundMessage();
-
-      // If already granted, ensure token is saved/refreshed in Supabase
-      if (Notification.permission === 'granted') {
-        await requestNotificationPermission(user.id);
-      }
-    };
-
-    // Run once on load
-    checkPushStatus();
+  const fetchData = async (forceNoCache = false) => {
+    if (!user?.id) return;
     
-    // Optional: Re-check if user changes permission in browser settings
-    const interval = setInterval(checkPushStatus, 60000); // Check once per minute
-    return () => clearInterval(interval);
-  }, [user.id]);
-
-  const fetchData = async () => {
-    // Try to get from cache first
     const cacheKey = `dashboard_data_${user.id}`;
-    const cachedData = dataCache.get(cacheKey);
+    const cachedData = forceNoCache ? null : dataCache.get(cacheKey);
     
     if (cachedData) {
       setCourses(cachedData.courses);
@@ -224,23 +218,27 @@ export default function Dashboard({ user }: DashboardProps) {
       setCourseStats(cachedData.courseStats);
       setCourseChapters(cachedData.courseChapters);
       setLoading(false);
-      return;
     }
 
     try {
-      const [coursesRes, purchasesRes, progressRes, packagesRes] = await Promise.all([
+      const [coursesRes, purchasesRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
         supabase.from('courses').select('*').eq('is_active', true),
-        supabase.from('purchases').select('product_id').eq('user_id', user.id),
+        supabase.from('purchases').select('product_id, created_at').eq('user_id', user.id),
         supabase.from('user_progress').select('*').eq('user_id', user.id),
-        supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)')
+        supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)'),
+        supabase.from('chapters').select('id, content_type, modules!inner(course_id)')
       ]);
 
       if (coursesRes.error) throw coursesRes.error;
       if (purchasesRes.error) throw purchasesRes.error;
       if (progressRes.error) throw progressRes.error;
+      if (chaptersRes.error) throw chaptersRes.error;
 
-      const basePurchases = purchasesRes.data?.map(p => p.product_id) || [];
+      const basePurchases = purchasesRes.data || [];
+      const purchasedIds = basePurchases.map(p => p.product_id);
+      
       const unlockedByPackages = new Set<string>();
+      const packageUnlockDates: Record<string, string> = {}; 
       const courseToPackageCheckout: Record<string, string> = {};
 
       packagesRes.data?.forEach(pkg => {
@@ -252,29 +250,40 @@ export default function Dashboard({ user }: DashboardProps) {
           });
         }
 
-        if (pkg.hotmart_product_id && basePurchases.includes(pkg.hotmart_product_id)) {
+        const purchase = basePurchases.find(p => p.product_id === pkg.hotmart_product_id || p.product_id === pkg.id);
+        if (purchase) {
           pkg.package_courses?.forEach((pc: any) => {
             unlockedByPackages.add(pc.course_id);
+            packageUnlockDates[pc.course_id] = purchase.created_at;
           });
         }
       });
 
-      const processedCourses = coursesRes.data?.map(c => ({
-        ...c,
-        checkout_url: courseToPackageCheckout[c.id] || c.checkout_url
-      })) || [];
-      const allPurchases = [...basePurchases, ...Array.from(unlockedByPackages)];
+      const mainPrice = parseFloat(settings?.custom_texts?.['main_price'] || '0') || 0;
+      const mainCheckoutUrl = settings?.custom_texts?.['main_checkout_url'] || '';
 
-      setCourses(processedCourses);
-      setPurchases(allPurchases);
-      setUserProgress(progressRes.data || []);
+      const processedCourses = coursesRes.data?.map(c => {
+        const isMainCourse = c.is_free === true && c.is_bonus === false;
+        return {
+          ...c,
+          price: isMainCourse ? mainPrice : c.price,
+          checkout_url: isMainCourse ? mainCheckoutUrl : (courseToPackageCheckout[c.id] || c.checkout_url)
+        };
+      }) || [];
+      
+      // Combine base purchases with package-unlocked courses
+      const allPurchases = [...basePurchases];
+      Array.from(unlockedByPackages).forEach(id => {
+        if (!purchasedIds.includes(id)) {
+          allPurchases.push({ product_id: id, created_at: packageUnlockDates[id] });
+        }
+      });
 
-      const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
       let stats: Record<string, { lessons: number, materials: number }> = {};
       let chapterMap: Record<string, string[]> = {};
 
-      if (chaptersData) {
-        chaptersData.forEach((ch: any) => {
+      if (chaptersRes.data) {
+        chaptersRes.data.forEach((ch: any) => {
           const courseId = ch.modules.course_id;
           if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
           if (!chapterMap[courseId]) chapterMap[courseId] = [];
@@ -283,9 +292,13 @@ export default function Dashboard({ user }: DashboardProps) {
           if (ch.content_type === 'video') stats[courseId].lessons++;
           else stats[courseId].materials++;
         });
-        setCourseStats(stats);
-        setCourseChapters(chapterMap);
       }
+
+      setCourses(processedCourses);
+      setPurchases(allPurchases);
+      setUserProgress(progressRes.data || []);
+      setCourseStats(stats);
+      setCourseChapters(chapterMap);
 
       // Save to cache
       dataCache.set(cacheKey, {
@@ -312,11 +325,56 @@ export default function Dashboard({ user }: DashboardProps) {
   };
 
   const isUnlocked = useCallback((course: Course) => {
-    return course.is_free || course.is_bonus || purchases.includes(course.id);
-  }, [purchases]);
+    // 0. Administrador tem acesso mestre/liberado a todos os cursos
+    const isAdmin = user?.email && (
+      (settings?.admin_email && user.email.toLowerCase() === settings.admin_email.toLowerCase()) ||
+      user.email.toLowerCase() === 'gabrielchendes@gmail.com'
+    );
+    if (isAdmin) return true;
+
+    // 1. If it has a direct purchase or is part of an owned package, it's unlocked
+    if (purchases.some(p => p.product_id === course.id)) return true;
+
+    // 2. If a course is a Main Product (is_free = true, is_bonus = false)
+    const isMainCourse = course.is_free === true && course.is_bonus === false;
+    if (isMainCourse) {
+      const mainProductId = settings?.main_course_hotmart_id || settings?.custom_texts?.['main_product_id'];
+      
+      const mainCourseIds = courses
+        .filter(c => c.is_free === true && c.is_bonus === false)
+        .map(c => c.id);
+        
+      const hasMainPurchase = purchases.some(p => 
+        mainCourseIds.includes(p.product_id) || 
+        (mainProductId && p.product_id === mainProductId)
+      );
+
+      if (mainProductId) {
+        return hasMainPurchase;
+      }
+      return true;
+    }
+
+    // 3. If it's exclusive to package, it's ONLY unlocked if owned (handled by purchases check above)
+    if (course.is_package_exclusive_bonus) return false;
+
+    // 4. If it's marked as free, it's unlocked (standard free courses)
+    if (course.is_free) return true;
+    
+    // 5. If it's a general bonus course (not exclusive), it's usually unlocked for everyone
+    if (course.is_bonus) return true;
+
+    return false;
+  }, [purchases, settings, courses, user]);
 
   const handleOpenCourse = useCallback(async (course: Course) => {
     if (isUnlocked(course)) {
+      // Update last viewed for the "Resume" button
+      localStorage.setItem(`last_viewed_${user.id}`, JSON.stringify({
+        courseId: course.id,
+        timestamp: Date.now()
+      }));
+
       // Check if the course has modules or chapters in the stats
       const hasContent = (courseStats[course.id]?.lessons || 0) + (courseStats[course.id]?.materials || 0) > 0;
       
@@ -356,11 +414,157 @@ export default function Dashboard({ user }: DashboardProps) {
     return Math.min(100, Math.round((completedCount / chaptersInCourse.length) * 100));
   }, [courseChapters, userProgress]);
 
-  const unlockedCourses = useMemo(() => courses.filter(p => isUnlocked(p) && !p.is_bonus), [courses, isUnlocked]);
-  const lockedCourses = useMemo(() => courses.filter(p => !isUnlocked(p)), [courses, isUnlocked]);
-  const bonusCourses = useMemo(() => courses.filter(p => p.is_bonus && isUnlocked(p)), [courses, isUnlocked]);
+  const unlockedCourses = useMemo(() => {
+    return courses.filter(p => isUnlocked(p) && !p.is_bonus);
+  }, [courses, isUnlocked]);
 
-  if (loading) {
+  const mainCourses = useMemo(() => {
+    const list = courses.filter(c => c.is_free === true && c.is_bonus === false);
+    return [...list].sort((a, b) => {
+      const orderA = a.order_index ?? 9999;
+      const orderB = b.order_index ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [courses]);
+
+  const paidCourses = useMemo(() => {
+    const list = courses.filter(c => c.is_free === false && c.is_bonus === false);
+    return [...list].sort((a, b) => {
+      const orderA = a.order_index ?? 9999;
+      const orderB = b.order_index ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [courses]);
+
+  const bonusCourses = useMemo(() => {
+    const list = courses.filter(p => p.is_bonus === true && isUnlocked(p));
+    return [...list].sort((a, b) => {
+      const orderA = a.order_index ?? 9999;
+      const orderB = b.order_index ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [courses, isUnlocked]);
+
+  const globalStats = useMemo(() => {
+    const allUnlocked = [...unlockedCourses, ...bonusCourses];
+    if (allUnlocked.length === 0) return { totalProgress: 0, lastCourse: undefined };
+
+    let totalChapters = 0;
+    let completedChapters = 0;
+    let lastActiveCourse: any = undefined;
+    let maxProgress = -1;
+
+    // Try to get from localStorage first
+    const lastViewedStr = localStorage.getItem(`last_viewed_${user.id}`);
+    if (lastViewedStr) {
+      try {
+        const lastViewed = JSON.parse(lastViewedStr);
+        const course = allUnlocked.find(c => c.id === lastViewed.courseId);
+        if (course) {
+           const progress = getCourseProgress(course.id);
+           if (progress < 100) {
+             lastActiveCourse = {
+               id: course.id,
+               title: course.title,
+               cover_url: course.cover_url,
+               progress: Math.round(progress)
+             };
+           }
+        }
+      } catch (e) {}
+    }
+
+    allUnlocked.forEach(course => {
+      try {
+        const chapters = courseChapters[course.id] || [];
+        totalChapters += chapters.length;
+        
+        const compCount = userProgress.filter(p => 
+          p && p.completed && chapters.includes(p.chapter_id)
+        ).length;
+        
+        completedChapters += compCount;
+        const progress = chapters.length > 0 ? (compCount / chapters.length) * 100 : 0;
+        
+        // Use highest progress that is not completed as "Continue watching"
+        if (progress > 0 && progress < 100 && progress > maxProgress) {
+          maxProgress = progress;
+          lastActiveCourse = {
+            id: course.id,
+            title: course.title,
+            cover_url: course.cover_url,
+            progress: Math.round(progress)
+          };
+        }
+      } catch (err) {
+        console.warn('Error calculating stats for course:', course.id, err);
+      }
+    });
+
+    // Fallback if none are in progress
+    if (!lastActiveCourse && allUnlocked.length > 0) {
+      const firstNotCompleted = allUnlocked.find(c => {
+         const p = getCourseProgress(c.id);
+         return p < 100;
+      });
+      if (firstNotCompleted) {
+        lastActiveCourse = {
+          id: firstNotCompleted.id,
+          title: firstNotCompleted.title,
+          cover_url: firstNotCompleted.cover_url,
+          progress: getCourseProgress(firstNotCompleted.id)
+        };
+      }
+    }
+
+    const totalProgress = totalChapters > 0 ? Math.round((completedChapters / totalChapters) * 100) : 0;
+    
+    return { totalProgress, lastCourse: lastActiveCourse };
+  }, [unlockedCourses, bonusCourses, courseChapters, userProgress]);
+
+  const lastProgressRef = useRef<number>(globalStats.totalProgress);
+
+  // Track milestones and show "Parabéns"
+  useEffect(() => {
+    // Check if progress actually increased
+    const hasIncreased = globalStats.totalProgress > lastProgressRef.current;
+    lastProgressRef.current = globalStats.totalProgress;
+
+    if (!hasIncreased || globalStats.totalProgress <= 0) return;
+
+    const storageKey = `milestone_celebrated_${user.id}`;
+    const celebratedMilestones = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    
+    // Milestones are 25, 50, 75, 100
+    const currentMilestone = [25, 50, 75, 100].reverse().find(m => globalStats.totalProgress >= m);
+
+    if (currentMilestone && !celebratedMilestones.includes(currentMilestone)) {
+      // Save to persistent localStorage so it never repeats for this user
+      celebratedMilestones.push(currentMilestone);
+      localStorage.setItem(storageKey, JSON.stringify(celebratedMilestones));
+      
+      const messages = {
+        25: settings.custom_texts?.['celebration.25'] || t('celebration.25') || "🔥 Parabéns! Você já conquistou 25% do conteúdo! Continue assim!",
+        50: settings.custom_texts?.['celebration.50'] || t('celebration.50') || "⭐ Sensacional! Metade do caminho já foi! O topo está próximo!",
+        75: settings.custom_texts?.['celebration.75'] || t('celebration.75') || "🚀 Impressionante! 75% concluído. Você é pura determinação!",
+        100: settings.custom_texts?.['celebration.100'] || t('celebration.100') || "🏆 LENDÁRIO! 100% CONCLUÍDO! Você dominou todo o conteúdo! Parabéns!"
+      };
+
+      toast.success(messages[currentMilestone as keyof typeof messages] || `Incrível! Você alcançou ${currentMilestone}% de progresso!`, {
+        duration: 5000,
+        icon: currentMilestone === 100 ? '🏆' : '✨',
+        position: 'top-center'
+      });
+    }
+  }, [globalStats.totalProgress, user.id]);
+
+  // Full-screen loading only if we have NO data at all
+  const hasCoursesLoaded = courses.length > 0;
+  
+  if (loading && !hasCoursesLoaded) {
     return (
       <div className="min-h-screen bg-bg-main flex items-center justify-center">
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -441,272 +645,180 @@ export default function Dashboard({ user }: DashboardProps) {
         onInstall={() => setShowPWAInstall(true)}
       />
 
-      {getDeviceType() === 'desktop' ? (
-        <>
-          {activeTab === 'home' ? (
-            <>
-              {/* Banner Section */}
-              <div className="w-full pb-8">
-                <BannerCarousel 
-                  images={(settings.banner_images || [])} 
-                  interval={settings.banner_interval || 5000} 
-                  config={(settings.banner_config || [])}
-                />
-              </div>
+      {/* Tab Content and Transitions */}
+      <div className={cn(
+               "w-full pb-32",
+               activeTab !== 'home' ? "pt-20 min-h-screen" : "min-h-screen"
+             )}>
+            {activeTab === 'home' ? (
+              <PullToRefresh onRefresh={handleGlobalRefresh}>
+                <div className="flex flex-col">
+                  {/* Banner Section */}
+                  <div className="w-full">
+                    <BannerCarousel 
+                      images={(settings.banner_sync !== false) 
+                        ? (settings.banner_images || []) 
+                        : (getDeviceType() === 'desktop' ? (settings.banner_images || []) : (settings.banner_images_mobile || settings.banner_images || []))
+                      } 
+                      interval={settings.banner_interval || 5000} 
+                      config={(settings.banner_sync !== false)
+                        ? (settings.banner_config || [])
+                        : (getDeviceType() === 'desktop' ? (settings.banner_config || []) : (settings.banner_config_mobile || settings.banner_config || []))
+                      }
+                    />
+                  </div>
 
-              {/* Content Sections */}
-              <div className="relative z-10 space-y-12 pb-20">
-                <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Meus Cursos  📚'}>
-                  {unlockedCourses.length > 0 ? (
-                    unlockedCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={true}
-                        progress={getCourseProgress(course.id)}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))
-                  ) : (
-                    <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
-                      <Book size={32} className="mb-4 opacity-20" />
-                      <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
-                    </div>
-                  )}
-                </Carousel>
+                  {/* Gamification Header */}
+                  <div className="mt-4">
+                    <SmartHomeHeader 
+                      totalProgress={globalStats.totalProgress} 
+                      lastCourse={globalStats.lastCourse}
+                      onContinueCourse={(course) => handleOpenCourse(course as any)}
+                      settings={settings}
+                      t={t}
+                    />
+                  </div>
 
-                {bonusCourses.length > 0 && (
-                  <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Meus Bônus  🎁'}>
-                    {bonusCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={true}
-                        progress={getCourseProgress(course.id)}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))}
-                  </Carousel>
-                )}
+                  {/* Content Sections */}
+                  <div className="relative z-10 space-y-4 mt-4">
+                    <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Sua Jornada Principal  🔥'}>
+                      {mainCourses.length > 0 ? (
+                        mainCourses.map(course => (
+                          <ProductCard
+                            key={course.id + refreshKey}
+                            product={course}
+                            isUnlocked={isUnlocked(course)}
+                            progress={getCourseProgress(course.id)}
+                            stats={courseStats[course.id]}
+                            settings={settings}
+                            onOpen={handleOpenCourse}
+                          />
+                        ))
+                      ) : (
+                        <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
+                          <Book size={32} className="mb-4 opacity-20" />
+                          <p className="font-bold text-xs uppercase tracking-widest text-center px-4">
+                            {settings.custom_texts?.['dashboard.empty_locked'] || t('dashboard.empty_locked') || 'Você ainda não possui cursos liberados.'}
+                          </p>
+                        </div>
+                      )}
+                    </Carousel>
 
-                <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
-                  {lockedCourses.length > 0 ? (
-                    lockedCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={false}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))
-                  ) : (
-                    <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
-                      <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
-                    </div>
-                  )}
-                </Carousel>
+                    {bonusCourses.length > 0 && (
+                      <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Prêmios & Bônus Exclusivos  🎁'}>
+                        {bonusCourses.map(course => (
+                          <ProductCard
+                            key={course.id + refreshKey}
+                            product={course}
+                            isUnlocked={true}
+                            progress={getCourseProgress(course.id)}
+                            stats={courseStats[course.id]}
+                            settings={settings}
+                            onOpen={handleOpenCourse}
+                          />
+                        ))}
+                      </Carousel>
+                    )}
 
-                <SupportSection page="home" settings={settings} t={t} />
-              </div>
-            </>
-          ) : activeTab === 'community' ? (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <Community user={user} />
-              </Suspense>
-              <SupportSection page="community" settings={settings} t={t} />
-            </div>
-          ) : activeTab === 'admin' ? (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <AdminPanel user={user} />
-              </Suspense>
-            </div>
-          ) : (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <Profile user={user} />
-              </Suspense>
-              <SupportSection page="profile" settings={settings} t={t} />
-            </div>
-          )}
-        </>
-      ) : (
-        <PullToRefresh onRefresh={handleGlobalRefresh}>
-          {activeTab === 'home' ? (
-            <>
-              {/* Banner Section */}
-              <div className="w-full pb-8">
-                <BannerCarousel 
-                  images={(settings.banner_sync !== false) 
-                    ? (settings.banner_images || []) 
-                    : (getDeviceType() !== 'desktop' ? (settings.banner_images_mobile || settings.banner_images || []) : (settings.banner_images || []))
-                  } 
-                  interval={settings.banner_interval || 5000} 
-                  config={(settings.banner_sync !== false)
-                    ? (settings.banner_config || [])
-                    : (getDeviceType() !== 'desktop' ? (settings.banner_config_mobile || settings.banner_config || []) : (settings.banner_config || []))
-                  }
-                />
-              </div>
+                    <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
+                      {paidCourses.length > 0 ? (
+                        paidCourses.map(course => (
+                          <ProductCard
+                            key={course.id + refreshKey}
+                            product={course}
+                            isUnlocked={isUnlocked(course)}
+                            progress={getCourseProgress(course.id)}
+                            stats={courseStats[course.id]}
+                            settings={settings}
+                            onOpen={handleOpenCourse}
+                          />
+                        ))
+                      ) : (
+                        <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                          <p className="font-bold text-center px-4">{settings.custom_texts?.['dashboard.empty_all_unlocked'] || t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
+                        </div>
+                      )}
+                    </Carousel>
 
-              {/* Content Sections */}
-              <div className="relative z-10 space-y-12 pb-20">
-                <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Meus Cursos  📚'}>
-                  {unlockedCourses.length > 0 ? (
-                    unlockedCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={true}
-                        progress={getCourseProgress(course.id)}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))
-                  ) : (
-                    <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
-                      <Book size={32} className="mb-4 opacity-20" />
-                      <p className="font-bold text-xs uppercase tracking-widest">{t('dashboard.empty_locked') || 'Em breve novos conteúdos'}</p>
-                    </div>
-                  )}
-                </Carousel>
+                    <SupportSection page="home" settings={settings} t={t} />
+                  </div>
+                </div>
+              </PullToRefresh>
+            ) : activeTab === 'community' ? (
+                <>
+                  <Suspense fallback={<ComponentLoader />}>
+                    <Community key={`community-${refreshKey}`} user={user} />
+                  </Suspense>
+                  <SupportSection page="community" settings={settings} t={t} />
+                </>
+              ) : activeTab === 'admin' ? (
+                <Suspense fallback={<ComponentLoader />}>
+                  <AdminPanel key={`admin-${refreshKey}`} user={user} />
+                </Suspense>
+              ) : (
+                <>
+                  <Suspense fallback={<ComponentLoader />}>
+                    <Profile 
+                      key={`profile-${refreshKey}`} 
+                      user={user} 
+                      canInstall={canInstall}
+                      onInstall={() => setShowPWAInstall(true)}
+                    />
+                  </Suspense>
+                  <SupportSection page="profile" settings={settings} t={t} />
+                </>
+              )}
+      </div>
 
-                {bonusCourses.length > 0 && (
-                  <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Meus Bônus  🎁'}>
-                    {bonusCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={true}
-                        progress={getCourseProgress(course.id)}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))}
-                  </Carousel>
-                )}
+      <CoursePurchaseModal
+        isOpen={!!selectedCourse}
+        onClose={() => setSelectedCourse(null)}
+        title={selectedCourse?.title || ''}
+        subtitle={selectedCourse?.subtitle}
+        description={selectedCourse?.description || ''}
+        image={selectedCourse?.premium_cover_url || selectedCourse?.cover_url || ''}
+        price={selectedCourse?.price || 0}
+        oldPrice={selectedCourse?.old_price}
+        benefits={selectedCourse?.benefits}
+        ctaText={selectedCourse?.cta_text}
+        previewEnabled={selectedCourse?.preview_enabled}
+        previewUrl={selectedCourse?.preview_url}
+        previewText={selectedCourse?.preview_text}
+        socialProof={selectedCourse?.social_proof}
+        showLifetimeBadge={selectedCourse?.show_lifetime_badge}
+        premiumBadgeText={selectedCourse?.premium_badge_text}
+        offerBadgeText={selectedCourse?.offer_badge_text}
+        lifetimeBadgeText={selectedCourse?.lifetime_badge_text}
+        paymentLabelText={selectedCourse?.payment_label_text}
+        securePaymentLabel={selectedCourse?.secure_payment_label}
+        instantAccessLabel={selectedCourse?.instant_access_label}
+        onPurchase={handleSimulatePurchase}
+        onPreview={() => {
+          if (selectedCourse) {
+            setPreviewCourse(selectedCourse);
+          }
+        }}
+      />
 
-                <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
-                  {lockedCourses.length > 0 ? (
-                    lockedCourses.map(course => (
-                      <ProductCard
-                        key={course.id}
-                        product={course}
-                        isUnlocked={false}
-                        stats={courseStats[course.id]}
-                        onOpen={handleOpenCourse}
-                      />
-                    ))
-                  ) : (
-                    <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
-                      <p className="font-bold">{t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
-                    </div>
-                  )}
-                </Carousel>
-
-                <SupportSection page="home" settings={settings} t={t} />
-              </div>
-            </>
-          ) : activeTab === 'community' ? (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <Community key={`community-${refreshKey}`} user={user} />
-              </Suspense>
-              <SupportSection page="community" settings={settings} t={t} />
-            </div>
-          ) : activeTab === 'admin' ? (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <AdminPanel key={`admin-${refreshKey}`} user={user} />
-              </Suspense>
-            </div>
-          ) : (
-            <div className="pt-24">
-              <Suspense fallback={<ComponentLoader />}>
-                <Profile key={`profile-${refreshKey}`} user={user} />
-              </Suspense>
-              <SupportSection page="profile" settings={settings} t={t} />
-            </div>
-          )}
-        </PullToRefresh>
-      )}
-
-      {/* Course Detail / Purchase Modal */}
+      {/* Improved Course Preview Experience */}
       <AnimatePresence>
-        {selectedCourse && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedCourse(null)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-md"
+        {previewCourse && (
+          <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[310] backdrop-blur-md"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+            <CoursePreviewViewer 
+              course={previewCourse} 
+              onClose={() => setPreviewCourse(null)}
+              onPurchase={() => {
+                setPreviewCourse(null);
+                // handleSimulatePurchase uses selectedCourse, but we can call it directly if we ensure it's still set
+                // or just handle it here Since we are in the dashboard, we know handleSimulatePurchase exists
+                if (previewCourse.checkout_url) {
+                  window.location.href = previewCourse.checkout_url;
+                } else {
+                  toast.error(t('course.purchase_unavailable') || 'Este curso ainda não possui um link de compra configurado.');
+                }
+              }}
             />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-5xl bg-zinc-900 rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
-            >
-              <button
-                onClick={() => setSelectedCourse(null)}
-                className="absolute top-6 right-6 z-10 p-3 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"
-              >
-                <X size={24} />
-              </button>
-
-              <div className="grid md:grid-cols-2">
-                <div className="aspect-video md:aspect-auto relative">
-                  <img
-                    src={selectedCourse.cover_url || `https://picsum.photos/seed/${selectedCourse.id}/1200/800`}
-                    className="w-full h-full object-cover"
-                    alt={selectedCourse.title}
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-transparent to-transparent md:hidden" />
-                </div>
-
-                <div className="p-10 md:p-14 flex flex-col gap-8">
-          <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-primary font-black text-[10px] tracking-[0.2em] uppercase">
-                      <Star size={12} className="fill-primary" /> {t('course.premium_content') || 'CONTEÚDO PREMIUM'}
-                    </div>
-                    <h2 className="text-4xl md:text-5xl font-black leading-[0.9] text-white">{selectedCourse.title}</h2>
-                    <div className="flex items-center gap-4">
-                      <div className="text-3xl font-black text-white">
-                        R$ {(selectedCourse.price / 100).toFixed(2).replace('.', ',')}
-                      </div>
-                      <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-black text-gray-500 uppercase tracking-widest border border-white/10">
-                        {t('course.lifetime_access') || 'Acesso Vitalício'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="text-gray-400 leading-relaxed text-lg font-medium">
-                    {selectedCourse.description || t('course.default_description') || 'Este conteúdo exclusivo oferece insights valiosos e ferramentas práticas para sua jornada na maternidade.'}
-                  </p>
-
-                  <div className="mt-auto pt-8 border-t border-white/5 space-y-6">
-                    <button
-                      onClick={handleSimulatePurchase}
-                      className="w-full bg-primary hover:bg-primary-hover text-white font-black py-5 rounded-2xl flex items-center justify-center gap-3 shadow-2xl shadow-primary/30 transition-all active:scale-[0.98]"
-                    >
-                      <ShoppingBag size={24} />
-                      {t('course.unlock_button') || 'LIBERAR ACESSO AGORA'}
-                    </button>
-                    <p className="text-center text-[10px] text-gray-600 font-bold uppercase tracking-widest">
-                      {t('course.secure_payment') || 'Pagamento 100% Seguro • Acesso Imediato'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+          </Suspense>
         )}
       </AnimatePresence>
 

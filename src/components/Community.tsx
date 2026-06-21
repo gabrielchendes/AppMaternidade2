@@ -29,6 +29,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const POSTS_PER_PAGE = 15;
   const [sending, setSending] = useState(false);
   const [likedPosts, setLikedPosts] = useState<string[]>([]);
+  const [processingLikes, setProcessingLikes] = useState<Set<string>>(new Set());
   const [expandedComments, setExpandedComments] = useState<string[]>([]);
   const [comments, setComments] = useState<Record<string, PostComment[]>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
@@ -500,31 +501,36 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const handleLike = async (postId: string) => {
     const isLiked = likedPosts.includes(postId);
     
-    // 1. Optimistic Update (Immediate UI feedback)
-    if (isLiked) {
-      setLikedPosts(prev => prev.filter(id => id !== postId));
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: Math.max(0, (p.likes_count || 0) - 1) } : p));
-    } else {
-      setLikedPosts(prev => [...prev, postId]);
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: (p.likes_count || 0) + 1 } : p));
-    }
+    if (processingLikes.has(postId)) return;
+    setProcessingLikes(prev => new Set(prev).add(postId));
+
+    // 2. Optimistic Update (Immediate UI feedback)
+    setLikedPosts(prev => isLiked ? prev.filter(id => id !== postId) : [...prev, postId]);
+    setPosts(prev => prev.map(p => {
+      if (p.id === postId) {
+        const count = p.likes_count || 0;
+        return { ...p, likes_count: isLiked ? Math.max(0, count - 1) : count + 1 };
+      }
+      return p;
+    }));
 
     try {
       if (isLiked) {
-        console.log('🔎 Query Supabase: post_likes (delete)');
-        const { error } = await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
-        if (error) throw error;
+        await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
       } else {
-        console.log('🔎 Query Supabase: post_likes (insert)');
-        const { error } = await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
-        if (error) throw error;
+        await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
       }
-      // Realtime listener triggers updates for everyone else
     } catch (error) {
       console.error('Error toggling like:', error);
-      // Revert optimistic update only on error
       fetchUserLikes();
-      setPosts(prev => prev.map(p => p.id === postId ? { ...p } : p)); // Force re-render/refetch logic if needed
+    } finally {
+      setTimeout(() => {
+        setProcessingLikes(prev => {
+          const next = new Set(prev);
+          next.delete(postId);
+          return next;
+        });
+      }, 400);
     }
   };
 
@@ -1065,7 +1071,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
             {loadingMore ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                {t('global.loading') || 'Carregando...'}
+                {t('community.loading_posts') || 'Carregando publicações...'}
               </>
             ) : (
               t('community.load_more') || 'Ver mais publicações'

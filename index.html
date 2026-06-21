@@ -22,10 +22,58 @@
         }
       })();
     </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Maternidade Premium</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.json" />
+    <script>
+      (function() {
+        try {
+          var cached = localStorage.getItem('app_settings_cache');
+          if (cached) {
+            var settings = JSON.parse(cached);
+            if (settings) {
+              if (settings.app_name) {
+                document.title = settings.app_name;
+              }
+              if (settings.favicon_url) {
+                var link = document.querySelector("link[rel~='icon']");
+                if (link) {
+                  link.href = settings.favicon_url;
+                  if (!settings.favicon_url.split('?')[0].endsWith('.svg')) {
+                    link.removeAttribute('type');
+                  }
+                }
+              }
+              if (settings.pwa_icon_url) {
+                var appleLink = document.querySelector("link[rel='apple-touch-icon']");
+                if (appleLink) {
+                  appleLink.href = settings.pwa_icon_url;
+                } else {
+                  appleLink = document.createElement('link');
+                  appleLink.rel = 'apple-touch-icon';
+                  appleLink.href = settings.pwa_icon_url;
+                  document.head.appendChild(appleLink);
+                }
+              }
+              if (settings.primary_color) {
+                document.documentElement.style.setProperty('--primary', settings.primary_color);
+              }
+              if (settings.secondary_color) {
+                document.documentElement.style.setProperty('--primary-hover', settings.secondary_color);
+              }
+              if (settings.background_color) {
+                document.documentElement.style.setProperty('--bg-main', settings.background_color);
+              }
+            }
+          }
+        } catch(e) {
+          console.error('Failed to load cached theme:', e);
+        }
+      })();
+    </script>
     <meta name="theme-color" content="#0f0f0f" />
   </head>
   <body>

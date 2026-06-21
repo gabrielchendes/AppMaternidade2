@@ -1,9 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey || supabaseAnonKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
@@ -29,6 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case 'login-verify':
         return await handleLoginVerify(req, res);
       case 'user-magic-link':
+      case 'generate-magic-link':
         return await handleMagicLink(req, res);
       case 'user-password-set':
         return await handlePasswordSet(req, res);
@@ -146,9 +149,9 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
   
   const isMasterAdmin = emailLower === masterEmail || emailLower === 'gabrielchendes@gmail.com';
 
-  // Only reset password to 'Wilson@2024' if NOT the master admin
+  // Only reset password to '123456' if NOT the master admin
   // This allows the master admin to use the custom password they set in the panel
-  const tempPassword = 'Wilson@2024';
+  const tempPassword = '123456';
   
   if (!isMasterAdmin) {
     try {
@@ -164,18 +167,48 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({ 
     success: true, 
     tempPassword: isMasterAdmin ? undefined : tempPassword, 
-    message: isMasterAdmin ? 'Admin verificado' : 'Usuário verificado e senha temporária configurada' 
+    message: isMasterAdmin ? 'Admin verificado' : 'Usuário verificado e senha padrão configurada' 
   });
 }
 
 async function handleMagicLink(req: VercelRequest, res: VercelResponse) {
   const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'E-mail é obrigatório' });
+
+  // Determine dynamic base URL for redirection after login
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  let baseUrl = process.env.VITE_APP_URL || process.env.APP_URL;
+
+  // Try to get custom app URL from settings
+  try {
+    const { data: settings } = await supabaseAdmin.from('app_settings').select('app_url').eq('id', 1).single();
+    if (settings?.app_url) {
+      baseUrl = settings.app_url;
+    }
+  } catch (e) {}
+
+  if (!baseUrl && host) {
+    baseUrl = `https://${host}`;
+  }
+
+  if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+    baseUrl = 'https://app-maternidade2.vercel.app';
+  }
+
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const redirectUrl = `${cleanBaseUrl}/dashboard`;
+
   const { data, error } = await supabaseAdmin.auth.admin.generateLink({
     type: 'magiclink',
     email,
-    options: { redirectTo: process.env.VITE_APP_URL || 'https://ais-dev-ou4p52mfs5visl6qplallm-404064243999.us-east1.run.app' }
+    options: { redirectTo: redirectUrl }
   });
-  if (error) throw error;
+  
+  if (error) {
+    console.error('[Auth API] Error generating magic link:', error);
+    throw error;
+  }
+  
   return res.status(200).json({ success: true, link: data.properties?.action_link });
 }
 
@@ -184,11 +217,18 @@ async function handlePasswordSet(req: VercelRequest, res: VercelResponse) {
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   const token = authHeader.split(' ')[1];
   
-  const { data: { user }, error: authError } = await createClient(supabaseUrl, process.env.VITE_SUPABASE_ANON_KEY || supabaseServiceRoleKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } }
-  }).auth.getUser();
-
-  if (authError || !user) return res.status(401).json({ error: 'Falha na autenticação' });
+  const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+  
+  if (authError || !user) {
+    if (authError) {
+      console.error('[Auth API] auth.getUser error:', {
+        message: authError.message,
+        status: authError.status,
+        token_preview: token.substring(0, 10) + '...'
+      });
+    }
+    return res.status(401).json({ error: 'Falha na autenticação' });
+  }
 
   const { password, newPassword } = req.body;
   const targetPassword = password || newPassword;

@@ -19,9 +19,15 @@ export const isPWAInstalled = (): boolean => {
 };
 
 export const getPWADismissed = (): boolean => {
-  return localStorage.getItem('pwa_install_dismissed') === 'true';
+  try {
+    return localStorage.getItem('pwa_install_dismissed') === 'true';
+  } catch (e) {
+    return false;
+  }
 };
 
 export const setPWADismissed = (value: boolean) => {
-  localStorage.setItem('pwa_install_dismissed', value.toString());
+  try {
+    localStorage.setItem('pwa_install_dismissed', value.toString());
+  } catch (e) {}
 };

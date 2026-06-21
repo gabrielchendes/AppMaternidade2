@@ -1,9 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl) console.error('[Admin API] SUPABASE_URL is missing');
+if (!supabaseServiceRoleKey) console.warn('[Admin API] SUPABASE_SERVICE_ROLE_KEY is missing');
+
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey || supabaseAnonKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
@@ -36,15 +41,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const token = authHeader.split(' ')[1];
-    const { data: { user }, error: authError } = await createClient(supabaseUrl, process.env.VITE_SUPABASE_ANON_KEY || supabaseServiceRoleKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } }
-    }).auth.getUser();
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     
-    if (authError || !user) throw new Error('Falha na autenticação');
+    if (authError || !user) {
+      if (authError) {
+        const urlHost = new URL(supabaseUrl).hostname;
+        console.error('[Admin API] auth.getUser error:', {
+          message: authError.message,
+          status: authError.status,
+          token_preview: token.substring(0, 10) + '...',
+          url_host: urlHost,
+          issuer_check: token.includes('fhnmplthlongdfnzbj') ? 'Match' : 'Mismatch?' 
+        });
+      }
+      throw new Error('Falha na autenticação');
+    }
 
     // Admin Verification (Double Check)
     const { data: profile } = await supabaseAdmin.from('profiles').select('email, is_admin').eq('id', user.id).single();
-    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
+    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email, app_url').eq('id', 1).single();
     
     const isHardcodedAdmin = user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
     const isSuperAdmin = (settings?.admin_email && user.email?.toLowerCase() === settings.admin_email.toLowerCase()) || isHardcodedAdmin;
@@ -62,10 +77,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handleUserDelete(req, res, id || req.query.id as string);
       case 'user-access-toggle':
         return await handleAccessToggle(req, res);
+      case 'user-password-change':
+        return await handleUserPasswordChange(req, res);
       case 'grant-access':
         return await handleGrantAccess(req, res);
-      case 'generate-permanent-link':
-        return await handleGeneratePermanentLink(req, res);
       case 'purchases-list':
         return await handlePurchases(req, res);
       case 'update-settings':
@@ -118,14 +133,81 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
 
 async function handleUserCreate(req: VercelRequest, res: VercelResponse) {
   const { email, password, fullName, phone } = req.body;
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email, password, email_confirm: true, user_metadata: { full_name: fullName, phone }
-  });
-  if (error) throw error;
-  if (data.user) {
-    await supabaseAdmin.from('profiles').upsert({ id: data.user.id, email, full_name: fullName, phone });
+  
+  if (!email) return res.status(400).json({ error: 'E-mail é obrigatório' });
+  
+  const emailLower = email.toLowerCase().trim();
+  const defaultPassword = password || '123456';
+
+  try {
+    // 1. Check if user already exists in Auth
+    const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    if (listError) throw listError;
+    
+    const existingUser = (usersData?.users as any[])?.find((u: any) => u.email?.toLowerCase() === emailLower);
+    
+    if (existingUser) {
+      return res.status(400).json({ 
+        error: 'Este e-mail já está cadastrado no sistema.',
+        details: 'user_exists'
+      });
+    }
+
+    // 2. Aggressive cleanup of any orphaned data that could cause trigger failure
+    // Delete by email and also check if there's any user with that email in profiles
+    const { data: existingProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('email', emailLower)
+      .maybeSingle();
+
+    if (existingProfile) {
+      console.log(`[Admin API] Deleting existing profile for ${emailLower} before creation`);
+      await supabaseAdmin.from('profiles').delete().eq('id', existingProfile.id);
+    }
+
+    // 3. Create Auth User
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: emailLower, 
+      password: defaultPassword, 
+      email_confirm: true, 
+      user_metadata: { 
+        full_name: fullName, 
+        phone, 
+        temp_password: defaultPassword 
+      }
+    });
+
+    if (error) {
+      console.error('[Admin API] Create user error:', error);
+      // Give more specific feedback for database errors
+      if (error.message.includes('Database error')) {
+        return res.status(400).json({ 
+          error: 'Erro no Banco de Dados: O e-mail pode estar vinculado a um registro excluído recentemente. Tente novamente em alguns segundos.',
+          details: error.message
+        });
+      }
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (data.user) {
+      // 4. Force Profile (Wait a bit for trigger then upsert to be safe)
+      // Small delay helps the trigger complete its work
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      await supabaseAdmin.from('profiles').upsert({ 
+        id: data.user.id, 
+        email: emailLower, 
+        full_name: fullName, 
+        phone 
+      }, { onConflict: 'email' });
+    }
+
+    return res.status(200).json({ success: true, user: data.user });
+  } catch (err: any) {
+    console.error('[Admin API] Unexpected error in user creation:', err);
+    return res.status(500).json({ error: 'Erro interno ao criar usuário: ' + (err.message || 'Erro desconhecido') });
   }
-  return res.status(200).json({ success: true, user: data.user });
 }
 
 async function handleUserDelete(req: VercelRequest, res: VercelResponse, id: string) {
@@ -136,25 +218,252 @@ async function handleUserDelete(req: VercelRequest, res: VercelResponse, id: str
   return res.status(200).json({ success: true });
 }
 
+async function handleUserPasswordChange(req: VercelRequest, res: VercelResponse) {
+  const { userId, newPassword } = req.body;
+  if (!userId || !newPassword) return res.status(400).json({ error: 'ID do usuário e nova senha são obrigatórios' });
+  
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, { 
+    password: newPassword,
+    user_metadata: { temp_password: newPassword }
+  });
+  
+  if (error) throw error;
+  return res.status(200).json({ success: true });
+}
+
 async function handleAccessToggle(req: VercelRequest, res: VercelResponse) {
-  const { userId, hasAccess } = req.body;
+  const { userId, hasAccess, courseId, action } = req.body;
+  
   try {
-    const { error } = await supabaseAdmin.from('profiles').update({ has_access: hasAccess }).eq('id', userId);
-    if (error) {
-      // If column doesn't exist, we don't want to crash the whole admin panel
-      if (error.code === '42703') {
-        return res.status(200).json({ success: true, warning: 'Coluna has_access não existe no banco de dados. Por favor, execute o SQL em SUPABASE_SETUP.md' });
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    // If courseId and action are present, it's a specific course/package access toggle
+    if (courseId && action) {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(courseId);
+      
+      let targetCourseIds: string[] = [];
+      
+      if (isUUID) {
+        // If it's a UUID, it could be a course OR a package
+        targetCourseIds.push(courseId);
+        
+        const { data: pkgData } = await supabaseAdmin
+          .from('course_packages')
+          .select('id, package_courses(course_id)')
+          .eq('id', courseId)
+          .maybeSingle();
+
+        if (pkgData) {
+          const expandedIds = pkgData.package_courses?.map((pc: any) => pc.course_id) || [];
+          if (expandedIds.length > 0) {
+            targetCourseIds = [...new Set([courseId, ...expandedIds])];
+            console.log(`[Admin API] Expanding package ${courseId} to ${targetCourseIds.length} items`);
+          }
+        } else {
+          // Check if it's a course with a linked package
+          const { data: courseData } = await supabaseAdmin
+            .from('courses')
+            .select('linked_package_id')
+            .eq('id', courseId)
+            .maybeSingle();
+            
+          if (courseData?.linked_package_id) {
+            const { data: pData } = await supabaseAdmin.from('course_packages').select('id, package_courses(course_id)').eq('id', courseData.linked_package_id).maybeSingle();
+            if (pData) {
+               const pkgIds = pData.package_courses?.map((pc: any) => pc.course_id) || [];
+               targetCourseIds = [...new Set([pData.id, ...pkgIds])];
+               console.log(`[Admin API] UUID matches course with linked package ${pData.id}, expanding to ${targetCourseIds.length} items`);
+            }
+          }
+        }
+      } else {
+        // If not a UUID, it's definitely a Hotmart ID or invalid
+        const { data: pkgData } = await supabaseAdmin
+          .from('course_packages')
+          .select('id, package_courses(course_id)')
+          .eq('hotmart_product_id', courseId)
+          .maybeSingle();
+          
+        if (pkgData) {
+          const expandedIds = pkgData.package_courses?.map((pc: any) => pc.course_id) || [];
+          targetCourseIds = [...new Set([pkgData.id, ...expandedIds])];
+          console.log(`[Admin API] Found package by hotmart ID ${courseId}, expanded to ${targetCourseIds.length} items (excluding non-UUID)`);
+        } else {
+          const { data: courseData } = await supabaseAdmin
+            .from('courses')
+            .select('id, linked_package_id')
+            .eq('hotmart_product_id', courseId)
+            .maybeSingle();
+            
+          if (courseData) {
+            targetCourseIds = [courseData.id];
+            console.log(`[Admin API] Found course by hotmart ID ${courseId}: ${courseData.id}`);
+            
+            // Check for linked package
+            if (courseData.linked_package_id) {
+              const { data: pData } = await supabaseAdmin.from('course_packages').select('id, package_courses(course_id)').eq('id', courseData.linked_package_id).maybeSingle();
+              if (pData) {
+                 const pkgIds = pData.package_courses?.map((pc: any) => pc.course_id) || [];
+                 targetCourseIds = [...new Set([pData.id, ...pkgIds])];
+                 console.log(`[Admin API] Course has linked package ${pData.id}, expanding to ${targetCourseIds.length} items`);
+              }
+            }
+          }
+        }
       }
-      throw error;
+
+      if (targetCourseIds.length === 0 && !isUUID) {
+        return res.status(400).json({ error: 'Produto não encontrado ou ID inválido' });
+      } else if (targetCourseIds.length === 0 && isUUID) {
+        targetCourseIds = [courseId];
+      }
+
+      const results = [];
+      console.log(`[Admin API] Starting toggle for userId: ${userId}, targetCourseIds: ${JSON.stringify(targetCourseIds)}`);
+
+      for (const cid of targetCourseIds) {
+        // Skip if not a UUID at this point (prevents DB errors)
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cid)) {
+          console.warn(`[Admin API] Skipping CID ${cid} because it is not a valid UUID`);
+          results.push({ id: cid, status: 'error', error: 'Internal Error: Resolved ID is not a UUID' });
+          continue;
+        }
+
+        if (action === 'grant') {
+          const transactionId = `manual_${Date.now()}_${cid.substring(0, 8)}`;
+          
+          const { data: existing, error: checkError } = await supabaseAdmin
+            .from('purchases')
+            .select('product_id')
+            .match({ user_id: userId, product_id: cid })
+            .maybeSingle();
+
+          if (checkError) {
+            console.error(`[Admin API] CheckError for user ${userId}, product ${cid}:`, checkError);
+            results.push({ id: cid, status: 'error', error: checkError.message, code: checkError.code });
+            continue;
+          }
+
+          if (existing) {
+            results.push({ id: cid, status: 'already_exists' });
+            continue;
+          }
+
+          console.log(`[Admin API] Inserting purchase for user ${userId}, product ${cid}`);
+          
+          // Reusable Grant Function with nested fallbacks
+          const grantWithFallbacks = async (idToGrant: string) => {
+            // Attempt 1: Full insert
+            const { error: e1 } = await supabaseAdmin.from('purchases').insert({
+              user_id: userId,
+              product_id: idToGrant,
+              transaction_id: transactionId,
+              is_manual: true
+            });
+
+            if (!e1) return { status: 'granted' };
+            
+            // If Code 23503: FK Constraint. Check if it's a known package
+            if (e1.code === '23503') {
+              const { data: pkgById } = await supabaseAdmin.from('course_packages').select('id').eq('id', idToGrant).maybeSingle();
+              const { data: pkgByHotmart } = pkgById ? {data: null} : await supabaseAdmin.from('course_packages').select('id').eq('hotmart_product_id', idToGrant).maybeSingle();
+              if (pkgById || pkgByHotmart) {
+                // If it's a package, expansion happened earlier, so it's "fine" that the package record itself fails if FK is strict
+                return { status: 'skipped_package_fk', info: 'Package record not saved due to database restriction (FK), but its courses were processed.' };
+              }
+              console.warn(`[Admin API] FK Error for ${idToGrant}: ${e1.message}`);
+              return { status: 'error', error: `Produto ${idToGrant} não encontrado no banco de dados.`, code: e1.code };
+            }
+
+            // If Column missing errors (42703 or PGRST204) - Silence these as they are handled by fallbacks
+            if (e1.code === '42703' || e1.code === 'PGRST204') {
+              // Attempt 2: Remove transaction_id
+              const { error: e2 } = await supabaseAdmin.from('purchases').insert({
+                user_id: userId,
+                product_id: idToGrant,
+                is_manual: true
+              });
+              if (!e2) return { status: 'granted_minimal' };
+
+              // Attempt 3: Remove is_manual
+              const { error: e3 } = await supabaseAdmin.from('purchases').insert({
+                user_id: userId,
+                product_id: idToGrant
+              });
+              if (!e3) return { status: 'granted_minimal' };
+              
+              return { status: 'error', error: e3.message, code: e3.code };
+            }
+
+            console.error(`[Admin API] Grant failed for ${idToGrant}:`, e1);
+            return { status: 'error', error: e1.message, code: e1.code };
+          };
+
+          const grantResult = await grantWithFallbacks(cid);
+          results.push({ id: cid, ...grantResult });
+
+        } else if (action === 'revoke') {
+          console.log(`[Admin API] Revoking purchase for user ${userId}, product ${cid}`);
+          const { error: deleteError } = await supabaseAdmin
+            .from('purchases')
+            .delete()
+            .match({ user_id: userId, product_id: cid });
+          
+          if (deleteError) {
+            console.error(`[Admin API] DeleteError for user ${userId}, product ${cid}:`, deleteError);
+            results.push({ id: cid, status: 'error', error: deleteError.message });
+          } else {
+            results.push({ id: cid, status: 'revoked' });
+          }
+        }
+      }
+      
+      const hasAnySuccess = results.some(r => {
+        const s = r.status;
+        return (typeof s === 'string' && s.includes('granted')) || 
+               s === 'revoked' || 
+               s === 'already_exists' ||
+               s === 'skipped_package_fk' ||
+               s === 'granted_minimal';
+      });
+      console.log(`[Admin API] Toggle results: ${JSON.stringify(results)}, hasAnySuccess: ${hasAnySuccess}`);
+      
+      if (!hasAnySuccess && targetCourseIds.length > 0) {
+        // Find the first real error to report
+        const firstError = results.find(r => r.status === 'error');
+        const errorMsg = firstError ? firstError.error : 'Não foi possível alterar o acesso para nenhum dos itens.';
+        
+        return res.status(400).json({ 
+          error: errorMsg,
+          details: results
+        });
+      }
+      
+      return res.status(200).json({ success: true, results });
+    }
+
+    // Default to profile global access toggle if course params are missing
+    const { error: updateError } = await supabaseAdmin.from('profiles').update({ has_access: hasAccess }).eq('id', userId);
+    if (updateError) {
+      // If column doesn't exist, we don't want to crash the whole admin panel
+      if (updateError.code === '42703') {
+        return res.status(200).json({ success: true, warning: 'Coluna has_access não existe no banco de dados.' });
+      }
+      throw updateError;
     }
     return res.status(200).json({ success: true });
   } catch (err: any) {
-    console.error('[Admin API] Toggle access error details:', {
+    console.error('[Admin API] Toggle access unexpected error:', {
       message: err.message,
       code: err.code,
-      details: err.details
+      details: err.details,
+      hint: err.hint,
+      context: { userId, courseId, action }
     });
-    return res.status(200).json({ success: true, warning: err.message });
+    return res.status(500).json({ 
+      error: err.message || 'Erro interno ao alterar acesso',
+      details: err.details || null
+    });
   }
 }
 
@@ -165,69 +474,51 @@ async function handleGrantAccess(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handlePurchases(req: VercelRequest, res: VercelResponse) {
-  const { data, error } = await supabaseAdmin.from('purchases').select('*, profiles(email, full_name)').order('created_at', { ascending: false });
-  if (error && error.code !== '42P01') throw error;
-  return res.status(200).json(data || []);
-}
-
-async function handleGeneratePermanentLink(req: VercelRequest, res: VercelResponse) {
-  const { userId, email } = req.body;
+  const userId = req.query.userId as string;
   
-  let targetId = userId;
-  if (!targetId && email) {
-    const { data: userList, error: listError } = await supabaseAdmin.auth.admin.listUsers();
-    if (listError) throw listError;
-    const targetUser = userList?.users?.find((u: any) => u.email?.toLowerCase() === (email as string).toLowerCase());
-    if (targetUser) targetId = targetUser.id;
-  }
-
-  if (!targetId) return res.status(404).json({ error: 'Usuário não encontrado' });
-
-  // Generate a long random token
-  const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-  
-  // Try to clean up existing tokens for this user first to be safe if UNIQUE isn't set
   try {
-    await supabaseAdmin.from('magic_login_tokens').delete().eq('user_id', targetId);
-  } catch (e) {
-    console.warn('[Admin API] Failed to cleanup old tokens, maybe table missing?', e);
-  }
-
-  const { error } = await supabaseAdmin
-    .from('magic_login_tokens')
-    .insert({
-      user_id: targetId,
-      token,
-      active: true,
-      created_at: new Date().toISOString()
-    });
-
-  if (error) {
-    console.error('[Admin API] Error inserting magic token:', error);
-    // If table is missing, give a helpful hint
-    if (error.code === '42P01') {
-      return res.status(500).json({ 
-        error: 'Tabela magic_login_tokens não existe no banco de dados. Por favor, execute o SQL em SUPABASE_SETUP.md' 
-      });
+    // 1. Fetch purchases first (optional filter by userId)
+    let qBase = supabaseAdmin.from('purchases').select('*');
+    if (userId) {
+      qBase = qBase.eq('user_id', userId);
     }
-    throw error;
+    
+    const { data: purchases, error: pError } = await qBase.order('created_at', { ascending: false });
+    if (pError) throw pError;
+    if (!purchases || purchases.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // 2. Extract unique user/product IDs for targeted sub-queries
+    const userIds = Array.from(new Set(purchases.map(p => p.user_id).filter(Boolean)));
+    const productIds = Array.from(new Set(purchases.map(p => p.product_id).filter(Boolean)));
+
+    // 3. Fetch matching profiles, courses, and packages in parallel
+    const [profilesRes, coursesRes, packagesRes] = await Promise.all([
+      userIds.length > 0
+        ? supabaseAdmin.from('profiles').select('id, email, full_name').in('id', userIds)
+        : Promise.resolve({ data: [] }),
+      productIds.length > 0
+        ? supabaseAdmin.from('courses').select('id, title, price').in('id', productIds)
+        : Promise.resolve({ data: [] }),
+      productIds.length > 0
+        ? supabaseAdmin.from('course_packages').select('id, title, price').in('id', productIds)
+        : Promise.resolve({ data: [] })
+    ]);
+
+    // 4. Enrich purchases with fetched data
+    const enriched = purchases.map(p => ({
+      ...p,
+      profiles: profilesRes.data?.find(prof => prof.id === p.user_id) || null,
+      courses: coursesRes.data?.find(c => c.id === p.product_id) || null,
+      course_packages: packagesRes.data?.find(pkg => pkg.id === p.product_id) || null
+    }));
+
+    return res.status(200).json(enriched);
+  } catch (err: any) {
+    console.error('[Admin API] All purchase list retrieval routines failed:', err);
+    return res.status(500).json({ error: err.message || 'Erro ao carregar lista de vendas' });
   }
-
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  let baseUrl = process.env.VITE_APP_URL || process.env.APP_URL;
-
-  if (!baseUrl && host) {
-    baseUrl = `https://${host}`;
-  }
-
-  if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-    baseUrl = 'https://app-maternidade2.vercel.app';
-  }
-
-  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-  const link = `${cleanBaseUrl}/api/magic-login?t=${token}`;
-  
-  return res.status(200).json({ success: true, link });
 }
 
 async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
@@ -266,7 +557,7 @@ async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
       }
 
       console.log(`[Admin API] Creating new admin user: ${email}`);
-      const passwordToUse = adminPassword || 'Wilson@2024';
+      const passwordToUse = adminPassword || '123456';
       
       const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: email,
@@ -302,11 +593,7 @@ async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
           user_metadata: { ...existingUser.user_metadata, temp_password: adminPassword }
         });
         if (updateAuthError) {
-          console.error(`[Admin API] Error updating admin password details:`, {
-            message: (updateAuthError as any).message,
-            code: (updateAuthError as any).code,
-            details: (updateAuthError as any).details
-          });
+          console.error(`[Admin API] Error updating admin password details:`, updateAuthError);
         }
       }
       

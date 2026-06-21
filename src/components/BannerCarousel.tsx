@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -8,7 +8,7 @@ interface BannerCarouselProps {
   config?: Array<{ scale: number, x: number, y: number, stretch?: boolean, link?: string }>;
 }
 
-export default function BannerCarousel({ images, interval = 5000, config = [] }: BannerCarouselProps) {
+const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCarouselProps) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState(0);
 
@@ -90,7 +90,7 @@ export default function BannerCarousel({ images, interval = 5000, config = [] }:
   };
 
   return (
-    <div className="relative w-full h-[60vh] md:h-[70vh] overflow-hidden bg-bg-main">
+    <div className="relative w-full h-[40vh] md:h-[60vh] overflow-hidden bg-bg-main">
       <div className="absolute inset-0">
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
@@ -156,4 +156,6 @@ export default function BannerCarousel({ images, interval = 5000, config = [] }:
 
     </div>
   );
-}
+});
+
+export default BannerCarousel;

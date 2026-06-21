@@ -7,7 +7,8 @@ import {
   Plus, 
   Trash2, 
   Search,
-  Check
+  Check,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -22,6 +23,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
+  const [price, setPrice] = useState(0);
   const [hotmartId, setHotmartId] = useState('');
   const [checkoutUrl, setCheckoutUrl] = useState('');
   const [description, setDescription] = useState('');
@@ -46,6 +48,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
       if (error) throw error;
 
       setTitle(data.title);
+      setPrice(data.price || 0);
       setHotmartId(data.hotmart_product_id || '');
       setCheckoutUrl(data.hotmart_checkout_url || '');
       setDescription(data.description || '');
@@ -67,15 +70,18 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
     try {
       let id = packageId;
 
+      const payload = { 
+        title, 
+        price,
+        hotmart_product_id: hotmartId,
+        hotmart_checkout_url: checkoutUrl,
+        description 
+      };
+
       if (!id) {
         const { data, error } = await supabase
           .from('course_packages')
-          .insert({ 
-            title, 
-            hotmart_product_id: hotmartId,
-            hotmart_checkout_url: checkoutUrl,
-            description 
-          })
+          .insert(payload)
           .select()
           .single();
 
@@ -84,12 +90,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
       } else {
         const { error } = await supabase
           .from('course_packages')
-          .update({ 
-            title, 
-            hotmart_product_id: hotmartId,
-            hotmart_checkout_url: checkoutUrl,
-            description 
-          })
+          .update(payload)
           .eq('id', id);
 
         if (error) throw error;
@@ -134,7 +135,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
   };
 
   const filteredCourses = courses.filter(c => 
-    c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    !c.is_free && c.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (loading) {
@@ -179,6 +180,20 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
                   onChange={e => setTitle(e.target.value)}
                   className="w-full bg-black/50 border border-white/10 rounded-2xl px-6 py-4 text-white focus:border-blue-500 outline-none transition-all font-bold"
                   placeholder="Ex: Formação Maternidade Premium"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Preço do Pacote (R$)</label>
+                <input 
+                  type="text" 
+                  value={(price / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  onChange={e => {
+                    const val = parseInt(e.target.value.replace(/\D/g, '')) || 0;
+                    setPrice(val);
+                  }}
+                  className="w-full bg-black/50 border border-white/10 rounded-2xl px-6 py-4 text-white focus:border-blue-500 outline-none transition-all font-bold text-center"
+                  placeholder="0,00"
                 />
               </div>
 
@@ -256,8 +271,13 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
                       <h4 className={`text-xs font-bold leading-tight ${isSelected ? 'text-white' : 'text-gray-400'}`}>
                         {course.title}
                       </h4>
-                      <p className="text-[10px] text-gray-600 font-black uppercase mt-1">
+                      <p className="text-[10px] text-gray-600 font-black uppercase mt-1 flex items-center gap-1.5">
                         {course.is_free ? '💎 Produto Principal' : course.is_bonus ? '🎁 BÔNUS' : '💳 PAGO'}
+                        {course.is_package_exclusive_bonus && (
+                          <span className={`inline-flex items-center justify-center ${course.is_bonus ? 'bg-purple-600 border-purple-400/50' : 'bg-emerald-600 border-emerald-400/50'} p-0.5 rounded border text-[8px] text-white font-bold leading-none`} title="Liberado via Pacote">
+                            <Lock size={8} className="text-white" />
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center border ${

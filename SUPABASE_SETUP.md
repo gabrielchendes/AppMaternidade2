@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     logo_url TEXT,
     favicon_url TEXT,
     pwa_icon_url TEXT,
+    ga4_tag_id TEXT,
     support_whatsapp TEXT DEFAULT '5500000000000',
     support_email TEXT DEFAULT 'suporte@seudominio.com',
     support_whatsapp_message TEXT DEFAULT 'Olá, gostaria de tirar uma dúvida sobre o curso.',
@@ -35,9 +36,9 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     support_whatsapp_enabled BOOLEAN DEFAULT true,
     support_email_enabled BOOLEAN DEFAULT true,
     support_whatsapp_floating_enabled BOOLEAN DEFAULT true,
-    support_whatsapp_floating_enabled BOOLEAN DEFAULT true,
     support_whatsapp_floating_community_enabled BOOLEAN DEFAULT true,
     support_whatsapp_floating_profile_enabled BOOLEAN DEFAULT true,
+    support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true,
     support_whatsapp_home_enabled BOOLEAN DEFAULT true,
     support_email_home_enabled BOOLEAN DEFAULT true,
     support_whatsapp_community_enabled BOOLEAN DEFAULT true,
@@ -50,9 +51,11 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     support_email_app_enabled BOOLEAN DEFAULT true,
     support_whatsapp_course_enabled BOOLEAN DEFAULT true,
     support_email_course_enabled BOOLEAN DEFAULT true,
-    support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true,
     login_display_type TEXT DEFAULT 'title',
     login_install_button_pulsing TEXT DEFAULT 'pulsing',
+    logo_height INTEGER DEFAULT 64,
+    course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false,
+    app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app',
     custom_texts JSONB DEFAULT '{
         "auth.welcome": "Bem-vinda de volta!",
         "auth.subtitle": "Acesse sua área exclusiva para mamães",
@@ -119,9 +122,39 @@ CREATE TABLE IF NOT EXISTS public.courses (
     is_active BOOLEAN DEFAULT true,
     category TEXT,
     pdf_url TEXT,
+    subtitle TEXT,
+    old_price INTEGER DEFAULT 0,
+    benefits TEXT[] DEFAULT '{}'::text[],
+    cta_text TEXT,
+    preview_url TEXT,
+    preview_text TEXT,
+    preview_enabled BOOLEAN DEFAULT false,
+    premium_badge_text TEXT,
+    offer_badge_text TEXT,
+    social_proof TEXT,
+    show_lifetime_badge BOOLEAN DEFAULT true,
+    lifetime_badge_text TEXT,
+    payment_label_text TEXT,
+    secure_payment_label TEXT,
+    instant_access_label TEXT,
+    preview_rating TEXT,
+    preview_students_label TEXT,
+    preview_guarantee_label TEXT,
+    preview_support_vip_label TEXT,
+    preview_bonus_title TEXT,
+    preview_title TEXT,
+    preview_subtitle TEXT,
+    preview_show_social_proof BOOLEAN DEFAULT true,
+    preview_show_bonus BOOLEAN DEFAULT true,
+    preview_show_trust BOOLEAN DEFAULT true,
+    preview_support_type TEXT DEFAULT 'floating',
     checkout_url TEXT,
     hotmart_product_id TEXT,
+    premium_cover_url TEXT,
+    order_index INTEGER DEFAULT 0,
     tenant_id TEXT DEFAULT 'default',
+    linked_package_id UUID REFERENCES public.course_packages(id) ON DELETE SET NULL,
+    is_package_exclusive BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -141,9 +174,12 @@ CREATE TABLE IF NOT EXISTS public.chapters (
     module_id UUID REFERENCES public.modules(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     description TEXT,
-    content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text')),
+    content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text', 'link')),
     video_url TEXT,
     pdf_url TEXT,
+    button_link_text TEXT,
+    button_link_url TEXT,
+    button_link_color TEXT,
     cover_url TEXT,
     rich_text TEXT,
     duration_minutes INTEGER DEFAULT 0,
@@ -301,6 +337,7 @@ FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TABLE IF NOT EXISTS public.course_packages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
+    price INTEGER DEFAULT 0,
     hotmart_product_id TEXT,
     hotmart_checkout_url TEXT,
     description TEXT,
@@ -607,56 +644,85 @@ CREATE POLICY "Apenas admin pode fazer upload" ON storage.objects FOR INSERT WIT
 DROP POLICY IF EXISTS "Apenas admin pode deletar" ON storage.objects;
 CREATE POLICY "Apenas admin pode deletar" ON storage.objects FOR DELETE USING (bucket_id IN ('course_content', 'course_covers') AND public.is_admin());
 
--- ATUALIZAÇÃO: Adicionar coluna login_install_button_pulsing
--- Execute este comando se você já tiver a tabela app_settings
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
+-- ATUALIZAÇÃO: Adicionar/Corrigir colunas em app_settings
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS main_course_hotmart_id TEXT;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing TEXT DEFAULT 'pulsing';
+ALTER TABLE public.app_settings ALTER COLUMN login_install_button_pulsing TYPE TEXT USING (CASE WHEN login_install_button_pulsing::text = 'true' THEN 'pulsing' WHEN login_install_button_pulsing::text = 'false' THEN 'static' ELSE login_install_button_pulsing::text END);
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS logo_height INTEGER DEFAULT 64;
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false;
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app';
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_images_mobile TEXT[] DEFAULT '{}'::text[];
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config_mobile JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_sync BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS admin_email TEXT DEFAULT 'gabrielchendes@gmail.com';
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS support_whatsapp_floating_community_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS support_whatsapp_floating_profile_enabled BOOLEAN DEFAULT true;
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS support_whatsapp_floating_course_enabled BOOLEAN DEFAULT true;
 
--- Tabela para Links de Acesso Permanente (Magic Links Eternos)
-CREATE TABLE IF NOT EXISTS public.permanent_access_tokens (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_email TEXT NOT NULL,
-    token TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    created_by UUID REFERENCES auth.users(id)
-);
+-- ATUALIZAÇÃO DO MODAL PREMIUM (Execute para adicionar novos campos de venda)
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS subtitle TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS old_price INTEGER DEFAULT 0;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS benefits TEXT[] DEFAULT '{}'::text[];
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS cta_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_enabled BOOLEAN DEFAULT false;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS premium_cover_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS premium_badge_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS offer_badge_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS social_proof TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS show_lifetime_badge BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS lifetime_badge_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS payment_label_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS secure_payment_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS instant_access_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_rating TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_students_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_guarantee_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_support_vip_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_bonus_title TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_title TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_subtitle TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_social_proof BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_bonus BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_trust BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_support_type TEXT DEFAULT 'floating';
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_type TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_link_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_link_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_link_color TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_video_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_pdf_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_rich_text TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_modules_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_students_tag TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_risk_zero_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_support_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_guarantee_title TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_guarantee_subtitle TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_guarantee_description TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_footer_cta TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_rating TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_students_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_guarantee_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_support_vip_label TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_social_proof BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_bonus BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_trust BOOLEAN DEFAULT true;
 
--- Habilitar RLS
-ALTER TABLE public.permanent_access_tokens ENABLE ROW LEVEL SECURITY;
+-- ATUALIZAÇÃO DE CAPÍTULOS (Botões de Link)
+ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_text TEXT;
+ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_url TEXT;
+ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_color TEXT DEFAULT '#10b981';
 
--- Apenas admins podem gerenciar links eternos
--- Remove a política se ela já existir para evitar o erro 42710
-DROP POLICY IF EXISTS "Admins can manage permanent tokens" ON public.permanent_access_tokens;
+-- Tabela para Links de Acesso Permanente (REMOVIDO)
+-- CREATE TABLE IF NOT EXISTS public.permanent_access_tokens ( ... );
 
-CREATE POLICY "Admins can manage permanent tokens" ON public.permanent_access_tokens
-    FOR ALL
-    TO authenticated
-    USING (public.is_admin());
+-- Tabela para Magic Login Permanente (REMOVIDO)
+-- CREATE TABLE IF NOT EXISTS public.magic_login_tokens ( ... );
 
--- 5. Adição de colunas extras para customização
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS login_install_button_pulsing BOOLEAN DEFAULT true;
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS logo_height INTEGER DEFAULT 64;
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false;
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app';
--- Tabela para Magic Login Permanente (Sistema Próprio)
-CREATE TABLE IF NOT EXISTS public.magic_login_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-    token TEXT UNIQUE NOT NULL,
-    active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    last_access_at TIMESTAMP WITH TIME ZONE
-);
-
-ALTER TABLE public.magic_login_tokens ENABLE ROW LEVEL SECURITY;
-
--- Remove a política se já existir para evitar erro 42710
-DROP POLICY IF EXISTS "Admins manage magic_login_tokens" ON public.magic_login_tokens;
-
-CREATE POLICY "Admins manage magic_login_tokens" ON public.magic_login_tokens
-    FOR ALL USING (public.is_admin());
 ```
 
 **Nota Importante:** No painel do Admin, certifique-se de configurar a "URL do APP" com `https://app-maternidade2.vercel.app` para que os links redirecionem corretamente após o login.

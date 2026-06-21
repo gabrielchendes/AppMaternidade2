@@ -4,21 +4,23 @@ import { useSettings } from '../contexts/SettingsContext';
 import WhatsAppIcon from './WhatsAppIcon';
 
 interface FloatingWhatsAppProps {
-  page: 'home' | 'community' | 'profile' | 'login' | 'course';
+  page: 'home' | 'community' | 'profile' | 'login' | 'course' | 'lesson' | 'preview';
 }
 
 export default function FloatingWhatsApp({ page }: FloatingWhatsAppProps) {
   const { settings } = useSettings();
 
   const isEnabled = () => {
-    switch (page) {
-      case 'home': return settings.support_whatsapp_floating_enabled;
-      case 'community': return settings.support_whatsapp_floating_community_enabled;
-      case 'profile': return settings.support_whatsapp_floating_profile_enabled;
-      case 'login': return true; // Always enabled on login if set up? Or maybe we need a setting.
-      case 'course': return settings.support_whatsapp_floating_course_enabled; // Assuming this exists or will be added.
-      default: return false;
-    }
+    if (page === 'login') return true;
+    
+    if (page === 'home') return settings.support_whatsapp_floating_enabled;
+    if (page === 'community') return settings.support_whatsapp_floating_community_enabled;
+    if (page === 'profile') return settings.support_whatsapp_floating_profile_enabled;
+    if (page === 'course') return settings.support_whatsapp_floating_course_enabled;
+    if (page === 'lesson') return settings.custom_texts?.['config.support_whatsapp_lesson_floating'] === 'true';
+    if (page === 'preview') return settings.custom_texts?.['config.support_whatsapp_preview_floating'] !== 'false';
+    
+    return false;
   };
 
   if (!isEnabled() || !settings.support_whatsapp) return null;

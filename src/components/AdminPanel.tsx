@@ -56,7 +56,12 @@ import {
   ExternalLink,
   Type,
   LogOut,
-  HelpCircle
+  HelpCircle,
+  Info,
+  Sparkles,
+  Package,
+  MousePointer2,
+  PlayCircle
 } from 'lucide-react';
 import WhatsAppIcon from './WhatsAppIcon';
 import { toast } from 'sonner';
@@ -125,7 +130,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions'>('packages');
-  const [activePageTab, setActivePageTab] = useState<'home' | 'community' | 'profile' | 'login' | 'nav' | 'course' | 'push' | 'pwa'>('home');
+  const [activePageTab, setActivePageTab] = useState<'home' | 'community' | 'profile' | 'login' | 'nav' | 'course' | 'lesson' | 'push' | 'pwa' | 'support'>('home');
   const [loading, setLoading] = useState(true);
   
   // Data states
@@ -169,6 +174,34 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [sendingAnswer, setSendingAnswer] = useState(false);
+
+  // Main Product Selling Config states
+  const [showMainProductModal, setShowMainProductModal] = useState(false);
+  const [mainProductIdInput, setMainProductIdInput] = useState('');
+  const [mainPriceInput, setMainPriceInput] = useState('');
+  const [mainCheckoutUrlInput, setMainCheckoutUrlInput] = useState('');
+  const [savingMainProduct, setSavingMainProduct] = useState(false);
+
+  const handleSaveMainProduct = async () => {
+    try {
+      setSavingMainProduct(true);
+      const newCustomTexts = {
+        ...settings.custom_texts,
+        main_product_id: mainProductIdInput.trim(),
+        main_price: mainPriceInput.trim(),
+        main_checkout_url: mainCheckoutUrlInput.trim(),
+      };
+      await updateSettings({ 
+        custom_texts: newCustomTexts,
+        main_course_hotmart_id: mainProductIdInput.trim()
+      });
+      setShowMainProductModal(false);
+    } catch (err: any) {
+      toast.error('Erro ao salvar as configurações: ' + err.message);
+    } finally {
+      setSavingMainProduct(false);
+    }
+  };
 
   const isAdminAuthorized = !settings?.admin_email || user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
 
@@ -230,10 +263,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
   const [updatingPassword, setUpdatingPassword] = useState(false);
 
+  // User detail states
+  const [userNewPassword, setUserNewPassword] = useState('');
+  const [isChangingUserPassword, setIsChangingUserPassword] = useState(false);
+
   // User management states
   const [showUserCreator, setShowUserCreator] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('123456');
   const [newUserName, setNewUserName] = useState('');
   const [newUserCountryCode, setNewUserCountryCode] = useState('55');
   const [newUserPhone, setNewUserPhone] = useState('');
@@ -264,7 +301,62 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [draftCustomTexts, setDraftCustomTexts] = useState<Record<string, string>>({});
   const [isSavingPages, setIsSavingPages] = useState(false);
 
-   const CourseAdminCard = ({ course, courseStats, setViewingCourseId, setEditingCourseId, setShowCourseEditor, onDelete }: any) => (
+  const handleMoveCourse = async (courseId: string, direction: 'up' | 'down') => {
+    // Determine the category of the course to move locally within its filter
+    const course = courses.find(c => c.id === courseId);
+    if (!course) return;
+
+    let categoryCourses: any[] = [];
+    if (course.is_bonus) {
+      categoryCourses = courses.filter(c => c.is_bonus);
+    } else if (course.is_free) {
+      categoryCourses = courses.filter(c => !c.is_bonus && c.is_free);
+    } else {
+      categoryCourses = courses.filter(c => !c.is_bonus && !c.is_free);
+    }
+
+    // Sort by order_index primarily
+    categoryCourses.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
+
+    const currentIndex = categoryCourses.findIndex(c => c.id === courseId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= categoryCourses.length) return;
+
+    // Swap locally
+    const updatedCategory = [...categoryCourses];
+    [updatedCategory[currentIndex], updatedCategory[targetIndex]] = [updatedCategory[targetIndex], updatedCategory[currentIndex]];
+
+    // Re-assign order_indexes for the whole category to be safe
+    const updates = updatedCategory.map((c, idx) => ({
+      ...c,
+      order_index: idx
+    }));
+
+    // Update state optimistically
+    const newCourses = courses.map(c => {
+      const update = updates.find(u => u.id === c.id);
+      return update ? { ...c, order_index: update.order_index } : c;
+    });
+    setCourses(newCourses);
+
+    try {
+      // Use a more robust upsert or just update individual rows to be safe
+      // but batch upsert with onConflict is definitely more efficient.
+      const { error } = await supabase
+        .from('courses')
+        .upsert(updates, { onConflict: 'id' });
+        
+      if (error) throw error;
+      toast.success('Ordem atualizada!');
+    } catch (err: any) {
+      toast.error('Erro ao salvar ordem: ' + err.message);
+      fetchData(); // Rollback
+    }
+  };
+
+   const CourseAdminCard = ({ course, courseStats, setViewingCourseId, setEditingCourseId, setShowCourseEditor, onDelete, onMove }: any) => (
     <div className="bg-zinc-900 border border-white/5 rounded-xl overflow-hidden group hover:border-blue-500/50 transition-all flex flex-col w-36 sm:w-44 shrink-0 shadow-2xl">
       <div className="relative aspect-[2/3] overflow-hidden shrink-0">
         {course.cover_url ? (
@@ -285,9 +377,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           <h4 className="font-black text-[10px] sm:text-xs text-white leading-tight line-clamp-2 drop-shadow-md uppercase italic">
             {course.title}
           </h4>
-          <p className="text-[8px] font-black text-blue-500 uppercase tracking-tighter drop-shadow-md">
+          <div className="text-[8px] font-black text-blue-500 uppercase tracking-tighter drop-shadow-md flex items-center gap-1">
             {course.is_bonus ? 'BÔNUS 🎁' : course.is_free ? 'PRODUTO PRINCIPAL 💎' : 'PREMIUM'}
-          </p>
+            {course.is_package_exclusive_bonus && (
+               <div className={`${course.is_bonus ? 'bg-purple-600' : 'bg-emerald-600'} p-0.5 rounded shadow-sm border ${course.is_bonus ? 'border-purple-400/50' : 'border-emerald-400/50'}`} title="Liberado via Pacote">
+                 <LockIcon size={8} className="text-white" />
+               </div>
+            )}
+          </div>
         </div>
 
         {/* Admin floating controls */}
@@ -314,18 +411,65 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             <Trash2 size={14} />
           </button>
         </div>
+
+        {/* Move arrows */}
+        <div className="absolute bottom-2 right-2 flex gap-1 opacity-100 transition-opacity">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onMove(course.id, 'up'); }}
+            className="p-1 sm:p-1.5 bg-black/60 hover:bg-blue-600 text-white rounded-lg backdrop-blur-md transition-all border border-white/20 shadow-xl"
+            title="Mover para esquerda"
+          >
+            <ChevronLeft size={16} strokeWidth={3} />
+          </button>
+          <button 
+            onClick={(e) => { e.stopPropagation(); onMove(course.id, 'down'); }}
+            className="p-1 sm:p-1.5 bg-black/60 hover:bg-blue-600 text-white rounded-lg backdrop-blur-md transition-all border border-white/20 shadow-xl"
+            title="Mover para direita"
+          >
+            <ChevronRight size={16} strokeWidth={3} />
+          </button>
+        </div>
       </div>
     </div>
   );
 
   useEffect(() => {
     if (settings && !localSettings) {
-      setLocalSettings(settings);
+      const initialLocal: any = { ...settings };
+      
+      // Mapeia os nomes do banco para os nomes usados no estado local da UI
+      initialLocal.support_whatsapp_home_floating = settings.support_whatsapp_floating_enabled;
+      initialLocal.support_type = settings.support_type || 'floating';
+      initialLocal.support_whatsapp_community_floating = settings.support_whatsapp_floating_community_enabled;
+      initialLocal.support_whatsapp_profile_floating = settings.support_whatsapp_floating_profile_enabled;
+      initialLocal.support_whatsapp_course_floating = settings.support_whatsapp_floating_course_enabled;
+
+      // Carrega configurações de aula do custom_texts
+      initialLocal.support_whatsapp_lesson_enabled = settings.custom_texts?.['config.support_whatsapp_lesson_enabled'] === 'true';
+      initialLocal.support_email_lesson_enabled = settings.custom_texts?.['config.support_email_lesson_enabled'] === 'true';
+      initialLocal.support_whatsapp_lesson_floating = settings.custom_texts?.['config.support_whatsapp_lesson_floating'] === 'true';
+
+      // Configurações da página de preview (padrão true se não definido)
+      initialLocal.support_whatsapp_preview_enabled = settings.custom_texts?.['config.support_whatsapp_preview_enabled'] !== 'false';
+      initialLocal.support_email_preview_enabled = settings.custom_texts?.['config.support_email_preview_enabled'] !== 'false';
+      initialLocal.support_whatsapp_preview_floating = settings.custom_texts?.['config.support_whatsapp_preview_floating'] !== 'false';
+
+      // Fallbacks para valores que podem estar nulos no banco mas que a UI espera como booleanos
+      initialLocal.support_whatsapp_home_enabled = settings.support_whatsapp_home_enabled ?? true;
+      initialLocal.support_email_home_enabled = settings.support_email_home_enabled ?? true;
+      initialLocal.support_whatsapp_community_enabled = settings.support_whatsapp_community_enabled ?? true;
+      initialLocal.support_email_community_enabled = settings.support_email_community_enabled ?? true;
+      initialLocal.support_whatsapp_profile_enabled = settings.support_whatsapp_profile_enabled ?? true;
+      initialLocal.support_email_profile_enabled = settings.support_email_profile_enabled ?? true;
+      initialLocal.support_whatsapp_course_enabled = settings.support_whatsapp_course_enabled ?? true;
+      initialLocal.support_email_course_enabled = settings.support_email_course_enabled ?? true;
+
+      setLocalSettings(initialLocal);
     }
     if (settings?.custom_texts && Object.keys(draftCustomTexts).length === 0) {
       setDraftCustomTexts(settings.custom_texts);
     }
-  }, [settings]);
+  }, [settings, localSettings]);
 
   useEffect(() => {
     fetchData();
@@ -336,14 +480,22 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     try {
       if (activeTab === 'users' || activeTab === 'courses' || activeTab === 'vendas' || activeTab === 'packages' || activeTab === 'questions') {
         const fetchCourses = async () => {
-          const { data: coursesData, error: coursesError } = await supabase
+          let response = await supabase
             .from('courses')
             .select('*')
-            .order('created_at', { ascending: false });
+            .order('order_index', { ascending: true });
           
-          if (coursesError) throw coursesError;
+          if (response.error && (response.error.code === '42703' || response.error.message?.includes('order_index'))) {
+            // Fallback if column doesn't exist
+            response = await supabase
+              .from('courses')
+              .select('*')
+              .order('created_at', { ascending: false });
+          }
+          
+          if (response.error) throw response.error;
 
-          setCourses(coursesData || []);
+          setCourses(response.data || []);
 
           // Fetch stats
           const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
@@ -475,7 +627,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           settings: {
             admin_email: localSettings?.admin_email,
             auth_method: localSettings?.auth_method,
-            app_url: localSettings?.app_url
+            app_url: localSettings?.app_url,
+            ga4_tag_id: localSettings?.ga4_tag_id
           },
           adminPassword: adminPassword || undefined
         })
@@ -507,6 +660,9 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         if (error.message?.includes('banner_config')) {
           throw new Error('A coluna "banner_config" não foi encontrada no banco de dados. Por favor, execute o script SQL de atualização em SUPABASE_SETUP.md no seu painel Supabase.');
         }
+        if (error.code === '22P02' && error.message?.includes('login_install_button_pulsing')) {
+          throw new Error('Erro de tipo na coluna "login_install_button_pulsing". O banco espera um Booleano mas recebeu um Texto. Por favor, execute o script SQL de atualização em SUPABASE_SETUP.md para converter a coluna para TEXT.');
+        }
         throw error;
       }
       toast.success('Configurações atualizadas!');
@@ -519,13 +675,24 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
   const fetchUserPurchases = async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('purchases')
-        .select('product_id')
-        .eq('user_id', userId);
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await safeFetch(`/api/v1/admin?action=purchases-list&userId=${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
       
-      if (error) throw error;
-      setUserPurchases(data.map(p => p.product_id));
+      if (response && Array.isArray(response)) {
+        setUserPurchases(response.map((p: any) => p.product_id));
+      } else {
+        // Fallback to client if API fails
+        const { data, error } = await supabase
+          .from('purchases')
+          .select('product_id')
+          .eq('user_id', userId);
+        if (error) throw error;
+        setUserPurchases(data.map(p => p.product_id));
+      }
     } catch (err) {
       console.error('Error fetching user purchases:', err);
     }
@@ -554,17 +721,33 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         setUserPurchases(prev => prev.filter(id => id !== courseId));
         toast.success('Acesso removido');
       } else {
-        setUserPurchases(prev => [...prev, courseId]);
+        setUserPurchases(prev => [...new Set([...prev, courseId])]);
         toast.success('Acesso liberado');
       }
+      // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
+      setTimeout(() => fetchUserPurchases(userId), 1000);
     } catch (err: any) {
       console.error('Toggle access error:', err);
       toast.error('Erro ao alterar acesso: ' + (err.message || 'Erro desconhecido'));
     }
   };
 
+  const hasPackageAccess = (pkg: any) => {
+    if (!pkg) return false;
+    // Check if direct package ID or hotmart ID is in purchases
+    if (userPurchases.includes(pkg.id) || (pkg.hotmart_product_id && userPurchases.includes(pkg.hotmart_product_id))) {
+      return true;
+    }
+    // Check if ALL courses in the package are in purchases
+    if (pkg.package_courses && pkg.package_courses.length > 0) {
+      return pkg.package_courses.every((pc: any) => userPurchases.includes(pc.course_id));
+    }
+    return false;
+  };
+
   const togglePackageAccess = async (userId: string, pkg: any, isUnlocked: boolean) => {
-    const productId = pkg.hotmart_product_id || pkg.id;
+    // ALWAYS use pkg.id (UUID) for internal API calls to ensure valid expansion in the backend
+    const productId = pkg.id; 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -587,9 +770,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         setUserPurchases(prev => prev.filter(id => id !== productId));
         toast.success('Pacote removido');
       } else {
-        setUserPurchases(prev => [...prev, productId]);
+        // When liberating a package locally, also unlock all its courses if we have the info
+        const expandedIds = pkg.package_courses?.map((pc: any) => pc.course_id) || [];
+        setUserPurchases(prev => [...new Set([...prev, productId, ...expandedIds])]);
         toast.success('Pacote liberado');
       }
+      // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
+      setTimeout(() => fetchUserPurchases(userId), 1000);
     } catch (err: any) {
       console.error('Toggle package access error:', err);
       toast.error('Erro ao alterar acesso do pacote: ' + (err.message || 'Erro desconhecido'));
@@ -676,36 +863,45 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
       if (response && response.link) {
         await navigator.clipboard.writeText(response.link);
-        toast.success('Link de acesso temporário gerado e copiado!', { id: toastId });
+        toast.success('MagicLink Temporário gerado e copiado!', { id: toastId });
       } else {
-        toast.error('Erro ao gerar link de acesso', { id: toastId });
+        const errorMsg = response?.error || 'Erro ao gerar link de acesso';
+        toast.error(errorMsg, { id: toastId });
       }
     } catch (err: any) {
       toast.error('Erro: ' + (err.message || 'Falha ao conectar com servidor'), { id: toastId });
     }
   };
 
-  const generatePermanentMagicLink = async (targetEmail: string) => {
-    const toastId = toast.loading('Gerando link eterno...');
+  const handleUpdateUserPassword = async () => {
+    if (!selectedUserForCourses || !userNewPassword) return;
+    
+    setIsChangingUserPassword(true);
+    const toastId = toast.loading('Alterando senha do usuário...');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await safeFetch('/api/v1/admin?action=generate-permanent-link', {
+      const response = await safeFetch('/api/v1/admin?action=user-password-change', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}` 
         },
-        body: JSON.stringify({ email: targetEmail })
+        body: JSON.stringify({ 
+          userId: selectedUserForCourses.id, 
+          newPassword: userNewPassword 
+        })
       });
 
-      if (response && response.link) {
-        await navigator.clipboard.writeText(response.link);
-        toast.success('Link de acesso ETERNO gerado e copiado!', { id: toastId });
+      if (response && response.success) {
+        toast.success('Senha do usuário alterada com sucesso!', { id: toastId });
+        setUserNewPassword('');
       } else {
-        toast.error('Erro ao gerar link eterno', { id: toastId });
+        toast.error('Erro ao alterar senha: ' + (response?.error || 'Erro desconhecido'), { id: toastId });
       }
     } catch (err: any) {
-      toast.error('Erro: ' + (err.message || 'Falha ao conectar com servidor'), { id: toastId });
+      toast.error('Erro: ' + err.message, { id: toastId });
+    } finally {
+      setIsChangingUserPassword(false);
     }
   };
 
@@ -959,7 +1155,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           />
           <SidebarItem 
             icon={<HelpCircle size={20} />} 
-            label={t('admin.questions_tab') || "Dúvidas"} 
+            label="Dúvidas" 
             active={activeTab === 'questions'} 
             onClick={() => { setActiveTab('questions'); setIsMobileMenuOpen(false); }} 
             badge={pendingQuestions.filter(q => !q.is_read_by_admin).length || undefined}
@@ -1031,7 +1227,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                activeTab === 'languages' ? 'Idiomas / Textos' :
                activeTab === 'settings' ? 'Configurações' :
                activeTab === 'security' ? 'Segurança' :
-               activeTab === 'questions' ? (t('admin.questions_tab') || 'Dúvidas') :
+               activeTab === 'questions' ? 'Dúvidas' :
                activeTab}
             </h2>
           </div>
@@ -1318,13 +1514,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   <td className="px-6 py-4 text-right pr-8">
                                     <div className="flex justify-end gap-2 text-right">
                                       <button 
-                                        onClick={() => generatePermanentMagicLink(u.email)}
-                                        className="p-2.5 bg-blue-600/10 hover:bg-blue-600 rounded-xl text-blue-500 hover:text-white transition-all flex items-center gap-2 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-600/5 hover:shadow-blue-600/20 active:scale-95"
-                                        title="Gerar Link de Acesso ETERNO"
-                                      >
-                                        <ShieldCheck size={14} /> Link Eterno
-                                      </button>
-                                      <button 
                                          onClick={() => {
                                            setSelectedUserForCourses(u);
                                            fetchUserPurchases(u.id);
@@ -1356,18 +1545,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             <div className="flex bg-zinc-900 border border-white/10 rounded-xl overflow-hidden p-1 gap-1">
                               <button 
                                 onClick={() => generateMagicLink(selectedUserForCourses.email)}
-                                className="flex items-center gap-2 hover:bg-purple-600/20 text-purple-400 px-4 py-2 rounded-lg font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap"
+                                className="flex items-center gap-2 hover:bg-blue-600/20 text-blue-400 px-4 py-2 rounded-lg font-bold transition-all text-[10px] uppercase tracking-widest whitespace-nowrap"
                                 title="Válido por 24 horas"
                               >
-                                <ExternalLink size={14} /> Link 24h
-                              </button>
-                              <div className="w-px bg-white/5 my-1" />
-                              <button 
-                                onClick={() => generatePermanentMagicLink(selectedUserForCourses.email)}
-                                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-black transition-all shadow-lg shadow-blue-600/20 active:scale-95 text-[10px] uppercase tracking-widest whitespace-nowrap"
-                                title="Link de acesso que nunca expira"
-                              >
-                                <ShieldCheck size={14} /> Link Eterno
+                                <ExternalLink size={14} /> MagicLink Temporário
                               </button>
                             </div>
                             <button 
@@ -1423,13 +1604,49 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           </div>
 
                           <div className="space-y-12">
+                            {/* Password Management */}
+                            <div className="bg-black/40 rounded-3xl border border-white/10 p-6 space-y-4">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-amber-600/20 rounded-lg text-amber-500">
+                                  <LockIcon size={20} />
+                                </div>
+                                <div>
+                                  <h4 className="font-bold text-white text-sm">Gestão de Acesso</h4>
+                                  <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest">Alterar senha do usuário</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1">
+                                  <input 
+                                    type="text" 
+                                    placeholder="Mínimo 6 caracteres"
+                                    value={userNewPassword}
+                                    onChange={(e) => setUserNewPassword(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none transition-all"
+                                  />
+                                </div>
+                                <button 
+                                  onClick={handleUpdateUserPassword}
+                                  disabled={!userNewPassword || isChangingUserPassword}
+                                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-amber-600/10"
+                                >
+                                  {isChangingUserPassword ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                  Alterar Senha do Usuário
+                                </button>
+                              </div>
+                              <p className="text-[9px] text-gray-600 font-bold uppercase italic">
+                                * Nota: Recomendamos informar ao usuário sua nova senha após a alteração.
+                              </p>
+                            </div>
+
                             {/* Pacotes / Produtos */}
                             <div className="space-y-4">
                               <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
                                 Pacotes Adquiridos 📦💎
                               </h4>
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {coursePackages.filter(pkg => userPurchases.includes(pkg.hotmart_product_id || pkg.id)).map(pkg => {
+                                {coursePackages.filter(pkg => hasPackageAccess(pkg)).map(pkg => {
                                   const isUnlocked = true;
                                   return (
                                     <div key={pkg.id} className="bg-black/40 rounded-2xl border border-white/10 p-4 flex items-center justify-between group hover:border-blue-500/30 transition-all border-blue-500/20">
@@ -1451,7 +1668,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     </div>
                                   );
                                 })}
-                                {coursePackages.filter(pkg => !userPurchases.includes(pkg.hotmart_product_id || pkg.id)).map(pkg => {
+                                {coursePackages.filter(pkg => !hasPackageAccess(pkg)).map(pkg => {
                                   const isUnlocked = false;
                                   return (
                                     <div key={pkg.id} className="bg-black/40 rounded-2xl border border-white/5 p-4 flex items-center justify-between group hover:border-white/10 transition-all">
@@ -1596,50 +1813,97 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                 {activeTab === 'courses' && (
                   <div className="space-y-6">
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Gerenciar Cursos</h3>
-                        <button 
-                          onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
-                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
-                        >
-                          <Plus size={20} /> Criar Curso
-                        </button>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Gerenciar Cursos</h3>
+                          <button 
+                            onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
+                          >
+                            <Plus size={20} /> Criar Curso
+                          </button>
+                        </div>
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex items-center gap-3">
+                          <Info size={16} className="text-blue-500 shrink-0" />
+                          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">
+                            A ordem definida abaixo através das setas será a mesma exibida na tela de início do usuário.
+                          </p>
+                        </div>
                       </div>
 
                     <div className="space-y-12">
                       {/* Produtos Principais (Free) */}
                       <div className="space-y-6">
-                        <h4 className="text-xs font-black text-emerald-800 uppercase tracking-widest flex items-center gap-2">
-                          Produtos Principais 💎
-                        </h4>
-                        <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
-                          {courses.filter(c => !c.is_bonus && c.is_free).map((course) => (
-                            <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} />
-                          ))}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-start gap-4 bg-white/5 border border-white/5 p-4 rounded-2xl">
+                          <h4 className="text-[10px] sm:text-xs font-black text-emerald-800 uppercase tracking-[0.2em] flex items-center gap-2 shrink-0">
+                            <Star size={12} className="text-emerald-500" />
+                            Produtos Principais 💎
+                          </h4>
+                          <button
+                            onClick={() => {
+                              setMainProductIdInput(settings.main_course_hotmart_id || settings.custom_texts['main_product_id'] || '');
+                              
+                              const priceStr = settings.custom_texts['main_price'] || '';
+                              let parsedCents = '';
+                              if (priceStr.includes(',') || priceStr.includes('.')) {
+                                const normalized = priceStr.replace(',', '.');
+                                const floatVal = parseFloat(normalized);
+                                if (!isNaN(floatVal)) {
+                                  parsedCents = Math.round(floatVal * 100).toString();
+                                }
+                              } else {
+                                parsedCents = priceStr.replace(/\D/g, '');
+                              }
+                              setMainPriceInput(parsedCents);
+                              
+                              setMainCheckoutUrlInput(settings.custom_texts['main_checkout_url'] || '');
+                              setShowMainProductModal(true);
+                            }}
+                            className="text-[9px] font-black uppercase tracking-widest bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/10 transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                          >
+                            <Sparkles size={11} className="text-emerald-400 animate-pulse" />
+                            CONFIGURAR VENDA DO PRODUTO PRINCIPAL (VENDA ÚNICA)
+                          </button>
                         </div>
-                      </div>
-
-                      {/* Cursos Pagos (Paid) */}
-                      <div className="space-y-6">
-                        <h4 className="text-xs font-black text-red-900 uppercase tracking-widest flex items-center gap-2">
-                          Cursos Pagos 💳
-                        </h4>
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
-                          {courses.filter(c => !c.is_bonus && !c.is_free).map((course) => (
-                            <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} />
-                          ))}
+                          {courses
+                            .filter(c => !c.is_bonus && c.is_free)
+                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .map((course) => (
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                            ))}
                         </div>
                       </div>
 
                       {/* Cursos Bônus (Bonus) */}
                       <div className="space-y-6">
-                        <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                        <h4 className="text-[10px] sm:text-xs font-black text-blue-600 uppercase tracking-[0.2em] flex items-center gap-2">
+                          <Sparkles size={12} className="text-blue-500" />
                           Cursos Bônus 🎁
                         </h4>
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
-                          {courses.filter(c => c.is_bonus).map((course) => (
-                            <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} />
-                          ))}
+                          {courses
+                            .filter(c => c.is_bonus)
+                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .map((course) => (
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                            ))}
+                        </div>
+                      </div>
+
+                      {/* Cursos Pagos (Paid) */}
+                      <div className="space-y-6">
+                        <h4 className="text-[10px] sm:text-xs font-black text-red-900 uppercase tracking-[0.2em] flex items-center gap-2">
+                          <ShoppingBag size={12} className="text-red-500" />
+                          Cursos Pagos 💳
+                        </h4>
+                        <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
+                          {courses
+                            .filter(c => !c.is_bonus && !c.is_free)
+                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .map((course) => (
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                            ))}
                         </div>
                       </div>
                     </div>
@@ -2157,24 +2421,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         </div>
                         
                         <div className="space-y-4">
-                          <div className="space-y-2">
-                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Método de Login Padrão</label>
-                            <div className="flex p-1 bg-black rounded-xl border border-white/10">
-                              <button 
-                                onClick={() => setLocalSettings({ ...localSettings, auth_method: 'passwordless' })}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${localSettings?.auth_method === 'passwordless' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
-                              >
-                                SEM SENHA
-                              </button>
-                              <button 
-                                onClick={() => setLocalSettings({ ...localSettings, auth_method: 'password' })}
-                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${localSettings?.auth_method === 'password' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
-                              >
-                                COM SENHA
-                              </button>
-                            </div>
-                          </div>
-
                           <div className="space-y-2 pt-2">
                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest text-blue-500 italic">URL do Aplicativo</label>
                             <div className="relative group">
@@ -2190,6 +2436,63 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               </div>
                             </div>
                             <p className="text-[10px] text-gray-600">Usada para gerar links de acesso mágicos e redirecionamentos. Certifique-se de incluir o https://</p>
+                          </div>
+
+                          <div className="space-y-4 pt-4 border-t border-white/5">
+                            <h5 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Rastreamento e Analytics</h5>
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest opacity-70">Google Analytics GA4 ID</label>
+                                <div className="relative group">
+                                  <input 
+                                    type="text" 
+                                    value={localSettings?.ga4_tag_id || ''}
+                                    onChange={(e) => setLocalSettings({ ...localSettings, ga4_tag_id: e.target.value })}
+                                    className="w-full bg-black border border-white/10 rounded-xl px-10 py-2.5 text-sm text-white focus:border-blue-500 outline-none transition-all font-mono"
+                                    placeholder="G-XXXXXXXXXX"
+                                  />
+                                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors">
+                                    <Globe size={14} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-4 pt-4 border-t border-white/5">
+                            <h5 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Informações de Suporte</h5>
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest opacity-70">Número WhatsApp (Ex: 5511999999999)</label>
+                                <div className="relative group">
+                                  <input 
+                                    type="text" 
+                                    value={localSettings?.support_whatsapp || ''}
+                                    onChange={(e) => setLocalSettings({ ...localSettings, support_whatsapp: e.target.value })}
+                                    className="w-full bg-black border border-white/10 rounded-xl px-10 py-2.5 text-sm text-white focus:border-green-500 outline-none transition-all"
+                                    placeholder="5511999999999"
+                                  />
+                                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-green-500 transition-colors">
+                                    <WhatsAppIcon size={14} />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest opacity-70">E-mail de Suporte</label>
+                                <div className="relative group">
+                                  <input 
+                                    type="text" 
+                                    value={localSettings?.support_email || ''}
+                                    onChange={(e) => setLocalSettings({ ...localSettings, support_email: e.target.value })}
+                                    className="w-full bg-black border border-white/10 rounded-xl px-10 py-2.5 text-sm text-white focus:border-blue-500 outline-none transition-all"
+                                    placeholder="suporte@exemplo.com"
+                                  />
+                                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors">
+                                    <Mail size={14} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
 
                           <button
@@ -2287,7 +2590,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 pwa_icon_url: localSettings.favicon_url,
                                 primary_color: localSettings.primary_color,
                                 secondary_color: localSettings.secondary_color,
-                                background_color: localSettings.background_color
+                                background_color: localSettings.background_color,
+                                support_whatsapp: localSettings.support_whatsapp,
+                                support_email: localSettings.support_email,
+                                ga4_tag_id: localSettings.ga4_tag_id
                               });
                               setIsSavingSettings(false);
                             }}
@@ -2300,99 +2606,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         </div>
                       </div>
 
-                      {/* Global Support Settings */}
-                      <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 space-y-6">
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="p-2 bg-green-500/20 rounded-lg text-green-500">
-                            <WhatsAppIcon size={20} />
-                          </div>
-                          <h4 className="font-bold text-white">Dados de Suporte</h4>
-                        </div>
-                        
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">WhatsApp de Suporte (DDI + DDD + Número)</label>
-                            <div className="grid grid-cols-[100px_1fr] gap-3">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 px-4 py-3 bg-black border border-white/10 rounded-xl focus-within:border-blue-500 transition-all">
-                                  <span className="text-gray-400 font-bold text-sm">+</span>
-                                  <input 
-                                    type="text" 
-                                    value={localSettings?.support_whatsapp?.startsWith('+') ? localSettings.support_whatsapp.split(' ')[0].substring(1) : ''}
-                                    onChange={(e) => {
-                                      const code = e.target.value.replace(/\D/g, '').substring(0, 4);
-                                      const full = localSettings?.support_whatsapp || '';
-                                      const body = full.includes(' ') ? full.split(' ')[1] : full.startsWith('+') ? '' : full;
-                                      setLocalSettings({ ...localSettings, support_whatsapp: `+${code} ${body}` });
-                                    }}
-                                    className="bg-transparent border-none outline-none w-full text-white placeholder:text-gray-600 text-sm"
-                                    placeholder="00"
-                                    maxLength={4}
-                                  />
-                                </div>
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter block px-1 truncate">
-                                  {t('profile.phone_country_code') || 'Código do país'}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-3 px-4 py-3 bg-black border border-white/10 rounded-xl focus-within:border-blue-500 transition-all">
-                                  <input 
-                                    type="text" 
-                                    value={localSettings?.support_whatsapp?.includes(' ') ? localSettings.support_whatsapp.split(' ')[1] : (localSettings?.support_whatsapp?.startsWith('+') ? '' : (localSettings?.support_whatsapp || ''))}
-                                    onChange={(e) => {
-                                      const phoneNumbers = e.target.value.replace(/\D/g, '');
-                                      const full = localSettings?.support_whatsapp || '';
-                                      const code = full.startsWith('+') ? full.split(' ')[0].substring(1) : '';
-                                      setLocalSettings({ ...localSettings, support_whatsapp: `+${code} ${phoneNumbers}` });
-                                    }}
-                                    className="bg-transparent border-none outline-none flex-1 text-white placeholder:text-gray-600 text-sm"
-                                    placeholder="31997433488"
-                                  />
-                                </div>
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter block px-1">
-                                  {t('profile.phone_number_label') || 'Telefone com código de área'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">E-mail de Suporte</label>
-                            <input 
-                              type="email" 
-                              value={localSettings?.support_email || ''}
-                              onChange={(e) => setLocalSettings({ ...localSettings, support_email: e.target.value })}
-                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none"
-                              placeholder="suporte@exemplo.com"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Mensagem Padrão WhatsApp (Opcional)</label>
-                            <textarea 
-                              value={localSettings?.support_whatsapp_message || ''}
-                              onChange={(e) => setLocalSettings({ ...localSettings, support_whatsapp_message: e.target.value })}
-                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-blue-500 outline-none min-h-[80px]"
-                              placeholder="Ex: Olá, gostaria de tirar uma dúvida..."
-                            />
-                          </div>
-                          
-                          <button 
-                            onClick={async () => {
-                              setIsSavingSettings(true);
-                              await updateSettings({ 
-                                support_whatsapp: localSettings.support_whatsapp,
-                                support_email: localSettings.support_email,
-                                support_whatsapp_message: localSettings.support_whatsapp_message
-                              });
-                              setIsSavingSettings(false);
-                            }}
-                            disabled={isSavingSettings}
-                            className="w-full mt-2 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
-                          >
-                            {isSavingSettings ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                            Salvar Dados de Suporte
-                          </button>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 )}
@@ -2413,6 +2626,24 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             LOGIN
                           </button>
                           <button 
+                            onClick={() => setActivePageTab('home')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'home' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            Início
+                          </button>
+                          <button 
+                            onClick={() => setActivePageTab('course')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'course' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            Cursos
+                          </button>
+                          <button 
+                            onClick={() => setActivePageTab('lesson')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'lesson' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            Aulas
+                          </button>
+                          <button 
                             onClick={() => setActivePageTab('community')}
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'community' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                           >
@@ -2431,16 +2662,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             Navegação
                           </button>
                           <button 
-                            onClick={() => setActivePageTab('home')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'home' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                            onClick={() => setActivePageTab('support')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'support' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                           >
-                            Dashboard
-                          </button>
-                          <button 
-                            onClick={() => setActivePageTab('course')}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shrink-0 ${activePageTab === 'course' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
-                          >
-                            Cursos
+                            Suporte
                           </button>
                           <button 
                             onClick={() => setActivePageTab('push')}
@@ -2474,6 +2699,35 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               updates.login_install_button_pulsing = localSettings.login_install_button_pulsing;
                               updates.logo_url = localSettings.logo_url;
                               updates.logo_height = localSettings.logo_height;
+                            }
+
+                            if (activePageTab === 'support') {
+                              updates.support_type = localSettings.support_type;
+                              updates.support_whatsapp_home_enabled = localSettings.support_whatsapp_home_enabled;
+                              updates.support_email_home_enabled = localSettings.support_email_home_enabled;
+                              updates.support_whatsapp_floating_enabled = localSettings.support_whatsapp_home_floating;
+                              
+                              updates.support_whatsapp_community_enabled = localSettings.support_whatsapp_community_enabled;
+                              updates.support_email_community_enabled = localSettings.support_email_community_enabled;
+                              updates.support_whatsapp_floating_community_enabled = localSettings.support_whatsapp_community_floating;
+                              
+                              updates.support_whatsapp_profile_enabled = localSettings.support_whatsapp_profile_enabled;
+                              updates.support_email_profile_enabled = localSettings.support_email_profile_enabled;
+                              updates.support_whatsapp_floating_profile_enabled = localSettings.support_whatsapp_profile_floating;
+
+                              updates.support_whatsapp_course_enabled = localSettings.support_whatsapp_course_enabled;
+                              updates.support_email_course_enabled = localSettings.support_email_course_enabled;
+                              updates.support_whatsapp_floating_course_enabled = localSettings.support_whatsapp_course_floating;
+
+                              // As configurações de 'aula' (lesson) não existem na tabela app_settings,
+                              // vamos salvá-las no custom_texts para evitar erro de schema.
+                              updates.custom_texts['config.support_whatsapp_lesson_enabled'] = localSettings.support_whatsapp_lesson_enabled ? 'true' : 'false';
+                              updates.custom_texts['config.support_email_lesson_enabled'] = localSettings.support_email_lesson_enabled ? 'true' : 'false';
+                              updates.custom_texts['config.support_whatsapp_lesson_floating'] = localSettings.support_whatsapp_lesson_floating ? 'true' : 'false';
+
+                              updates.custom_texts['config.support_whatsapp_preview_enabled'] = localSettings.support_whatsapp_preview_enabled ? 'true' : 'false';
+                              updates.custom_texts['config.support_email_preview_enabled'] = localSettings.support_email_preview_enabled ? 'true' : 'false';
+                              updates.custom_texts['config.support_whatsapp_preview_floating'] = localSettings.support_whatsapp_preview_floating ? 'true' : 'false';
                             }
 
                             await updateSettings(updates);
@@ -2801,7 +3055,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             <div className="p-2 bg-primary/20 rounded-lg text-primary">
                               <ShoppingBag size={20} />
                             </div>
-                            <h4 className="font-bold text-white">Textos do Dashboard</h4>
+                            <h4 className="font-bold text-white">Textos do Início</h4>
                           </div>
 
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -2810,6 +3064,36 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'dashboard.courses_paid', label: 'Título Cursos Pagos' },
                                 { key: 'dashboard.courses_free', label: 'Título Produto Principal' },
                                 { key: 'dashboard.courses_bonus', label: 'Título Cursos Bônus' },
+                                { key: 'badge.locked', label: 'Badge Curso Bloqueado' },
+                                { key: 'cta.unlock', label: 'Botão Curso Bloqueado' },
+                                { key: 'badge.new', label: 'Badge Começar (Não Iniciado)' },
+                                { key: 'cta.new', label: 'Botão Começar (Não Iniciado)' },
+                                { key: 'badge.in_progress', label: 'Badge Em Andamento' },
+                                { key: 'cta.in_progress', label: 'Botão Retomar Aula' },
+                                { key: 'badge.completed', label: 'Badge Concluído' },
+                                { key: 'cta.completed', label: 'Botão Assistir Novamente' },
+                                { key: 'course.progresso', label: 'Label de Progresso' },
+                                { key: 'course.exclusive_content', label: 'Texto Conteúdo Exclusivo' },
+                                { key: 'dashboard.resume_label', label: 'Texto Retomar Aula (Topo)' },
+                                { key: 'gamification.ranking_label', label: 'Texto Botão Ranking' },
+                                { key: 'gamification.level_up', label: 'Texto Level Up' },
+                                { key: 'gamification.level_short', label: 'Prefixo de Nível (Ex: Lvl, Nível)' },
+                                { key: 'gamification.modal_title', label: 'Título Modal Nível (variável {level})' },
+                                { key: 'gamification.progress_label', label: 'Texto Subtítulo Modal (variável {progress})' },
+                                { key: 'gamification.next_achievement', label: 'Texto Próxima Conquista' },
+                                { key: 'gamification.continue_journey', label: 'Texto Botão Continuar' },
+                                { key: 'gamification.level_0_label', label: 'Label Nível 0' },
+                                { key: 'gamification.level_1_label', label: 'Label Nível 1' },
+                                { key: 'gamification.level_2_label', label: 'Label Nível 2' },
+                                { key: 'gamification.level_3_label', label: 'Label Nível 3' },
+                                { key: 'gamification.level_4_label', label: 'Label Nível 4' },
+                                { key: 'gamification.level_5_label', label: 'Label Nível 5' },
+                                { key: 'gamification.level_0_req', label: 'Objetivo Nível 0' },
+                                { key: 'gamification.level_1_req', label: 'Objetivo Nível 1' },
+                                { key: 'gamification.level_2_req', label: 'Objetivo Nível 2' },
+                                { key: 'gamification.level_3_req', label: 'Objetivo Nível 3' },
+                                { key: 'gamification.level_4_req', label: 'Objetivo Nível 4' },
+                                { key: 'gamification.level_5_req', label: 'Objetivo Nível 5' },
                                 { key: 'dashboard.empty_locked', label: 'Mensagem Sem Cursos' },
                                 { key: 'dashboard.empty_all_unlocked', label: 'Mensagem Todos Liberados' },
                                 { key: 'dashboard.loading_error', label: 'Erro: Carregar Conteúdos' }
@@ -2818,8 +3102,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
                                   <input 
                                     type="text" 
-                                    value={draftCustomTexts[field.key] || settings.custom_texts?.[field.key] || ''}
-                                    placeholder={field.label}
+                                    value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                    placeholder={languagePresets.pt[field.key] || field.label}
                                     onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
                                     className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
                                   />
@@ -2827,45 +3111,27 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               ))}
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="space-y-6">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview das Vitrines</label>
-                                <div className="p-6 rounded-3xl border border-white/10 space-y-8 h-full overflow-hidden min-h-[400px]" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                  <div className="space-y-3">
-                                    <h5 className="text-xs font-black text-white uppercase italic tracking-tighter">
-                                      {draftCustomTexts['dashboard.courses_paid'] || 'Meus Cursos'}
-                                    </h5>
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                      <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                      <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                    </div>
-                                  </div>
-                                  <div className="space-y-3 opacity-40">
-                                    <h5 className="text-[10px] font-black text-white uppercase italic tracking-tighter">
-                                      {draftCustomTexts['dashboard.courses_free'] || 'Produtos Principais'}
-                                    </h5>
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
-                                      <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
-                                    </div>
+                            <div className="space-y-6">
+                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview das Vitrines</label>
+                              <div className="p-6 rounded-3xl border border-white/10 space-y-8 h-full overflow-hidden min-h-[400px]" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                <div className="space-y-3">
+                                  <h5 className="text-xs font-black text-white uppercase italic tracking-tighter">
+                                    {draftCustomTexts['dashboard.courses_paid'] || 'Meus Cursos'}
+                                  </h5>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
                                   </div>
                                 </div>
-                              </div>
-                              <div className="space-y-6">
-                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview Seção Suporte</label>
-                                <div className="p-6 rounded-3xl border border-white/10 h-full flex flex-col items-center justify-center space-y-4" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                  <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 w-full space-y-4">
-                                     <div className="space-y-1">
-                                       <h6 className="text-sm font-black text-white uppercase tracking-tighter italic">Precisa de <span className="text-blue-500">Suporte?</span></h6>
-                                       <p className="text-[8px] text-gray-500">Equipe pronta para te ajudar.</p>
-                                     </div>
-                                     <div className="flex gap-2">
-                                       <div className="flex-1 py-1.5 bg-green-500 rounded-lg text-[8px] font-black text-white text-center">WHATSAPP</div>
-                                       <div className="flex-1 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[8px] font-black text-white text-center">EMAIL</div>
-                                     </div>
+                                <div className="space-y-3 opacity-40">
+                                  <h5 className="text-[10px] font-black text-white uppercase italic tracking-tighter">
+                                    {draftCustomTexts['dashboard.courses_free'] || 'Produtos Principais'}
+                                  </h5>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
                                   </div>
-                                  <p className="text-[8px] text-center text-gray-600 font-bold uppercase tracking-widest">Aparece no final do Dashboard</p>
                                 </div>
                               </div>
                             </div>
@@ -3527,6 +3793,152 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       </div>
                     )}
 
+                    {activePageTab === 'support' && (
+                      <div className="space-y-8">
+                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-green-500/20 rounded-lg text-green-500">
+                                <MessageSquare size={20} />
+                              </div>
+                              <h4 className="font-bold text-white tracking-tight italic uppercase">Configurações de Suporte</h4>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 text-zinc-100">
+                            <div className="space-y-8">
+                              <div className="space-y-4">
+                                <label className="text-xs font-black text-gray-500 uppercase tracking-widest leading-none">Informações de Contato</label>
+                                <div className="p-6 bg-blue-500/5 border border-blue-500/20 rounded-2xl flex items-start gap-4">
+                                  <div className="p-2 bg-blue-500/20 rounded-lg text-blue-500 shrink-0">
+                                    <Info size={16} />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-bold text-white leading-tight">Gestão Centralizada</p>
+                                    <p className="text-xs text-blue-500/80 leading-relaxed font-medium">As informações de contato (WhatsApp e E-mail) agora são alteradas na aba <strong>Configurações Gerais</strong> para maior segurança e praticidade.</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-4">
+                                <div className="space-y-1">
+                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest leading-none">Páginas de Exibição</label>
+                                  <p className="text-[10px] font-bold text-zinc-500 italic">Selecione o que deve aparecer em cada página</p>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 gap-3">
+                                  {[
+                                    { id: 'home', label: 'Página de Início' },
+                                    { id: 'course', label: 'Página de Cursos' },
+                                    { id: 'lesson', label: 'Página de Aula' },
+                                    { id: 'community', label: 'Página Comunidade' },
+                                    { id: 'profile', label: 'Página Perfil' },
+                                    { id: 'preview', label: 'Página Preview de Compra' }
+                                  ].map(page => (
+                                    <div key={page.id} className="p-4 bg-black/30 rounded-2xl border border-white/5 flex flex-col gap-4 group">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                                          <span className="text-xs font-bold text-zinc-300 uppercase tracking-tight group-hover:text-white transition-colors">{page.label}</span>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          onClick={() => setLocalSettings({ ...localSettings, [`support_whatsapp_${page.id}_floating`]: !localSettings[`support_whatsapp_${page.id}_floating`] })}
+                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border ${localSettings?.[`support_whatsapp_${page.id}_floating`] ? 'bg-green-500 text-white border-green-600 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'bg-white/5 border-white/5 text-zinc-600 hover:text-zinc-400'}`}
+                                        >
+                                          <MousePointer2 size={12} /> WHATS FLUTUANTE
+                                        </button>
+                                        <button
+                                          onClick={() => setLocalSettings({ ...localSettings, [`support_whatsapp_${page.id}_enabled`]: !localSettings[`support_whatsapp_${page.id}_enabled`] })}
+                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border ${localSettings?.[`support_whatsapp_${page.id}_enabled`] ? 'bg-green-500/10 border-green-500/30 text-green-500' : 'bg-white/5 border-white/5 text-zinc-600 hover:text-zinc-400'}`}
+                                        >
+                                          <MessageSquare size={12} /> WHATS
+                                        </button>
+                                        <button
+                                          onClick={() => setLocalSettings({ ...localSettings, [`support_email_${page.id}_enabled`]: !localSettings[`support_email_${page.id}_enabled`] })}
+                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border ${localSettings?.[`support_email_${page.id}_enabled`] ? 'bg-blue-500/10 border-blue-500/30 text-blue-500' : 'bg-white/5 border-white/5 text-zinc-600 hover:text-zinc-400'}`}
+                                        >
+                                          <Mail size={12} /> EMAIL
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-8">
+                               <div className="space-y-4">
+                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest leading-none">Textos e Rótulos</label>
+                                  <div className="space-y-4">
+                                    {[
+                                      { key: 'auth.support_box', label: 'Título da Caixa' },
+                                      { key: 'auth.support_description', label: 'Texto Descritivo', type: 'textarea' },
+                                      { key: 'auth.whatsapp_label', label: 'Rótulo WhatsApp' },
+                                      { key: 'auth.email_label', label: 'Rótulo Email' }
+                                    ].map(field => (
+                                      <div key={field.key} className="space-y-2">
+                                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest leading-none">{field.label}</label>
+                                        {field.type === 'textarea' ? (
+                                          <textarea 
+                                            value={draftCustomTexts[field.key] || settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || ''}
+                                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-300 focus:border-blue-500 outline-none h-24 resize-none transition-all"
+                                            placeholder={field.label}
+                                          />
+                                        ) : (
+                                          <input 
+                                            type="text" 
+                                            value={draftCustomTexts[field.key] || settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || ''}
+                                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-zinc-300 focus:border-blue-500 outline-none transition-all"
+                                            placeholder={field.label}
+                                          />
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                               </div>
+
+                               <div className="space-y-4">
+                                 <label className="text-xs font-black text-gray-500 uppercase tracking-widest leading-none">Preview em Tempo Real</label>
+                                 <div className="p-8 rounded-[3rem] border border-white/10 flex flex-col items-center justify-center space-y-6 relative overflow-hidden h-[340px] shadow-2xl" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                   <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-16 -mt-16" />
+                                   <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -ml-16 -mb-16" />
+                                   
+                                   <div className="relative space-y-2 text-center">
+                                      <h6 className="text-2xl font-black text-white italic uppercase tracking-tighter leading-none">
+                                        {draftCustomTexts['auth.support_box'] || settings.custom_texts?.['auth.support_box'] || 'Precisa de Suporte?'}
+                                      </h6>
+                                      <p className="text-[10px] text-zinc-500 font-bold max-w-[220px] mx-auto leading-relaxed">
+                                        {draftCustomTexts['auth.support_description'] || settings.custom_texts?.['auth.support_description'] || 'Equipe pronta para te ajudar com qualquer dúvida ou problema.'}
+                                      </p>
+                                   </div>
+
+                                   <div className="relative flex flex-col gap-2 w-full max-w-[160px]">
+                                      <div className="w-full py-3 bg-green-500/10 border border-green-500/20 rounded-2xl text-[8px] font-black text-green-500 text-center uppercase tracking-[0.2em] shadow-lg shadow-green-500/5 transition-all">
+                                        {draftCustomTexts['auth.whatsapp_label'] || settings.custom_texts?.['auth.whatsapp_label'] || 'WHATSAPP'}
+                                      </div>
+                                      <div className="w-full py-3 bg-blue-500/10 border border-blue-500/20 rounded-2xl text-[8px] font-black text-blue-500 text-center uppercase tracking-[0.2em] shadow-lg shadow-blue-500/5 opacity-50 transition-all">
+                                        {draftCustomTexts['auth.email_label'] || settings.custom_texts?.['auth.email_label'] || 'EMAIL'}
+                                      </div>
+                                   </div>
+
+                                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 opacity-20">
+                                      <div className="w-1 h-1 rounded-full bg-white" />
+                                      <div className="w-8 h-1 rounded-full bg-white/20" />
+                                      <div className="w-1 h-1 rounded-full bg-white" />
+                                   </div>
+                                 </div>
+                               </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {activePageTab === 'course' && (
                       <div className="space-y-8">
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
@@ -3554,6 +3966,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.end_label', label: 'Texto Fim (Navegação)' },
                                 { key: 'course.materials', label: 'Título Materiais' },
                                 { key: 'course.schedule_title', label: 'Título Cronograma' },
+                                { key: 'course.module', label: 'Texto do Módulo' },
                                 { key: 'course.completed', label: 'Status: Concluído' },
                                 { key: 'course.continue', label: 'Status: Continuar' },
                                 { key: 'course.start', label: 'Status: Começar' },
@@ -3681,6 +4094,77 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       </div>
                     )}
 
+                    {activePageTab === 'lesson' && (
+                      <div className="space-y-8">
+                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-purple-500/20 rounded-lg text-purple-500">
+                              <PlayCircle size={20} />
+                            </div>
+                            <h4 className="font-bold text-white">Configuração da Página de Aula</h4>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                            <div className="space-y-6">
+                               <div className="p-6 bg-blue-500/5 border border-blue-500/20 rounded-2xl flex items-start gap-4">
+                                  <div className="p-2 bg-blue-500/20 rounded-lg text-blue-500 shrink-0">
+                                    <Info size={16} />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-bold text-white leading-tight">Configurações de Aula</p>
+                                    <p className="text-xs text-blue-500/80 leading-relaxed font-medium">As principais customizações da página de aula (textos de progresso, botões de navegação, etc) são compartilhadas com a aba <strong>Cursos</strong>.</p>
+                                  </div>
+                               </div>
+
+                               <h5 className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-white/5 pb-2">Opções da Aula</h5>
+                               {[
+                                 { key: 'course.questions_title', label: 'Título da Seção de Dúvidas' },
+                                 { key: 'course.question_placeholder', label: 'Placeholder de Nova Dúvida' },
+                                 { key: 'course.send_question', label: 'Texto do Botão Enviar' },
+                                 { key: 'course.admin_answer', label: 'Texto Resposta do Professor' }
+                               ].map(field => (
+                                 <div key={field.key} className="space-y-2">
+                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
+                                   <input 
+                                     type="text" 
+                                     value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                     placeholder={field.label}
+                                     onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                     className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
+                                   />
+                                 </div>
+                               ))}
+                            </div>
+
+                            <div className="space-y-6">
+                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview Area</label>
+                              <div className="rounded-[2.5rem] border border-white/10 p-8 flex flex-col shadow-2xl space-y-6 min-h-[400px] relative overflow-hidden" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                 <div className="w-full h-40 bg-zinc-800 rounded-2xl flex items-center justify-center border border-white/5">
+                                    <Play size={32} className="text-white/10" />
+                                 </div>
+                                 <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                       <div className="h-4 w-32 bg-white/10 rounded-full" />
+                                       <div className="h-8 w-24 bg-blue-600 rounded-xl" />
+                                    </div>
+                                    <div className="space-y-2">
+                                       <div className="h-2 w-full bg-white/5 rounded-full" />
+                                       <div className="h-2 w-3/4 bg-white/5 rounded-full" />
+                                    </div>
+                                 </div>
+                                 <div className="pt-6 border-t border-white/5 space-y-4">
+                                    <h6 className="text-[10px] font-black text-white uppercase italic">{draftCustomTexts['course.questions_title'] || 'Dúvidas sobre a Aula'}</h6>
+                                    <div className="h-10 bg-black/40 rounded-xl border border-white/10 px-4 flex items-center text-[10px] text-gray-600">
+                                       {draftCustomTexts['course.question_placeholder'] || 'Qual é a sua dúvida?'}
+                                    </div>
+                                 </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {activePageTab === 'community' && (
                       <div className="space-y-8">
                         {/* Community Text Editor */}
@@ -3695,12 +4179,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                             <div className="space-y-6">
                               {[
-                                { key: 'community.title', label: 'Título da Página' },
-                                { key: 'community.subtitle', label: 'Subtítulo' },
                                 { key: 'community.input_placeholder', label: 'Placeholder de Nova Postagem' },
-                                { key: 'community.post', label: 'Botão Publicar' },
                                 { key: 'community.like', label: 'Texto Curtir' },
-                                { key: 'community.reply', label: 'Texto Responder' },
                                 { key: 'community.comment_placeholder', label: 'Placeholder Comentar' },
                                 { key: 'community.add_photo', label: 'Botão Adicionar Foto' },
                                 { key: 'community.post_sent', label: 'Toast: Post Enviado' },
@@ -3710,6 +4190,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'community.delete_post_confirm', label: 'Confirmação Excluir Post' },
                                 { key: 'community.delete_success', label: 'Toast: Post Excluído' },
                                 { key: 'community.delete_error', label: 'Toast: Erro Excluir Post' },
+                                { key: 'community.load_more', label: 'Botão Carregar mais' },
+                                { key: 'community.loading_posts', label: 'Texto Carregando (Comunidade)' },
                                 { key: 'community.comment_delete_success', label: 'Toast: Comentário Excluído' },
                                 { key: 'community.comment_delete_error', label: 'Toast: Erro Excluir Comentário' }
                               ].map(field => (
@@ -3818,13 +4300,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'profile.avatar_success', label: 'Toast Foto Sucesso' },
                                 { key: 'profile.push_title', label: 'Título Push (Perfil)' },
                                 { key: 'profile.push_description', label: 'Descrição Push (Perfil)', type: 'textarea' },
-                                { key: 'community.title', label: 'Comunidade: Título' },
-                                { key: 'community.subtitle', label: 'Comunidade: Subtítulo' },
-                                { key: 'community.post', label: 'Comunidade: Publicar' },
-                                { key: 'community.reply', label: 'Comunidade: Responder' },
-                                { key: 'community.replying_to', label: 'Comunidade: Em resposta a' },
-                                { key: 'community.empty_title', label: 'Comunidade: Vazio (Título)' },
-                                { key: 'community.empty_subtitle', label: 'Comunidade: Vazio (Subtítulo)' },
+                                { key: 'profile.status_permission', label: 'Label Permissão Push' },
+                                { key: 'profile.permission_granted', label: 'Status: CONCEDIDA' },
+                                { key: 'profile.permission_denied', label: 'Status: NEGADA' },
+                                { key: 'profile.permission_default', label: 'Status: PENDENTE' },
+                                { key: 'profile.install_pwa_title', label: 'Título Erro (Instalação)' },
+                                { key: 'profile.install_pwa_description', label: 'Descrição Erro (Instalação)', type: 'textarea' },
+                                { key: 'profile.install_pwa_button', label: 'Botão Instalar (Perfil)' },
                                 { key: 'profile.update_error', label: 'Erro: Atualizar Perfil' },
                                 { key: 'profile.avatar_error', label: 'Erro: Upload Avatar' },
                                 { key: 'profile.password_error', label: 'Erro: Atualizar Senha' },
@@ -4372,7 +4854,11 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       </div>
                       <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
                         <div className="flex-1 lg:flex-none px-4 py-2 bg-green-600/10 border border-green-500/20 rounded-xl text-green-500 font-bold text-xs text-center">
-                          Total: R$ {(allPurchases.reduce((acc, sale) => acc + (sale.is_manual ? 0 : (sale.courses?.price || 0)), 0) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          Total: R$ {(allPurchases.reduce((acc, sale) => {
+                            if (sale.is_manual || sale.transaction_id?.startsWith('manual')) return acc;
+                            const price = courses.find(c => c.id === sale.product_id)?.price || sale.courses?.price || 0;
+                            return acc + price;
+                          }, 0) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
                         <div className="flex-1 lg:flex-none px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-xl text-blue-500 font-bold text-xs text-center">
                           {allPurchases.length} Vendas
@@ -4418,16 +4904,61 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   <td className="px-6 py-4">
                                     <div className="flex items-center gap-2">
                                       <BookOpen size={14} className="text-blue-500" />
-                                      <span className="text-sm font-bold text-gray-300 uppercase tracking-tight">{sale.courses?.title || 'Produto Removido'}</span>
+                                      <span className="text-sm font-bold text-gray-300 uppercase tracking-tight">
+                                        {(() => {
+                                          const cObj = courses.find(c => c.id === sale.product_id);
+                                          const isMain = cObj ? (cObj.is_free && !cObj.is_bonus) : (sale.product_id === settings?.main_course_hotmart_id || sale.product_id === settings?.custom_texts?.['main_product_id']);
+                                          
+                                          if (isMain) {
+                                            return (
+                                              <span className="flex flex-col">
+                                                <span>Produtos Principais</span>
+                                                {(sale.is_manual || sale.transaction_id?.startsWith('manual')) && (
+                                                  <span className="text-[10px] text-blue-400 font-normal normal-case mt-0.5">
+                                                    (curso atribuído pelo admin)
+                                                  </span>
+                                                )}
+                                              </span>
+                                            );
+                                          }
+
+                                          const courseTitle = cObj?.title;
+                                          const pkgTitle = coursePackages.find(p => p.id === sale.product_id || p.hotmart_product_id === sale.product_id)?.title;
+                                          return (
+                                            <span className="flex flex-col">
+                                              <span>{courseTitle || pkgTitle || sale.courses?.title || (sale as any).course_packages?.title || 'Produto Removido'}</span>
+                                              {(sale.is_manual || sale.transaction_id?.startsWith('manual')) && (
+                                                <span className="text-[10px] text-blue-400 font-normal normal-case mt-0.5">
+                                                  (curso atribuído pelo admin)
+                                                </span>
+                                              )}
+                                            </span>
+                                          );
+                                        })()}
+                                      </span>
                                     </div>
                                   </td>
                                   <td className="px-6 py-4">
-                                    <span className={`text-sm font-black ${sale.is_manual ? 'text-gray-500' : 'text-green-500'}`}>
-                                      {sale.is_manual 
-                                        ? 'R$ 0,00 (Atribuído)' 
-                                        : (sale.courses?.price 
-                                          ? `R$ ${(sale.courses.price / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                                          : 'R$ 0,00')}
+                                    <span className={`text-sm font-black ${(sale.is_manual || sale.transaction_id?.startsWith('manual')) ? 'text-gray-500' : 'text-green-500'}`}>
+                                      {(() => {
+                                        if (sale.is_manual || sale.transaction_id?.startsWith('manual')) return 'R$ 0,00';
+                                        
+                                        const cObj = courses.find(c => c.id === sale.product_id);
+                                        const isMain = cObj ? (cObj.is_free && !cObj.is_bonus) : (sale.product_id === settings?.main_course_hotmart_id || sale.product_id === settings?.custom_texts?.['main_product_id']);
+                                        
+                                        if (isMain) {
+                                          const priceStr = settings?.custom_texts?.['main_price'] || '';
+                                          const priceInt = parseInt(priceStr.replace(/\D/g, '')) || 0;
+                                          if (priceInt > 0) {
+                                            return `R$ ${(priceInt / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+                                          }
+                                        }
+                                        
+                                        const price = cObj?.price || sale.courses?.price;
+                                        return price 
+                                          ? `R$ ${(price / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                                          : 'R$ 0,00';
+                                      })()}
                                     </span>
                                   </td>
                                 </tr>
@@ -4440,10 +4971,46 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   </div>
                 )}
                 {activeTab === 'security' && (
-                  <div className="max-w-2xl space-y-8 pb-20">
+                    <div className="max-w-2xl space-y-8 pb-20">
                     <div>
                       <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Segurança</h3>
-                      <p className="text-sm text-gray-500">Gerencie o acesso mestre e sua senha de administrador.</p>
+                      <p className="text-sm text-gray-500">Gerencie suas configurações de segurança.</p>
+                    </div>
+
+                    {/* Default Login Method */}
+                    <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
+                          <LockIcon size={20} />
+                        </div>
+                        <h4 className="font-bold text-white tracking-tight">Método de Login Padrão</h4>
+                      </div>
+
+                      <div className="space-y-4">
+                        <p className="text-xs text-gray-500 font-medium">Defina se o acesso padrão será com ou sem senha.</p>
+                        <div className="flex p-1 bg-black rounded-xl border border-white/10">
+                          <button 
+                            onClick={() => setLocalSettings({ ...localSettings, auth_method: 'passwordless' })}
+                            className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${localSettings?.auth_method === 'passwordless' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            SEM SENHA
+                          </button>
+                          <button 
+                            onClick={() => setLocalSettings({ ...localSettings, auth_method: 'password' })}
+                            className={`flex-1 py-2.5 rounded-lg text-xs font-black transition-all ${localSettings?.auth_method === 'password' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white'}`}
+                          >
+                            COM SENHA
+                          </button>
+                        </div>
+                        
+                        <button
+                          onClick={saveAuthSettings}
+                          className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-black py-4 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2 border border-white/5 mt-2"
+                        >
+                          <Save size={16} />
+                          SALVAR MÉTODO DE LOGIN
+                        </button>
+                      </div>
                     </div>
 
                     {/* Change My Password (Current Admin) */}
@@ -4508,8 +5075,6 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             toast.success('Sua senha foi atualizada com sucesso!');
                             setNewAdminPassword('');
                             setConfirmAdminPassword('');
-                            
-                            // Re-verify login status after clear
                           } catch (error: any) {
                             console.error('Password update error:', error);
                             toast.error('Erro ao atualizar senha: ' + (error.message || 'Erro desconhecido'));
@@ -4522,24 +5087,25 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       >
                         {updatingPassword ? <Loader2 className="animate-spin" size={20} /> : (
                           <>
-                            <Save size={20} /> Atualizar Minha Senha
+                            <Save size={20} /> ATUALIZAR MINHA SENHA
                           </>
                         )}
                       </button>
                     </div>
 
-                    {/* Master Admin Settings (Moved from general settings) */}
+                    {/* Master Admin Settings */}
                     <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
+                        <div className="p-2 bg-amber-600/20 rounded-lg text-amber-500">
                           <Shield size={20} />
                         </div>
-                        <h4 className="font-bold text-white tracking-tight">E-mail Mestre e Senha Global</h4>
+                        <h4 className="font-bold text-white tracking-tight">E-mail e Senha Master</h4>
                       </div>
 
-                      <div className="space-y-4">
+                      <div className="space-y-6">
+                        {/* Master Email */}
                         <div className="space-y-2">
-                          <label className="text-xs font-black text-blue-500 uppercase tracking-widest">E-mail do Super Admin (Mestre)</label>
+                          <label className="text-xs font-black text-gray-500 uppercase tracking-widest">E-mail Super Admin (Mestre)</label>
                           <div className="relative group">
                             <input 
                               type="email" 
@@ -4552,37 +5118,37 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               <Mail size={14} />
                             </div>
                           </div>
-                          <p className="text-[10px] text-gray-600">Este e-mail terá acesso total ao painel. Padrão: gabrielchendes@gmail.com</p>
                         </div>
 
+                        {/* Master Password */}
                         <div className="space-y-2">
-                           <label className="text-xs font-black text-blue-500 uppercase tracking-widest">Definir Senha do Admin (Master)</label>
-                           <div className="relative group">
-                             <input 
-                               type="password" 
-                               value={adminPassword}
-                               onChange={(e) => setAdminPassword(e.target.value)}
-                               className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
-                               placeholder="Digite para definir uma nova senha master"
-                             />
-                             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
-                               <LockIcon size={14} />
-                             </div>
-                           </div>
-                           <p className="text-[10px] text-gray-600">Use este campo para definir ou resetar a senha vinculada ao e-mail admin mestre acima.</p>
-                         </div>
-                         
-                         <button
-                            onClick={saveAuthSettings}
-                            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
-                          >
-                            <Save size={16} />
-                            Salvar Alterações de Mestre
-                          </button>
+                          <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Senha Super Admin (Mestre)</label>
+                          <div className="relative group">
+                            <input 
+                              type="password" 
+                              value={adminPassword}
+                              onChange={(e) => setAdminPassword(e.target.value)}
+                              className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none pr-10"
+                              placeholder="Digite para alterar a senha master"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                              <LockIcon size={14} />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={saveAuthSettings}
+                          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <Save size={16} />
+                          SALVAR ACESSO MESTRE
+                        </button>
                       </div>
                     </div>
                   </div>
                 )}
+
               </motion.div>
             </AnimatePresence>
           )}
@@ -4591,12 +5157,89 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       {showCourseEditor && (
         <CourseEditor 
           courseId={editingCourseId || undefined} 
+          packages={coursePackages}
           onClose={() => {
             setShowCourseEditor(false);
             setEditingCourseId(null);
             fetchData();
           }} 
         />
+      )}
+
+      {/* Main Product Global Selling Options Modal */}
+      {showMainProductModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-md bg-[#16161a] border border-white/10 rounded-[32px] p-8 shadow-2xl space-y-6">
+            <div className="space-y-2 text-center">
+              <h3 className="text-sm font-black text-white uppercase tracking-widest">Configuração do Produto Principal</h3>
+              <p className="text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-relaxed">
+                Configure os dados de venda para os produtos principais. Esta configuração é única para todos os cursos marcados como "Produto Principal".
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Preço do Produto Principal (R$)</label>
+                <input
+                  type="text"
+                  value={(() => {
+                    const numericValue = parseInt(mainPriceInput.replace(/\D/g, '')) || 0;
+                    return (numericValue / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+                  })()}
+                  onChange={e => {
+                    const rawDigits = e.target.value.replace(/\D/g, '');
+                    setMainPriceInput(rawDigits);
+                  }}
+                  placeholder="Ex: 197,00"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-emerald-500 outline-none font-bold text-center transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">ID do Produto Hotmart (Webhook)</label>
+                <input
+                  type="text"
+                  value={mainProductIdInput}
+                  onChange={e => setMainProductIdInput(e.target.value)}
+                  placeholder="Ex: 2381203"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-white focus:border-emerald-500 outline-none font-mono text-center transition-all"
+                />
+                <p className="text-[8px] text-gray-600 uppercase font-black ml-1">
+                  ID usado no webhook da Hotmart para liberar todos os produtos principais para a aluna.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Link de Check-out (Hotmart)</label>
+                <input
+                  type="text"
+                  value={mainCheckoutUrlInput}
+                  onChange={e => setMainCheckoutUrlInput(e.target.value)}
+                  placeholder="https://pay.hotmart.com/..."
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-[10px] text-gray-300 focus:border-emerald-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowMainProductModal(false)}
+                className="flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={savingMainProduct}
+                onClick={handleSaveMainProduct}
+                className="flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-all cursor-pointer"
+              >
+                {savingMainProduct ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showPackageEditor && (

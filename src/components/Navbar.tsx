@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { LogOut, User as UserIcon, Bell, Shield, Download, RefreshCw } from 'lucide-react';
+import { LogOut, User as UserIcon, Bell, Shield, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -20,10 +20,6 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
   const { t } = useI18n();
   const isAdmin = user.email === settings?.admin_email;
   
-  const handleRefresh = () => {
-    window.location.reload();
-  };
-
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) toast.error(t('auth.logout_error') || 'Erro ao sair');
@@ -37,19 +33,8 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
       <nav className="absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 to-transparent px-4 sm:px-6 py-4 transition-all duration-300">
         {/* Mobile View */}
         <div className="flex md:hidden items-center justify-between w-full relative">
-          {/* Left: Refresh */}
-          <div className="shrink-0">
-            <button 
-              onClick={handleRefresh}
-              className="p-2 bg-white/5 text-gray-400 rounded-full hover:bg-white/10 transition-all active:scale-90 border border-white/5"
-              title="Recarregar"
-            >
-              <RefreshCw size={18} />
-            </button>
-          </div>
-  
-          {/* Middle-Left: Install App (centered between left and center) */}
-          <div className="absolute left-[19%] -translate-x-1/2">
+          {/* Left: Install App */}
+          <div className="shrink-0 min-w-[40px] ml-2">
             {canInstall && onInstall && (
               <button 
                 onClick={onInstall}
@@ -78,7 +63,7 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
           </div>
 
         {/* Right Section: Bell */}
-        <div className="shrink-0">
+        <div className="shrink-0 mr-2">
           <NotificationBell user={user} />
         </div>
       </div>
@@ -125,17 +110,8 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
           </div>
         </div>
 
-        {/* Right side content Desktop: Refresh -> Download -> Name -> Bell */}
+        {/* Right side content Desktop: Download -> Name -> Bell */}
         <div className="flex items-center gap-4 shrink-0">
-          {/* Refresh Button */}
-          <button 
-            onClick={handleRefresh}
-            className="p-2 bg-white/5 text-gray-400 rounded-full hover:bg-white/10 transition-all active:scale-90 border border-white/5"
-            title="Recarregar"
-          >
-            <RefreshCw size={14} />
-          </button>
-
           {/* Install button */}
           {canInstall && onInstall && (
             <button 

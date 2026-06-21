@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { User, Lock, Mail, Save, Loader2, Camera, Bell, LogOut } from 'lucide-react';
+import { User, Lock, Mail, Save, Loader2, Camera, Bell, LogOut, Download, Smartphone } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -10,9 +10,11 @@ import { requestNotificationPermission } from '../lib/pushNotifications';
 
 interface ProfileProps {
   user: SupabaseUser;
+  canInstall?: boolean;
+  onInstall?: () => void;
 }
 
-export default function Profile({ user }: ProfileProps) {
+export default function Profile({ user, canInstall, onInstall }: ProfileProps) {
   const { settings } = useSettings();
   const { t } = useI18n();
   const [fullName, setFullName] = useState(user.user_metadata?.full_name || '');
@@ -177,7 +179,7 @@ export default function Profile({ user }: ProfileProps) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12 space-y-12 pb-32">
+    <div className="max-w-2xl mx-auto px-6 py-12 space-y-10 pb-10">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">{t('profile.title') || 'Meu Perfil'}</h1>
         <p className="text-gray-400">{t('profile.subtitle') || 'Gerencie suas informações e segurança da conta.'}</p>
@@ -209,7 +211,7 @@ export default function Profile({ user }: ProfileProps) {
         <button 
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 px-4 py-1.5 bg-primary text-white rounded-full shadow-xl border-2 border-zinc-900 transition-all active:scale-95 mt-[-12px] relative z-10"
+          className="flex items-center gap-2 px-4 py-1.5 bg-primary text-white rounded-full shadow-xl border-2 border-zinc-900 transition-all active:scale-95 mt-0 relative z-10"
         >
           <Camera size={14} />
           <span className="text-[10px] font-black uppercase">{t('profile.change_photo') || 'Trocar foto'}</span>
@@ -315,46 +317,69 @@ export default function Profile({ user }: ProfileProps) {
           {t('profile.push_title') || 'Notificações Push'}
         </div>
         <p className="text-xs text-gray-500 font-medium">
-          {t('profile.push_description') || 'Receba avisos importantes, novas aulas e atualizações da comunidade diretamente no seu navegador.'}
+          {t('profile.push_description') || 'Receba avisos importantes, novas aulas e atualizações da comunidade diretamente via notificações push.'}
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-black/40 rounded-xl p-3 border border-white/5">
-            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">{t('profile.status_support') || 'Suporte'}</div>
-            <div className={`text-xs font-bold ${pushStatus.supported ? 'text-green-500' : 'text-red-500'}`}>
-              {pushStatus.supported ? (t('profile.status_available') || 'DISPONÍVEL') : (t('profile.status_not_supported') || 'NÃO SUPORTADO')}
+        {!pushStatus.supported ? (
+          <div className="bg-blue-600/10 border border-blue-600/20 rounded-2xl p-6 flex flex-col items-center text-center gap-4">
+            <div className="p-3 bg-blue-600/20 rounded-full text-blue-500">
+              <Smartphone size={24} />
             </div>
-          </div>
-          <div className="bg-black/40 rounded-xl p-3 border border-white/5">
-            <div className="text-[10px] text-gray-500 uppercase font-black mb-1">{t('profile.status_permission') || 'Permissão'}</div>
-            <div className={`text-xs font-bold ${pushStatus.permission === 'granted' ? 'text-green-500' : pushStatus.permission === 'denied' ? 'text-red-500' : 'text-yellow-500'}`}>
-              {pushStatus.permission.toUpperCase()}
+            <div className="space-y-1">
+              <h5 className="font-bold text-white text-sm">
+                {t('profile.install_pwa_title') || 'Notificações não suportadas'}
+              </h5>
+              <p className="text-[10px] text-gray-400 font-medium leading-relaxed">
+                {t('profile.install_pwa_description') || 'Para receber notificações no seu dispositivo, você precisa instalar o aplicativo.'}
+              </p>
             </div>
+            {canInstall && onInstall && (
+              <button
+                onClick={onInstall}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] uppercase tracking-widest text-xs shadow-lg shadow-blue-600/20"
+              >
+                <Download size={18} />
+                {t('profile.install_pwa_button') || 'INSTALAR APP'}
+              </button>
+            )}
           </div>
-        </div>
-        
-        <button
-          onClick={async () => {
-            const granted = await requestNotificationPermission(user.id);
-            setPushStatus(prev => ({ 
-              ...prev, 
-              permission: Notification.permission,
-              tokenGenerated: granted 
-            }));
+        ) : (
+          <>
+            <div className="flex justify-center">
+              <div className="bg-black/40 rounded-xl p-3 border border-white/5 w-full max-w-[200px] text-center">
+                <div className="text-[10px] text-gray-500 uppercase font-black mb-1">{t('profile.status_permission') || 'Permissão'}</div>
+                <div className={`text-xs font-bold ${pushStatus.permission === 'granted' ? 'text-green-500' : pushStatus.permission === 'denied' ? 'text-red-500' : 'text-yellow-500'}`}>
+                  {pushStatus.permission === 'granted' ? (t('profile.permission_granted') || 'CONCEDIDA') : 
+                   pushStatus.permission === 'denied' ? (t('profile.permission_denied') || 'NEGADA') : 
+                   (t('profile.permission_default') || 'PENDENTE')}
+                </div>
+              </div>
+            </div>
             
-            if (granted) {
-              toast.success(t('push.success') || 'Notificações ativadas com sucesso!');
-            } else if (Notification.permission === 'denied') {
-              toast.error(t('push.blocked') || 'Notificações bloqueadas no navegador. Redefina as permissões nas configurações do site.');
-            } else {
-              toast.error(t('push.error') || 'Não foi possível ativar. Verifique se você está em uma aba segura (HTTPS).');
-            }
-          }}
-          className="w-full bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all active:scale-[0.98] uppercase tracking-widest text-xs"
-        >
-          <Bell size={18} />
-          {pushStatus.permission === 'granted' ? (t('profile.push_resync') || 'RE-SINCRONIZAR NOTIFICAÇÕES') : (t('push.allow') || 'ATIVAR NOTIFICAÇÕES')}
-        </button>
+            <button
+              onClick={async () => {
+                const granted = await requestNotificationPermission(user.id);
+                setPushStatus(prev => ({ 
+                  ...prev, 
+                  permission: Notification.permission,
+                  tokenGenerated: granted 
+                }));
+                
+                if (granted) {
+                  toast.success(t('push.success') || 'Notificações ativadas com sucesso!');
+                } else if (Notification.permission === 'denied') {
+                  toast.error(t('push.blocked') || 'Notificações bloqueadas no navegador. Redefina as permissões nas configurações do site.');
+                } else {
+                  toast.error(t('push.error') || 'Não foi possível ativar. Verifique se você está em uma aba segura (HTTPS).');
+                }
+              }}
+              className="w-full bg-white/5 hover:bg-white/10 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 border border-white/10 transition-all active:scale-[0.98] uppercase tracking-widest text-xs"
+            >
+              <Bell size={18} />
+              {pushStatus.permission === 'granted' ? (t('profile.push_resync') || 'RE-SINCRONIZAR NOTIFICAÇÕES') : (t('push.allow') || 'ATIVAR NOTIFICAÇÕES')}
+            </button>
+          </>
+        )}
       </section>
 
       {/* Segurança - Only show if auth method is password */}
@@ -407,7 +432,7 @@ export default function Profile({ user }: ProfileProps) {
       )}
 
       {/* Sair da Conta */}
-      <section className="pt-8 border-t border-white/5">
+      <section className="pt-6 border-t border-white/5">
         <button
           onClick={handleLogout}
           disabled={loggingOut}

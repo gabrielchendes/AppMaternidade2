@@ -29,66 +29,13 @@ import { useI18n } from '../contexts/I18nContext';
 import { useSettings } from '../contexts/SettingsContext';
 import ChapterQuestions from './ChapterQuestions';
 import FloatingWhatsApp from './FloatingWhatsApp';
+import SupportSection from './SupportSection';
 
 interface CourseViewerProps {
   courseId: string;
   userId: string;
   onClose: () => void;
 }
-
-const SupportSection = memo(({ settings, t }: { settings: any, t: any }) => {
-  const whatsappEnabled = settings.support_whatsapp_course_enabled && settings.support_whatsapp;
-  const emailEnabled = settings.support_email_course_enabled && settings.support_email;
-
-  if (!whatsappEnabled && !emailEnabled) return null;
-
-  return (
-    <div className="p-6 md:p-12 border-t border-white/5">
-      <div className="relative group max-w-4xl mx-auto">
-        {/* Subtle animated glow */}
-        <div className="absolute -inset-1 bg-gradient-to-r from-primary/20 via-white/10 to-primary/20 rounded-[3rem] blur-2xl opacity-40 group-hover:opacity-60 transition-opacity duration-500" />
-        
-        <div className="relative bg-zinc-900/40 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-8 md:p-12 flex flex-col items-center text-center gap-3 md:gap-8 overflow-hidden">
-          {/* Abstract geometric decoration */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-32 -mt-32" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -ml-32 -mb-32" />
-
-          <div className="relative space-y-2 md:space-y-3 max-w-2xl px-4">
-            <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter italic uppercase leading-none">
-              {t('auth.support_box') || 'Suporte'}
-            </h3>
-            <p className="text-zinc-400 text-sm md:text-base font-medium leading-relaxed">
-              {t('course.support_description') || 'Nossa equipe está pronta para te ajudar.'}
-            </p>
-          </div>
-
-          <div className="relative flex flex-col items-center gap-3 md:gap-4 w-full sm:max-w-xs px-4">
-            {whatsappEnabled && settings.support_whatsapp && (
-              <a 
-                href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-green-500/20 shadow-2xl shadow-green-500/10 active:scale-[0.97] group/btn"
-              >
-                <WhatsAppIcon size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
-                {t('auth.whatsapp_label')}
-              </a>
-            )}
-            {emailEnabled && settings.support_email && (
-              <a 
-                href={`mailto:${settings.support_email}`}
-                className="w-full flex items-center justify-center gap-3 px-6 py-3.5 md:px-8 md:py-4 bg-primary/10 hover:bg-primary/20 text-primary rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border border-primary/20 shadow-2xl shadow-primary/10 active:scale-[0.97] group/btn"
-              >
-                <Mail size={18} className="group-hover/btn:scale-110 transition-transform duration-300" /> 
-                {t('auth.email_label')}
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 export default function CourseViewer({ courseId, userId, onClose, isProfessor = false }: CourseViewerProps & { isProfessor?: boolean }) {
   const { t } = useI18n();
@@ -109,8 +56,16 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
   }, [courseId]);
 
   useEffect(() => {
-    if (activeChapter && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    if (activeChapter) {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      // Track last viewed chapter for "Continue watching" feature
+      localStorage.setItem(`last_viewed_${userId}`, JSON.stringify({
+        courseId,
+        chapterId: activeChapter.id,
+        timestamp: Date.now()
+      }));
     }
   }, [activeChapter]);
 
@@ -169,7 +124,23 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
           setActiveChapter(finalChapters[0]);
           setViewMode('player');
         } else {
-          setViewMode('grid');
+          // Check for last viewed chapter in this course
+          const lastViewedStr = localStorage.getItem(`last_viewed_${userId}`);
+          if (lastViewedStr) {
+            try {
+              const lastViewed = JSON.parse(lastViewedStr);
+              if (lastViewed.courseId === courseId) {
+                const chapter = finalChapters.find(ch => ch.id === lastViewed.chapterId);
+                if (chapter && !progressData.find(p => p.chapter_id === chapter.id)?.completed) {
+                  setActiveChapter(chapter);
+                  setViewMode('player');
+                }
+              }
+            } catch (e) {
+              console.error('Error parsing last viewed:', e);
+            }
+          }
+          if (!activeChapter) setViewMode('grid');
         }
       }
     } catch (err: any) {
@@ -259,6 +230,13 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
     if (chapters.length === 0) return 0;
     return Math.min(100, Math.round((completedChaptersCount / chapters.length) * 100));
   }, [chapters.length, completedChaptersCount]);
+
+  const calculateModuleProgress = (moduleId: string) => {
+    const moduleChapters = chapters.filter(ch => ch.module_id === moduleId);
+    if (moduleChapters.length === 0) return 0;
+    const completed = moduleChapters.filter(ch => progress.find(p => p.chapter_id === ch.id)?.completed).length;
+    return Math.round((completed / moduleChapters.length) * 100);
+  };
 
   const renderVideo = () => {
     if (!activeChapter?.video_url || activeChapter.video_url === 'undefined') return null;
@@ -554,38 +532,55 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               </div>
 
               <div className="space-y-24">
-                {modules.map((module, mIdx) => (
-                  <div key={module.id} className="space-y-10 group/module">
-                    {module.title === 'Conteúdo' ? (
-                      <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-10">
-                        <div className="flex items-center gap-4">
-                          <div className="h-px w-20 bg-gradient-to-r from-transparent to-primary/40" />
-                          <span className="text-[12px] font-black text-primary uppercase tracking-[0.5em] italic">
-                            {t('course.content') || 'CONTEÚDO'}
-                          </span>
-                          <div className="h-px w-20 bg-gradient-to-l from-transparent to-primary/40" />
+                {(modules.length > 0 ? modules : [{ id: null, title: null }]).map((module, mIdx) => {
+                  const moduleChapters = sortedChapters.filter(ch => module.id === null ? !ch.module_id : ch.module_id === module.id);
+                  if (moduleChapters.length === 0) return null;
+                  const moduleProgress = module.id ? calculateModuleProgress(module.id) : 0;
+
+                  return (
+                    <div key={module.id || 'global'} className="space-y-10 group/module">
+                      {!module.title || module.title === 'Conteúdo' ? (
+                        <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-10">
+                          <div className="flex items-center gap-4">
+                            <div className="h-px w-20 bg-gradient-to-r from-transparent to-primary/40" />
+                            <span className="text-[12px] font-black text-primary uppercase tracking-[0.5em] italic">
+                              {t('course.content') || 'CONTEÚDO'}
+                            </span>
+                            <div className="h-px w-20 bg-gradient-to-l from-transparent to-primary/40" />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-end gap-6 border-b border-white/5 pb-6">
-                        <span className="text-6xl font-black text-white/5 italic leading-none select-none">{(mIdx + 1).toString().padStart(2, '0')}</span>
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[10px] font-black text-primary uppercase tracking-widest italic">
-                            {t('course.module') || 'MÓDULO'} {mIdx + 1}
-                          </span>
-                          <h3 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
-                            {module.title}
-                          </h3>
+                      ) : (
+                        <div className="border-b border-white/5 pb-6">
+                           <div className="flex items-end gap-6 mb-4">
+                             <span className="text-6xl font-black text-white/5 italic leading-none select-none">{(mIdx + 1).toString().padStart(2, '0')}</span>
+                             <div className="flex-1 flex flex-col gap-1">
+                               <span className="text-[10px] font-black text-primary uppercase tracking-widest italic">
+                                 {t('course.module') || 'MÓDULO'} {mIdx + 1}
+                               </span>
+                               <div className="flex items-center justify-between gap-4">
+                                  <h3 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
+                                    {module.title}
+                                  </h3>
+                                  <span className="text-xs font-black text-primary italic">{moduleProgress}% concluído</span>
+                               </div>
+                             </div>
+                           </div>
+                           <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${moduleProgress}%` }}
+                                className="h-full bg-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]"
+                              />
+                           </div>
                         </div>
-                      </div>
-                    )}
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-8 gap-y-12">
-                      {sortedChapters.filter(ch => ch.module_id === module.id).map((chapter, idx) => {
-                        const isCompleted = progress.find(p => p.chapter_id === chapter.id)?.completed;
-                        
-                        return (
-                          <motion.button
+                      )}
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-8 gap-y-12">
+                        {moduleChapters.map((chapter, idx) => {
+                          const isCompleted = progress.find(p => p.chapter_id === chapter.id)?.completed;
+                          
+                          return (
+                            <motion.button
                             whileHover={{ y: -8, scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             key={chapter.id}
@@ -664,10 +659,10 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                       })}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
               
-              <SupportSection settings={settings} t={t} />
+              <SupportSection page="course" settings={settings} t={t} />
             </motion.div>
           ) : (
             <motion.div
@@ -787,7 +782,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 )}
 
                 {/* Support Section */}
-                <SupportSection settings={settings} t={t} />
+                <SupportSection page="lesson" settings={settings} t={t} />
 
                 {/* Lesson List (Sitemap feel) */}
                 {chapters.length > 1 && (
@@ -822,13 +817,13 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 )}
               </div>
               
-              <FloatingWhatsApp page="course" />
+              <FloatingWhatsApp page="lesson" />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      <FloatingWhatsApp page="course" />
+      <FloatingWhatsApp page={viewMode === 'grid' ? 'course' : 'lesson'} />
     </div>
   );
 }

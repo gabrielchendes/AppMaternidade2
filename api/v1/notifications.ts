@@ -47,11 +47,18 @@ async function checkAdmin(req: VercelRequest) {
   if (!authHeader) return false;
   
   const token = authHeader.split(' ')[1];
-  const { data: { user }, error } = await createClient(supabaseUrl, supabaseAnonKey || supabaseServiceRoleKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } }
-  }).auth.getUser();
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
   
-  if (error || !user) return false;
+  if (error || !user) {
+    if (error) {
+      console.error('[Notifications API] auth.getUser error:', {
+        message: error.message,
+        status: error.status,
+        token_preview: token.substring(0, 10) + '...'
+      });
+    }
+    return false;
+  }
 
   // Check profile and app_settings
   const { data: profile } = await supabaseAdmin.from('profiles').select('is_admin').eq('id', user.id).single();

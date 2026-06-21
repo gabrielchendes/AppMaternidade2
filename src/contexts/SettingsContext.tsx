@@ -35,6 +35,7 @@ export interface AppSettings {
   support_whatsapp_course_enabled: boolean;
   support_email_course_enabled: boolean;
   support_whatsapp_floating_course_enabled: boolean;
+  support_type?: 'floating' | 'box';
   login_display_type: 'title' | 'logo' | 'both';
   login_install_button_pulsing: 'pulsing' | 'static' | 'hidden' | boolean;
   logo_height?: number;
@@ -47,9 +48,12 @@ export interface AppSettings {
   banner_sync?: boolean;
   course_pdf_auto_complete_fullscreen?: boolean;
   app_url?: string;
+  ga4_tag_id?: string;
+  main_course_hotmart_id?: string;
 }
 
 const defaultSettings: AppSettings = {
+  main_course_hotmart_id: '',
   app_name: 'AppMaternidade',
   admin_email: 'atendimento@suporte.com',
   app_description: 'Acesse sua área exclusiva',
@@ -83,6 +87,7 @@ const defaultSettings: AppSettings = {
   support_whatsapp_course_enabled: true,
   support_email_course_enabled: true,
   support_whatsapp_floating_course_enabled: true,
+  support_type: 'floating',
   login_display_type: 'title',
   login_install_button_pulsing: 'pulsing',
   logo_height: 64,
@@ -126,7 +131,17 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const cached = localStorage.getItem('app_settings_cache');
+      if (cached) {
+        return { ...defaultSettings, ...JSON.parse(cached) };
+      }
+    } catch (e) {
+      console.error('Failed to parse cached settings on build:', e);
+    }
+    return defaultSettings;
+  });
   const [loading, setLoading] = useState(true);
 
   const fetchSettings = async () => {
@@ -162,6 +177,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         setSettings(data);
         applyTheme(data);
+        try {
+          localStorage.setItem('app_settings_cache', JSON.stringify(data));
+        } catch (e) {
+          console.error('Failed to cache settings:', e);
+        }
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -196,7 +216,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         link.rel = 'icon';
         document.getElementsByTagName('head')[0].appendChild(link);
       }
-      link.href = s.favicon_url;
+      if (link.href !== s.favicon_url) {
+        link.href = s.favicon_url;
+      }
     }
 
     // Update PWA icon (Apple Touch Icon)
@@ -212,6 +234,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    applyTheme(settings);
     fetchSettings();
   }, []);
 
