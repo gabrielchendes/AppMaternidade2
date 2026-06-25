@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo, lazy, Suspense, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo, Suspense, useRef } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import Navbar from '../components/Navbar';
@@ -24,13 +24,14 @@ import { useI18n } from '../contexts/I18nContext';
 import { Course } from '../types/lms';
 import { dataCache } from '../lib/cache';
 import { cn } from '../lib/utils';
+import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 // Lazy load heavy components
-const Profile = lazy(() => import('../components/Profile'));
-const Community = lazy(() => import('../components/Community'));
-const AdminPanel = lazy(() => import('../components/AdminPanel'));
-const CourseViewer = lazy(() => import('../components/CourseViewer'));
-const CoursePreviewViewer = lazy(() => import('../components/CoursePreviewViewer'));
+const Profile = lazyWithRetry(() => import('../components/Profile'));
+const Community = lazyWithRetry(() => import('../components/Community'));
+const AdminPanel = lazyWithRetry(() => import('../components/AdminPanel'));
+const CourseViewer = lazyWithRetry(() => import('../components/CourseViewer'));
+const CoursePreviewViewer = lazyWithRetry(() => import('../components/CoursePreviewViewer'));
 
 const ComponentLoader = () => (
   <div className="w-full py-20 flex items-center justify-center">
@@ -263,7 +264,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const mainCheckoutUrl = settings?.custom_texts?.['main_checkout_url'] || '';
 
       const processedCourses = coursesRes.data?.map(c => {
-        const isMainCourse = c.is_free === true && c.is_bonus === false;
+        const isMainCourse = !!c.is_free && !c.is_bonus;
         return {
           ...c,
           price: isMainCourse ? mainPrice : c.price,
@@ -335,25 +336,9 @@ export default function Dashboard({ user }: DashboardProps) {
     // 1. If it has a direct purchase or is part of an owned package, it's unlocked
     if (purchases.some(p => p.product_id === course.id)) return true;
 
-    // 2. If a course is a Main Product (is_free = true, is_bonus = false)
-    const isMainCourse = course.is_free === true && course.is_bonus === false;
-    if (isMainCourse) {
-      const mainProductId = settings?.main_course_hotmart_id || settings?.custom_texts?.['main_product_id'];
-      
-      const mainCourseIds = courses
-        .filter(c => c.is_free === true && c.is_bonus === false)
-        .map(c => c.id);
-        
-      const hasMainPurchase = purchases.some(p => 
-        mainCourseIds.includes(p.product_id) || 
-        (mainProductId && p.product_id === mainProductId)
-      );
-
-      if (mainProductId) {
-        return hasMainPurchase;
-      }
-      return true;
-    }
+    // 2. If a course is a Main Product (is_free = true, is_bonus = false), it's always unlocked for all users
+    const isMainCourse = !!course.is_free && !course.is_bonus;
+    if (isMainCourse) return true;
 
     // 3. If it's exclusive to package, it's ONLY unlocked if owned (handled by purchases check above)
     if (course.is_package_exclusive_bonus) return false;
@@ -419,7 +404,7 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [courses, isUnlocked]);
 
   const mainCourses = useMemo(() => {
-    const list = courses.filter(c => c.is_free === true && c.is_bonus === false);
+    const list = courses.filter(c => !!c.is_free && !c.is_bonus);
     return [...list].sort((a, b) => {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
@@ -429,7 +414,7 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [courses]);
 
   const paidCourses = useMemo(() => {
-    const list = courses.filter(c => c.is_free === false && c.is_bonus === false);
+    const list = courses.filter(c => !c.is_free && !c.is_bonus);
     return [...list].sort((a, b) => {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
@@ -439,7 +424,7 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [courses]);
 
   const bonusCourses = useMemo(() => {
-    const list = courses.filter(p => p.is_bonus === true && isUnlocked(p));
+    const list = courses.filter(p => !!p.is_bonus && isUnlocked(p));
     return [...list].sort((a, b) => {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
@@ -745,18 +730,18 @@ export default function Dashboard({ user }: DashboardProps) {
                 </div>
               </PullToRefresh>
             ) : activeTab === 'community' ? (
-                <>
+                <PullToRefresh onRefresh={handleGlobalRefresh}>
                   <Suspense fallback={<ComponentLoader />}>
                     <Community key={`community-${refreshKey}`} user={user} />
                   </Suspense>
                   <SupportSection page="community" settings={settings} t={t} />
-                </>
+                </PullToRefresh>
               ) : activeTab === 'admin' ? (
                 <Suspense fallback={<ComponentLoader />}>
                   <AdminPanel key={`admin-${refreshKey}`} user={user} />
                 </Suspense>
               ) : (
-                <>
+                <PullToRefresh onRefresh={handleGlobalRefresh}>
                   <Suspense fallback={<ComponentLoader />}>
                     <Profile 
                       key={`profile-${refreshKey}`} 
@@ -766,7 +751,7 @@ export default function Dashboard({ user }: DashboardProps) {
                     />
                   </Suspense>
                   <SupportSection page="profile" settings={settings} t={t} />
-                </>
+                </PullToRefresh>
               )}
       </div>
 

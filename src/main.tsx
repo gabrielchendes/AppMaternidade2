@@ -10,17 +10,28 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 import { registerSW } from 'virtual:pwa-register';
 
-// Faster SW registration
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    console.log('Update found, reloading...');
-    updateSW(true);
-  },
-  onOfflineReady() {
-    console.log('App ready for offline use');
+// Faster SW registration safely wrapped to prevent sandbox iframe exceptions
+const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !isIframe) {
+  try {
+    const updateSW = registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        console.log('Update found, reloading...');
+        try {
+          updateSW(true);
+        } catch (e) {
+          console.error('Failed to trigger SW update:', e);
+        }
+      },
+      onOfflineReady() {
+        console.log('App ready for offline use');
+      }
+    });
+  } catch (err) {
+    console.warn('Service Worker registration skipped or failed under this environment context:', err);
   }
-});
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

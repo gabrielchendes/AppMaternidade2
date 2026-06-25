@@ -404,7 +404,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             <Edit3 size={14} />
           </button>
           <button 
-            onClick={() => onDelete(course.id)}
+            onClick={() => onDelete(course.id, course.title, !course.is_bonus && !course.is_free)}
             className="p-1.5 bg-red-500/80 hover:bg-red-500 text-white rounded-lg backdrop-blur-md transition-all shadow-lg"
             title="Excluir"
           >
@@ -905,7 +905,15 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     }
   };
 
-  const handleDeleteCourse = async (courseId: string) => {
+  const handleDeleteCourse = async (courseId: string, courseTitle: string = 'este curso', isPaid: boolean = false) => {
+    if (isPaid) {
+      const confirmed = window.confirm(`Você tem certeza que deseja excluir o curso pago "${courseTitle}"? Esta ação é irreversível.`);
+      if (!confirmed) return;
+    } else {
+      const confirmed = window.confirm(`Você tem certeza que deseja excluir o curso "${courseTitle}"?`);
+      if (!confirmed) return;
+    }
+
     try {
       const { error } = await supabase
         .from('courses')
@@ -1409,7 +1417,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   className="w-full py-3 bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all border border-blue-500/20 flex items-center justify-center gap-2"
                                 >
                                   <MessageSquare size={14} />
-                                  Responder Estudante
+                                  Responder Aluno
                                 </button>
                               </div>
                             )}
@@ -3984,7 +3992,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'course.no_questions', label: 'Texto Sem Dúvidas' },
                                 { key: 'course.waiting_answer', label: 'Status: Aguardando Resposta' },
                                 { key: 'course.answered_at', label: 'Status: Respondido em' },
-                                { key: 'course.admin_answer', label: 'Label: Resposta do Professor' }
+                                { key: 'course.admin_answer', label: 'Label: Resposta do Expert' }
                               ].map(field => (
                                 <div key={field.key} className="space-y-2">
                                   <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
@@ -4121,7 +4129,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                  { key: 'course.questions_title', label: 'Título da Seção de Dúvidas' },
                                  { key: 'course.question_placeholder', label: 'Placeholder de Nova Dúvida' },
                                  { key: 'course.send_question', label: 'Texto do Botão Enviar' },
-                                 { key: 'course.admin_answer', label: 'Texto Resposta do Professor' }
+                                 { key: 'course.admin_answer', label: 'Texto Resposta do Expert' }
                                ].map(field => (
                                  <div key={field.key} className="space-y-2">
                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>

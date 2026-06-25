@@ -22,7 +22,28 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    console.error('Uncaught error in ErrorBoundary:', error, errorInfo);
+    
+    const errorMessage = error?.message || '';
+    const errorName = error?.name || '';
+    const isChunkError = 
+      errorMessage.includes('Failed to fetch dynamically imported module') ||
+      errorMessage.includes('Loading chunk') ||
+      errorMessage.includes('dynamic') ||
+      errorMessage.includes('Script error') ||
+      errorName === 'TypeError' ||
+      errorName === 'ChunkLoadError' ||
+      errorName === 'Script error' ||
+      !errorMessage;
+
+    if (isChunkError) {
+      const hasReloaded = sessionStorage.getItem('chunk-failed-reload');
+      if (!hasReloaded) {
+        sessionStorage.setItem('chunk-failed-reload', 'true');
+        console.warn('⚠️ ErrorBoundary caught a dynamic chunk load failure. Automatically reloading page to get latest changes...');
+        window.location.reload();
+      }
+    }
   }
 
   public render() {

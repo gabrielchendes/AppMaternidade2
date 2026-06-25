@@ -39,7 +39,7 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
         const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).maybeSingle();
         setUserData({
           id: user.id,
-          name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Estudante',
+          name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Aluno',
           avatar: profile?.avatar_url || user.user_metadata?.avatar_url || initialAvatar
         });
       }
@@ -264,7 +264,7 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
                     <div className="flex items-center gap-2 text-primary">
                       <ShieldCheck size={14} />
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] italic">
-                        {t('course.admin_answer') || 'Resposta do Professor'}
+                        {t('course.admin_answer') || 'Resposta do Expert'}
                       </span>
                     </div>
                     <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4">

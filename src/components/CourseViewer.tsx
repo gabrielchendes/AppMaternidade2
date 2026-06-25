@@ -17,7 +17,8 @@ import {
   Mail,
   Maximize2,
   Play,
-  AlertCircle
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import WhatsAppIcon from './WhatsAppIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +31,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import ChapterQuestions from './ChapterQuestions';
 import FloatingWhatsApp from './FloatingWhatsApp';
 import SupportSection from './SupportSection';
+import PullToRefresh from './PullToRefresh';
 
 interface CourseViewerProps {
   courseId: string;
@@ -236,6 +238,77 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
     if (moduleChapters.length === 0) return 0;
     const completed = moduleChapters.filter(ch => progress.find(p => p.chapter_id === ch.id)?.completed).length;
     return Math.round((completed / moduleChapters.length) * 100);
+  };
+
+  const adjustColorBrightness = (hex: string, percent: number) => {
+    try {
+      let R = parseInt(hex.substring(1, 3), 16);
+      let G = parseInt(hex.substring(3, 5), 16);
+      let B = parseInt(hex.substring(5, 7), 16);
+
+      R = Math.min(255, Math.max(0, R + percent));
+      G = Math.min(255, Math.max(0, G + percent));
+      B = Math.min(255, Math.max(0, B + percent));
+
+      const rHex = R.toString(16).padStart(2, '0');
+      const gHex = G.toString(16).padStart(2, '0');
+      const bHex = B.toString(16).padStart(2, '0');
+
+      return `#${rHex}${gHex}${bHex}`;
+    } catch (e) {
+      return hex;
+    }
+  };
+
+  const renderLinkButton = () => {
+    if (!activeChapter) return null;
+
+    const [btnColor, btnStyle] = (activeChapter.button_link_color || '#10b981').split('|');
+    const actualStyle = btnStyle || 'filled';
+    const actualColor = btnColor || '#10b981';
+
+    let buttonStyle: React.CSSProperties = {};
+    const buttonClassName = "px-10 py-5 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-300 active:scale-95 shadow-xl cursor-pointer hover:brightness-110";
+
+    if (actualStyle === 'filled') {
+      buttonStyle = {
+        backgroundColor: actualColor,
+        color: '#ffffff',
+        boxShadow: `0 10px 25px -5px ${actualColor}40`
+      };
+    } else if (actualStyle === 'outline') {
+      buttonStyle = {
+        backgroundColor: 'transparent',
+        border: `2px solid ${actualColor}`,
+        color: actualColor,
+      };
+    } else if (actualStyle === 'glow') {
+      buttonStyle = {
+        backgroundColor: actualColor,
+        color: '#ffffff',
+        boxShadow: `0 0 25px ${actualColor}, 0 5px 15px rgba(0,0,0,0.3)`
+      };
+    } else if (actualStyle === 'gradient') {
+      const gradientEnd = adjustColorBrightness(actualColor, -25);
+      buttonStyle = {
+        backgroundImage: `linear-gradient(135deg, ${actualColor}, ${gradientEnd})`,
+        color: '#ffffff',
+        boxShadow: `0 10px 25px -5px ${actualColor}40`
+      };
+    }
+
+    return (
+      <a 
+        href={activeChapter.button_link_url || '#'} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className={buttonClassName}
+        style={buttonStyle}
+      >
+        <span>{activeChapter.button_link_text || 'Acessar Conteúdo'}</span>
+        <ExternalLink size={16} />
+      </a>
+    );
   };
 
   const renderVideo = () => {
@@ -517,22 +590,23 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scrollbar-hide relative bg-bg-main"
       >
-        <AnimatePresence mode="wait">
-          {viewMode === 'grid' ? (
-            <motion.div
-              key="grid"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="max-w-7xl mx-auto w-full p-6 sm:p-12 pb-32"
-            >
-              <div className="mb-16 space-y-4 text-center">
-                <h1 className="text-4xl sm:text-7xl font-black italic uppercase tracking-tighter leading-[0.85] bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">{course?.title}</h1>
-                <p className="text-gray-400 text-lg sm:text-xl max-w-3xl mx-auto font-medium leading-relaxed">{course?.description}</p>
-              </div>
+        <PullToRefresh onRefresh={fetchCourseData}>
+          <AnimatePresence mode="wait">
+            {viewMode === 'grid' ? (
+              <motion.div
+                key="grid"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="max-w-7xl mx-auto w-full p-6 sm:p-12 pb-32"
+              >
+                <div className="mb-16 space-y-4 text-center">
+                  <h1 className="text-4xl sm:text-7xl font-black italic uppercase tracking-tighter leading-[0.85] bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">{course?.title}</h1>
+                  <p className="text-gray-400 text-lg sm:text-xl max-w-3xl mx-auto font-medium leading-relaxed whitespace-pre-line">{course?.description}</p>
+                </div>
 
-              <div className="space-y-24">
-                {(modules.length > 0 ? modules : [{ id: null, title: null }]).map((module, mIdx) => {
+                <div className="space-y-24">
+                  {(modules.length > 0 ? modules : [{ id: null, title: null }]).map((module, mIdx) => {
                   const moduleChapters = sortedChapters.filter(ch => module.id === null ? !ch.module_id : ch.module_id === module.id);
                   if (moduleChapters.length === 0) return null;
                   const moduleProgress = module.id ? calculateModuleProgress(module.id) : 0;
@@ -682,7 +756,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                   <h1 className="text-4xl md:text-6xl font-serif font-black leading-tight text-white mb-4">
                     {activeChapter?.title}
                   </h1>
-                  <p className="text-gray-500 text-lg md:text-xl font-medium max-w-2xl mx-auto">
+                  <p className="text-gray-500 text-lg md:text-xl font-medium max-w-2xl mx-auto whitespace-pre-line">
                     {activeChapter?.description || course?.description}
                   </p>
                 </motion.div>
@@ -690,26 +764,37 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
 
               {/* Media Player Section with Elegant Frame */}
               <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className={`relative overflow-hidden border border-white/10 bg-black shadow-2xl transition-all duration-500 w-full ${
-                    activeChapter?.content_type === 'pdf' 
-                      ? 'aspect-[1/1.4] sm:aspect-[3/4] max-h-[85vh] rounded-[2rem] sm:rounded-[3rem] ring-8 ring-white/5 shadow-white/5' 
-                      : 'aspect-video rounded-xl border-white/20'
-                  }`}
-                >
-                  {activeChapter?.content_type === 'video' ? (
-                    renderVideo()
-                  ) : activeChapter?.content_type === 'pdf' ? (
-                    renderPdf()
-                  ) : (
-                    <div className="h-full flex items-center justify-center">
-                      <p className="text-gray-500 italic">{t('course.no_media') || 'Aula sem conteúdo de mídia'}</p>
-                    </div>
-                  )}
-                </motion.div>
+                {activeChapter?.content_type === 'link' ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="w-full flex items-center justify-center py-6"
+                  >
+                    {renderLinkButton()}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className={`relative overflow-hidden border border-white/10 bg-black shadow-2xl transition-all duration-500 w-full ${
+                      activeChapter?.content_type === 'pdf' 
+                        ? 'aspect-[1/1.4] sm:aspect-[3/4] max-h-[85vh] rounded-[2rem] sm:rounded-[3rem] ring-8 ring-white/5 shadow-white/5' 
+                        : 'aspect-video rounded-xl border-white/20'
+                    }`}
+                  >
+                    {activeChapter?.content_type === 'video' ? (
+                      renderVideo()
+                    ) : activeChapter?.content_type === 'pdf' ? (
+                      renderPdf()
+                    ) : (
+                      <div className="h-full flex items-center justify-center">
+                        <p className="text-gray-500 italic">{t('course.no_media') || 'Aula sem conteúdo de mídia'}</p>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
               </div>
 
               {/* Action Area */}
@@ -776,7 +861,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                   <ChapterQuestions 
                     chapterId={activeChapter.id} 
                     userId={userId}
-                    userName={course?.title === 'Admin' ? 'Admin' : (progress[0]?.user_id === userId ? 'Você' : 'Estudante')} // Simple fallback, better get from auth/profile
+                    userName={course?.title === 'Admin' ? 'Admin' : (progress[0]?.user_id === userId ? 'Você' : 'Aluno')} // Simple fallback, better get from auth/profile
                     userAvatarUrl={undefined}
                   />
                 )}
@@ -821,6 +906,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
             </motion.div>
           )}
         </AnimatePresence>
+        </PullToRefresh>
       </div>
 
       <FloatingWhatsApp page={viewMode === 'grid' ? 'course' : 'lesson'} />

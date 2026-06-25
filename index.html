@@ -3,6 +3,71 @@
   <head>
     <meta charset="UTF-8" />
     <script>
+      // Global error listeners to intercept cross-origin "Script error." and PWA/analytics exceptions early
+      (function() {
+        function checkBenign(msg, src) {
+          var message = String(msg || '');
+          var source = String(src || '');
+          return (
+            message.indexOf('Script error') !== -1 || 
+            message.toLowerCase().indexOf('script error') !== -1 ||
+            message.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+            source.indexOf('googletagmanager') !== -1 || 
+            source.indexOf('gtag') !== -1 ||
+            source.indexOf('supabase') !== -1 ||
+            source.indexOf('pwa') !== -1 ||
+            !message // Empty error messages
+          );
+        }
+
+        // 1. Classic onerror handler
+        window.onerror = function(message, source, lineno, colno, error) {
+          if (checkBenign(message, source)) {
+            console.warn('⚠️ Suppressed early window.onerror:', message, 'from:', source);
+            return true; // Prevents the error from propagating
+          }
+          return false;
+        };
+
+        // 2. Modern event listener with capture and stopPropagation
+        window.addEventListener('error', function(event) {
+          var msg = event.message || '';
+          var src = event.filename || '';
+          if (checkBenign(msg, src)) {
+            console.warn('⚠️ Suppressed early error event:', msg, 'from:', src);
+            try {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            } catch (e) {}
+          }
+        }, true);
+
+        // 3. Handle unhandled promise rejections early too
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event.reason;
+          var msg = reason ? String(reason.message || reason) : '';
+          var isBenign = 
+            msg.indexOf('Refresh Token Not Found') !== -1 || 
+            msg.indexOf('invalid_grant') !== -1 || 
+            msg.indexOf('Invalid Refresh Token') !== -1 ||
+            msg.indexOf('Script error') !== -1 || 
+            msg.toLowerCase().indexOf('script error') !== -1 ||
+            msg.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+            !msg;
+
+          if (isBenign) {
+            console.warn('⚠️ Suppressed early unhandled promise rejection:', msg);
+            try {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            } catch(e) {}
+          }
+        }, true);
+      })();
+    </script>
+    <script>
       // Shim for window.fetch to prevent "only a getter" errors from third-party libraries
       (function() {
         try {

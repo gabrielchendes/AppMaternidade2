@@ -36,6 +36,67 @@ import { Course, Module, Chapter } from '../types/lms';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import CoursePreviewViewer from './CoursePreviewViewer';
+import ImageCropperModal from './ImageCropperModal';
+
+const adjustColorBrightness = (hex: string, percent: number) => {
+  try {
+    let cleanHex = hex;
+    if (hex.startsWith('#')) {
+      cleanHex = hex.substring(1);
+    }
+    if (cleanHex.length === 3) {
+      cleanHex = cleanHex.split('').map(c => c + c).join('');
+    }
+    let R = parseInt(cleanHex.substring(0, 2), 16);
+    let G = parseInt(cleanHex.substring(2, 4), 16);
+    let B = parseInt(cleanHex.substring(4, 6), 16);
+
+    R = Math.min(255, Math.max(0, R + percent));
+    G = Math.min(255, Math.max(0, G + percent));
+    B = Math.min(255, Math.max(0, B + percent));
+
+    const rHex = R.toString(16).padStart(2, '0');
+    const gHex = G.toString(16).padStart(2, '0');
+    const bHex = B.toString(16).padStart(2, '0');
+
+    return `#${rHex}${gHex}${bHex}`;
+  } catch (e) {
+    return hex;
+  }
+};
+
+const getButtonStyle = (color: string, style: string): React.CSSProperties => {
+  const actualColor = color || '#10b981';
+  const actualStyle = style || 'filled';
+  
+  if (actualStyle === 'filled') {
+    return {
+      backgroundColor: actualColor,
+      color: '#ffffff',
+      boxShadow: `0 10px 25px -5px ${actualColor}40`
+    };
+  } else if (actualStyle === 'outline') {
+    return {
+      backgroundColor: 'transparent',
+      border: `2px solid ${actualColor}`,
+      color: actualColor,
+    };
+  } else if (actualStyle === 'glow') {
+    return {
+      backgroundColor: actualColor,
+      color: '#ffffff',
+      boxShadow: `0 0 20px ${actualColor}, 0 5px 10px rgba(0,0,0,0.3)`
+    };
+  } else if (actualStyle === 'gradient') {
+    const gradientEnd = adjustColorBrightness(actualColor, -25);
+    return {
+      backgroundImage: `linear-gradient(135deg, ${actualColor}, ${gradientEnd})`,
+      color: '#ffffff',
+      boxShadow: `0 10px 25px -5px ${actualColor}40`
+    };
+  }
+  return {};
+};
 
 interface CourseEditorProps {
   courseId?: string;
@@ -109,10 +170,35 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     duration_minutes: 0
   });
 
+  // Image Cropper States
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperType, setCropperType] = useState<'standard' | 'premium' | 'chapter' | 'existing-chapter'>('standard');
+  const [cropperAspect, setCropperAspect] = useState(3/4);
+  const [cropperChapterId, setCropperChapterId] = useState<string | null>(null);
+
   const [modules, setModules] = useState<Module[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [packages, setPackages] = useState<any[]>(externalPackages || []);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+
+  const [editingExistingChapter, setEditingExistingChapter] = useState<Chapter | null>(null);
+
+  // Custom premium dropdown states
+  const [isModuleDropdownOpen, setIsModuleDropdownOpen] = useState(false);
+  const [isStyleDropdownOpen, setIsStyleDropdownOpen] = useState(false);
+  const [isEditModuleDropdownOpen, setIsEditModuleDropdownOpen] = useState(false);
+  const [isEditStyleDropdownOpen, setIsEditStyleDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    if (selectedChapterId && selectedChapterId !== 'new') {
+      const found = chapters.find(c => c.id === selectedChapterId);
+      if (found) {
+        setEditingExistingChapter({ ...found });
+      }
+    } else {
+      setEditingExistingChapter(null);
+    }
+  }, [selectedChapterId, chapters]);
 
   useEffect(() => {
     if (!externalPackages) {
@@ -420,6 +506,45 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     }
   };
 
+  const handleSaveExistingChapter = async () => {
+    if (!editingExistingChapter) return;
+    if (!editingExistingChapter.title) {
+      toast.error('O título da aula é obrigatório');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const { error } = await supabase
+        .from('chapters')
+        .update({
+          title: editingExistingChapter.title,
+          description: editingExistingChapter.description || '',
+          content_type: editingExistingChapter.content_type,
+          video_url: editingExistingChapter.video_url || '',
+          pdf_url: editingExistingChapter.pdf_url || '',
+          button_link_text: editingExistingChapter.button_link_text || '',
+          button_link_url: editingExistingChapter.button_link_url || '',
+          button_link_color: editingExistingChapter.button_link_color || '#10b981',
+          cover_url: editingExistingChapter.cover_url || '',
+          rich_text: editingExistingChapter.rich_text || '',
+          duration_minutes: editingExistingChapter.duration_minutes || 0,
+          module_id: editingExistingChapter.module_id || null
+        })
+        .eq('id', editingExistingChapter.id);
+
+      if (error) throw error;
+      toast.success('Aula atualizada com sucesso!');
+      setSelectedChapterId(null);
+      fetchCourseData();
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao salvar aula: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, '');
     setCourse({ ...course, price: parseInt(value) || 0 });
@@ -511,19 +636,65 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                 <div className="space-y-8">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa do Treinamento</label>
-                    <div className="aspect-[3/4] rounded-3xl border-2 border-dashed border-white/10 overflow-hidden relative bg-black group/cover">
+                    
+                    {/* Canva Guide Card */}
+                    <div className="bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-blue-500/20 rounded-2xl p-4 text-center space-y-1.5 shadow-md">
+                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                        🎨 Resolução Ideal no Canva
+                      </p>
+                      <p className="text-xs text-gray-200 font-semibold">
+                        Tamanho de <span className="text-blue-300 font-black">1080 x 1440 px</span> (Proporção 3:4)
+                      </p>
+                    </div>
+
+                    <div 
+                      onClick={() => {
+                        if (!course.cover_url) {
+                          toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                          return;
+                        }
+                        setCropperType('standard');
+                        setCropperAspect(3/4);
+                        setCropperOpen(true);
+                      }}
+                      className="aspect-[3/4] rounded-3xl border-2 border-dashed border-white/10 overflow-hidden relative bg-black group/cover cursor-pointer hover:border-blue-500/50 transition-all shadow-xl"
+                    >
                       {course.cover_url ? (
                         <img src={course.cover_url} className="w-full h-full object-cover transition-transform duration-700 group-hover/cover:scale-110" alt="Capa" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-700">
-                          <ImageIcon className="mb-2 opacity-20" size={48} />
-                          <span className="text-[10px] font-black uppercase tracking-widest opacity-40 text-center px-4">Arraste uma imagem ou cole a URL abaixo</span>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 p-6 text-center">
+                          <ImageIcon className="mb-3 opacity-20" size={44} />
+                          <span className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Capa do Curso</span>
+                          <span className="text-[9px] font-medium opacity-30 leading-normal max-w-[200px]">Cole a URL da imagem abaixo para habilitar o ajuste e visualização</span>
                         </div>
                       )}
                       
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                        <p className="text-[10px] font-black text-white uppercase tracking-widest">Alterar Imagem</p>
-                      </div>
+                      {course.cover_url && (
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/cover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                          <p className="text-[10px] font-black text-white uppercase tracking-widest bg-blue-600/80 px-4 py-2 rounded-xl">Recortar & Ajustar Capa</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!course.cover_url) {
+                            toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                            return;
+                          }
+                          setCropperType('standard');
+                          setCropperAspect(3/4);
+                          setCropperOpen(true);
+                        }}
+                        className={`w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
+                          course.cover_url 
+                            ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20' 
+                            : 'bg-white/[0.02] text-gray-600 border-white/5 cursor-not-allowed'
+                        }`}
+                      >
+                        <ImageIcon size={14} /> Recortar / Ajustar Capa
+                      </button>
                     </div>
                     <div className="relative group/url">
                       <input 
@@ -531,7 +702,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                         value={course.cover_url || ''}
                         onChange={e => setCourse({...course, cover_url: e.target.value})}
                         className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-[10px] text-gray-400 focus:border-blue-500 outline-none transition-all font-mono"
-                        placeholder="https://sua-imagem.com/capa.jpg"
+                        placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
                       />
                     </div>
                   </div>
@@ -738,23 +909,43 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                     <div className="space-y-4">
                       <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Capa Personalizada para o Modal</label>
                       <div className="grid grid-cols-[120px_1fr] gap-4 bg-black/40 p-3 rounded-2xl border border-white/5">
-                        <div className="aspect-video rounded-xl bg-zinc-900 overflow-hidden relative border border-white/5">
+                        <div 
+                          onClick={() => {
+                            setCropperType('premium');
+                            setCropperAspect(16/9);
+                            setCropperOpen(true);
+                          }}
+                          className="aspect-video rounded-xl bg-zinc-900 overflow-hidden relative border border-white/5 cursor-pointer group/premiumcover"
+                        >
                           <img 
                             src={course.premium_cover_url || course.cover_url} 
-                            className="w-full h-full object-cover" 
+                            className="w-full h-full object-cover transition-transform group-hover/premiumcover:scale-105" 
                             referrerPolicy="no-referrer"
                             onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x225?text=Preview')}
                           />
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/premiumcover:opacity-100 flex items-center justify-center transition-opacity text-[8px] font-black text-white uppercase tracking-widest text-center px-1">
+                            Ajustar
+                          </div>
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-2 flex flex-col justify-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCropperType('premium');
+                              setCropperAspect(16/9);
+                              setCropperOpen(true);
+                            }}
+                            className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-2 border border-amber-500/20"
+                          >
+                            <ImageIcon size={12} /> Ajustar Capa (16:9)
+                          </button>
                           <input 
                             type="text" 
                             value={course.premium_cover_url || ''}
                             onChange={e => setCourse({...course, premium_cover_url: e.target.value})}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-[10px] text-gray-400 focus:border-amber-500 outline-none font-mono"
-                            placeholder="URL da Imagem (Opcional)"
+                            placeholder="Ou digite a URL direta..."
                           />
-                          <p className="text-[8px] text-gray-600 font-black uppercase ml-1 shrink-0">Recomendado: 1920x1080px</p>
                         </div>
                       </div>
                     </div>
@@ -1342,16 +1533,63 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                           
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Selecionar Módulo</label>
-                            <select 
-                              value={editingChapter.module_id || ''}
-                              onChange={e => setEditingChapter({...editingChapter, module_id: e.target.value})}
-                              className="w-full h-[68px] bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-white focus:border-emerald-500 outline-none transition-all appearance-none uppercase tracking-widest"
-                            >
-                              <option value="">Sem Módulo (Global)</option>
-                              {modules.map(m => (
-                                <option key={m.id} value={m.id}>{m.title}</option>
-                              ))}
-                            </select>
+                            <div className="relative group z-30">
+                              <button
+                                type="button"
+                                onClick={() => setIsModuleDropdownOpen(!isModuleDropdownOpen)}
+                                className="w-full h-[68px] bg-black/40 border border-white/10 rounded-2xl pl-6 pr-12 text-xs font-bold text-white flex items-center justify-between outline-none transition-all group-hover:border-white/20 uppercase tracking-widest cursor-pointer text-left"
+                              >
+                                <span className="truncate">
+                                  {editingChapter.module_id 
+                                    ? (modules.find(m => m.id === editingChapter.module_id)?.title || 'Sem Módulo (Global)')
+                                    : 'Sem Módulo (Global)'}
+                                </span>
+                                <div className="absolute right-5 pointer-events-none text-gray-400 group-hover:text-gray-200 transition-colors">
+                                  <ChevronDown size={18} className={`transform transition-transform duration-200 ${isModuleDropdownOpen ? 'rotate-180' : ''}`} />
+                                </div>
+                              </button>
+
+                              <AnimatePresence>
+                                {isModuleDropdownOpen && (
+                                  <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setIsModuleDropdownOpen(false)} />
+                                    <motion.div
+                                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                      transition={{ duration: 0.15 }}
+                                      className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden shadow-2xl z-50 max-h-[250px] overflow-y-auto divide-y divide-white/5 scrollbar-thin scrollbar-thumb-white/10 py-1"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingChapter({...editingChapter, module_id: ''});
+                                          setIsModuleDropdownOpen(false);
+                                        }}
+                                        className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                      >
+                                        <span className={!editingChapter.module_id ? "text-emerald-500" : "text-gray-300"}>Sem Módulo (Global)</span>
+                                        {!editingChapter.module_id && <Check size={14} className="text-emerald-500" />}
+                                      </button>
+                                      {modules.map(m => (
+                                        <button
+                                          key={m.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingChapter({...editingChapter, module_id: m.id});
+                                            setIsModuleDropdownOpen(false);
+                                          }}
+                                          className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                        >
+                                          <span className={editingChapter.module_id === m.id ? "text-emerald-500" : "text-gray-300"}>{m.title}</span>
+                                          {editingChapter.module_id === m.id && <Check size={14} className="text-emerald-500" />}
+                                        </button>
+                                      ))}
+                                    </motion.div>
+                                  </>
+                                )}
+                              </AnimatePresence>
+                            </div>
                           </div>
                         </div>
 
@@ -1395,30 +1633,142 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                               placeholder={editingChapter.content_type === 'video' ? "https://youtube.com/..." : "https://drive.google.com/..."}
                             />
                           </div>
-                        ) : (
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Texto do Botão</label>
-                              <input 
-                                type="text" 
-                                value={editingChapter.button_link_text || ''}
-                                onChange={e => setEditingChapter({...editingChapter, button_link_text: e.target.value})}
-                                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:border-emerald-500 outline-none transition-all"
-                                placeholder="Ex: Acessar Material Externo"
-                              />
+                        ) : (() => {
+                          const [newChapterColor, newChapterStyle] = (editingChapter.button_link_color || '#10b981').split('|');
+                          return (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2 col-span-2 sm:col-span-1">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Texto do Botão</label>
+                                <input 
+                                  type="text" 
+                                  value={editingChapter.button_link_text || ''}
+                                  onChange={e => setEditingChapter({...editingChapter, button_link_text: e.target.value})}
+                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:border-emerald-500 outline-none transition-all placeholder:text-gray-600"
+                                  placeholder="Ex: Acessar Material Externo"
+                                />
+                              </div>
+                              <div className="space-y-2 col-span-2 sm:col-span-1">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL do Link</label>
+                                <input 
+                                  type="text" 
+                                  value={editingChapter.button_link_url || ''}
+                                  onChange={e => setEditingChapter({...editingChapter, button_link_url: e.target.value})}
+                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:border-emerald-500 outline-none transition-all placeholder:text-gray-600"
+                                  placeholder="https://..."
+                                />
+                              </div>
+
+                              <div className="col-span-2 border-t border-white/5 my-2 pt-4">
+                                <span className="text-[11px] font-black text-emerald-500 uppercase tracking-widest ml-1">Aparência do Botão</span>
+                              </div>
+
+                              {/* Linha de cima: Cor do Botão */}
+                              <div className="space-y-2 col-span-2">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Cor do Botão</label>
+                                <div className="flex gap-2">
+                                  <input 
+                                    type="color" 
+                                    value={newChapterColor}
+                                    onChange={e => setEditingChapter({...editingChapter, button_link_color: `${e.target.value}|${newChapterStyle || 'filled'}`})}
+                                    className="w-14 h-[52px] bg-black/40 border border-white/10 rounded-2xl p-1.5 cursor-pointer focus:border-emerald-500 outline-none transition-all shrink-0 hover:border-white/20"
+                                  />
+                                  <input 
+                                    type="text" 
+                                    value={newChapterColor}
+                                    onChange={e => setEditingChapter({...editingChapter, button_link_color: `${e.target.value}|${newChapterStyle || 'filled'}`})}
+                                    className="flex-1 bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:border-emerald-500 outline-none transition-all font-mono"
+                                    placeholder="#10b981"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Linha de baixo: Estilo do Botão */}
+                              <div className="space-y-2 col-span-2">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Estilo do Botão</label>
+                                <div className="relative group z-20">
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsStyleDropdownOpen(!isStyleDropdownOpen)}
+                                    className="w-full h-[52px] bg-black/40 border border-white/10 rounded-2xl pl-6 pr-12 text-sm font-medium text-white flex items-center justify-between outline-none transition-all group-hover:border-white/20 cursor-pointer text-left"
+                                  >
+                                    <span>
+                                      {newChapterStyle === 'outline' && 'Contornado (Outline)'}
+                                      {newChapterStyle === 'glow' && 'Brilhante (Neon Glow)'}
+                                      {newChapterStyle === 'gradient' && 'Degradê (Gradient)'}
+                                      {(newChapterStyle === 'filled' || !newChapterStyle) && 'Preenchido (Solid)'}
+                                    </span>
+                                    <div className="absolute right-5 pointer-events-none text-gray-400 group-hover:text-gray-200 transition-colors">
+                                      <ChevronDown size={18} className={`transform transition-transform duration-200 ${isStyleDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </div>
+                                  </button>
+
+                                  <AnimatePresence>
+                                    {isStyleDropdownOpen && (
+                                      <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setIsStyleDropdownOpen(false)} />
+                                        <motion.div
+                                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                          transition={{ duration: 0.15 }}
+                                          className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden shadow-2xl z-50 divide-y divide-white/5 py-1"
+                                        >
+                                          {[
+                                            { value: 'filled', label: 'Preenchido (Solid)' },
+                                            { value: 'outline', label: 'Contornado (Outline)' },
+                                            { value: 'glow', label: 'Brilhante (Neon Glow)' },
+                                            { value: 'gradient', label: 'Degradê (Gradient)' }
+                                          ].map(item => (
+                                            <button
+                                              key={item.value}
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingChapter({...editingChapter, button_link_color: `${newChapterColor || '#10b981'}|${item.value}`});
+                                                setIsStyleDropdownOpen(false);
+                                              }}
+                                              className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                            >
+                                              <span className={(newChapterStyle === item.value || (!newChapterStyle && item.value === 'filled')) ? "text-emerald-500" : "text-gray-300"}>
+                                                {item.label}
+                                              </span>
+                                              {(newChapterStyle === item.value || (!newChapterStyle && item.value === 'filled')) && (
+                                                <Check size={14} className="text-emerald-500" />
+                                              )}
+                                            </button>
+                                          ))}
+                                        </motion.div>
+                                      </>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              </div>
+
+                              {/* Em baixo: Preview do Botão */}
+                              <div className="space-y-2 col-span-2">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Visualização em Tempo Real</label>
+                                <div className="w-full bg-black/20 border border-dashed border-white/10 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[120px] relative overflow-hidden">
+                                  <div 
+                                    className="absolute w-24 h-24 rounded-full blur-[40px] opacity-10 pointer-events-none transition-colors duration-500"
+                                    style={{ backgroundColor: newChapterColor }}
+                                  />
+                                  <div className="relative z-10 w-full flex justify-center">
+                                    <button
+                                      type="button"
+                                      style={getButtonStyle(newChapterColor, newChapterStyle)}
+                                      className="px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 active:scale-95 shadow-xl cursor-default"
+                                    >
+                                      <span>{editingChapter.button_link_text || 'Acessar Conteúdo'}</span>
+                                      <Link size={14} />
+                                    </button>
+                                  </div>
+                                  <span className="text-[9px] font-bold text-gray-600 uppercase tracking-widest mt-4">
+                                    Como o aluno verá na plataforma
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL do Link</label>
-                              <input 
-                                type="text" 
-                                value={editingChapter.button_link_url || ''}
-                                onChange={e => setEditingChapter({...editingChapter, button_link_url: e.target.value})}
-                                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-white focus:border-emerald-500 outline-none transition-all"
-                                placeholder="https://..."
-                              />
-                            </div>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         <div className="space-y-2">
                           <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Resumo da Aula</label>
@@ -1434,22 +1784,70 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                       <div className="space-y-6">
                         <div className="space-y-3">
                           <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa da Aula (Thumb)</label>
-                          <div className="aspect-video rounded-2xl border-2 border-dashed border-white/10 overflow-hidden relative bg-black group/lessonaura">
+                          
+                          {/* Canva Guide Card */}
+                          <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 rounded-2xl p-4 text-center space-y-1.5 shadow-md">
+                            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                              🎨 Resolução Ideal no Canva
+                            </p>
+                            <p className="text-xs text-gray-200 font-semibold">
+                              Tamanho de <span className="text-emerald-300 font-black">1920 x 1080 px</span> (Proporção 16:9)
+                            </p>
+
+                          </div>
+
+                          <div 
+                            onClick={() => {
+                              if (!editingChapter.cover_url) {
+                                toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                                return;
+                              }
+                              setCropperType('chapter');
+                              setCropperAspect(16/9);
+                              setCropperOpen(true);
+                            }}
+                            className="aspect-video rounded-2xl border border-white/10 overflow-hidden relative bg-black group/lessonaura cursor-pointer hover:border-emerald-500/50 transition-all shadow-lg"
+                          >
                             {editingChapter.cover_url ? (
-                              <img src={editingChapter.cover_url} className="w-full h-full object-cover" alt="Thumb" referrerPolicy="no-referrer" />
+                              <img src={editingChapter.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
                             ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-700">
-                                <ImageIcon className="mb-2 opacity-20" size={32} />
-                                <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Thumbnail da Aula</span>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 p-6 text-center">
+                                <ImageIcon className="mb-3 opacity-20" size={32} />
+                                <span className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Capa da Aula</span>
+                                <span className="text-[9px] font-medium opacity-30 leading-normal max-w-[200px]">Cole a URL da imagem abaixo para habilitar o ajuste e visualização</span>
+                              </div>
+                            )}
+                            {editingChapter.cover_url && (
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
+                                <span className="text-[9px] font-black text-white uppercase tracking-widest bg-emerald-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (16:9)</span>
                               </div>
                             )}
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!editingChapter.cover_url) {
+                                toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                                return;
+                              }
+                              setCropperType('chapter');
+                              setCropperAspect(16/9);
+                              setCropperOpen(true);
+                            }}
+                            className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
+                              editingChapter.cover_url 
+                                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20' 
+                                : 'bg-white/[0.02] text-gray-600 border-white/5 cursor-not-allowed'
+                            }`}
+                          >
+                            <ImageIcon size={14} /> Recortar / Ajustar Thumbnail
+                          </button>
                           <input 
                             type="text" 
                             value={editingChapter.cover_url || ''}
                             onChange={e => setEditingChapter({...editingChapter, cover_url: e.target.value})}
                             className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-gray-400 focus:border-emerald-500 outline-none transition-all font-mono"
-                            placeholder="URL da Imagem da Aula..."
+                            placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
                           />
                         </div>
 
@@ -1545,205 +1943,382 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
 
                               {/* Content Row (Collapsible) */}
                               <AnimatePresence>
-                                {isExpanded && (
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                                    className="border-t border-white/5"
-                                  >
-                                    <div className="p-10 space-y-8 animate-in fade-in slide-in-from-top-2 duration-500">
-                                      <div className="grid md:grid-cols-[1fr_300px] gap-10">
-                                        <div className="space-y-6">
-                                          <div className="grid grid-cols-2 gap-6">
-                                            <div className="space-y-2">
-                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Título da Aula</label>
-                                              <input 
-                                                type="text" 
-                                                defaultValue={ch.title}
-                                                onBlur={e => {
-                                                  if (e.target.value !== ch.title) {
-                                                    supabase.from('chapters').update({ title: e.target.value }).eq('id', ch.id).then(() => {
-                                                      fetchCourseData();
-                                                      toast.success('Título atualizado');
-                                                    });
-                                                  }
-                                                }}
-                                                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-lg font-bold text-white focus:border-blue-500 outline-none transition-all"
-                                              />
-                                            </div>
-                                            <div className="space-y-2">
-                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Módulo</label>
-                                              <select 
-                                                defaultValue={ch.module_id || ''}
-                                                onChange={async (e) => {
-                                                  await supabase.from('chapters').update({ module_id: e.target.value || null }).eq('id', ch.id);
-                                                  fetchCourseData();
-                                                  toast.success('Módulo atualizado');
-                                                }}
-                                                className="w-full h-[58px] bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs font-bold text-white focus:border-blue-500 outline-none transition-all appearance-none"
-                                              >
-                                                <option value="">Sem Módulo</option>
-                                                {modules.map(m => (
-                                                  <option key={m.id} value={m.id}>{m.title}</option>
-                                                ))}
-                                              </select>
-                                            </div>
-                                          </div>
-
-                                          <div className="grid grid-cols-2 gap-6">
-                                            <div className="space-y-2">
-                                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Duração (Min)</label>
-                                               <input 
-                                                type="number" 
-                                                defaultValue={ch.duration_minutes}
-                                                onBlur={e => {
-                                                  const val = parseInt(e.target.value) || 0;
-                                                  if (val !== ch.duration_minutes) {
-                                                    supabase.from('chapters').update({ duration_minutes: val }).eq('id', ch.id).then(() => {
-                                                      fetchCourseData();
-                                                    });
-                                                  }
-                                                }}
-                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-6 py-3.5 text-white focus:border-blue-500 outline-none transition-all font-bold"
-                                              />
-                                            </div>
-                                            <div className="space-y-2">
-                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo de Conteúdo</label>
-                                              <div className="flex p-1 bg-black/60 rounded-xl border border-white/5">
-                                                {['video', 'pdf', 'link'].map((type) => (
-                                                  <button 
-                                                    key={type}
-                                                    onClick={async () => {
-                                                      await supabase.from('chapters').update({ content_type: type as any }).eq('id', ch.id);
-                                                      fetchCourseData();
-                                                    }}
-                                                    className={`flex-1 py-2 text-[8px] font-black rounded-lg transition-all uppercase ${ch.content_type === type ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+                                {isExpanded && (() => {
+                                  const draft = (editingExistingChapter && editingExistingChapter.id === ch.id) ? editingExistingChapter : ch;
+                                  return (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                                      className="border-t border-white/5"
+                                    >
+                                      <div className="p-10 space-y-8 animate-in fade-in slide-in-from-top-2 duration-500">
+                                        <div className="grid md:grid-cols-[1fr_300px] gap-10">
+                                          <div className="space-y-6">
+                                            <div className="grid grid-cols-2 gap-6">
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Título da Aula</label>
+                                                <input 
+                                                  type="text" 
+                                                  value={draft.title || ''}
+                                                  onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, title: e.target.value }) : null)}
+                                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-lg font-bold text-white focus:border-blue-500 outline-none transition-all"
+                                                />
+                                              </div>
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Módulo</label>
+                                                <div className="relative group z-30">
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setIsEditModuleDropdownOpen(!isEditModuleDropdownOpen)}
+                                                    className="w-full h-[58px] bg-black/40 border border-white/10 rounded-xl pl-6 pr-12 text-xs font-bold text-white flex items-center justify-between outline-none transition-all group-hover:border-white/20 uppercase tracking-widest cursor-pointer text-left"
                                                   >
-                                                    {type === 'link' ? 'BOTAO' : type}
+                                                    <span className="truncate">
+                                                      {draft.module_id 
+                                                        ? (modules.find(m => m.id === draft.module_id)?.title || 'Sem Módulo')
+                                                        : 'Sem Módulo'}
+                                                    </span>
+                                                    <div className="absolute right-5 pointer-events-none text-gray-400 group-hover:text-gray-200 transition-colors">
+                                                      <ChevronDown size={18} className={`transform transition-transform duration-200 ${isEditModuleDropdownOpen ? 'rotate-180' : ''}`} />
+                                                    </div>
                                                   </button>
-                                                ))}
+
+                                                  <AnimatePresence>
+                                                    {isEditModuleDropdownOpen && (
+                                                      <>
+                                                        <div className="fixed inset-0 z-40" onClick={() => setIsEditModuleDropdownOpen(false)} />
+                                                        <motion.div
+                                                          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                                          transition={{ duration: 0.15 }}
+                                                          className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 max-h-[200px] overflow-y-auto divide-y divide-white/5 scrollbar-thin scrollbar-thumb-white/10 py-1"
+                                                        >
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                              setEditingExistingChapter(prev => prev ? ({ ...prev, module_id: null }) : null);
+                                                              setIsEditModuleDropdownOpen(false);
+                                                            }}
+                                                            className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                                          >
+                                                            <span className={!draft.module_id ? "text-blue-500" : "text-gray-300"}>Sem Módulo</span>
+                                                            {!draft.module_id && <Check size={14} className="text-blue-500" />}
+                                                          </button>
+                                                          {modules.map(m => (
+                                                            <button
+                                                              key={m.id}
+                                                              type="button"
+                                                              onClick={() => {
+                                                                setEditingExistingChapter(prev => prev ? ({ ...prev, module_id: m.id }) : null);
+                                                                setIsEditModuleDropdownOpen(false);
+                                                              }}
+                                                              className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                                            >
+                                                              <span className={draft.module_id === m.id ? "text-blue-500" : "text-gray-300"}>{m.title}</span>
+                                                              {draft.module_id === m.id && <Check size={14} className="text-blue-500" />}
+                                                            </button>
+                                                          ))}
+                                                        </motion.div>
+                                                      </>
+                                                    )}
+                                                  </AnimatePresence>
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
 
-                                          {ch.content_type !== 'link' ? (
+                                            <div className="grid grid-cols-2 gap-6">
+                                              <div className="space-y-2">
+                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Duração (Min)</label>
+                                                 <input 
+                                                  type="number" 
+                                                  value={draft.duration_minutes || ''}
+                                                  onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, duration_minutes: parseInt(e.target.value) || 0 }) : null)}
+                                                  className="w-full bg-black/40 border border-white/10 rounded-xl px-6 py-3.5 text-white focus:border-blue-500 outline-none transition-all font-bold"
+                                                />
+                                              </div>
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo de Conteúdo</label>
+                                                <div className="flex p-1 bg-black/60 rounded-xl border border-white/5">
+                                                  {['video', 'pdf', 'link'].map((type) => (
+                                                    <button 
+                                                      key={type}
+                                                      type="button"
+                                                      onClick={() => setEditingExistingChapter(prev => prev ? ({ ...prev, content_type: type as any }) : null)}
+                                                      className={`flex-1 py-2 text-[8px] font-black rounded-lg transition-all uppercase ${draft.content_type === type ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+                                                    >
+                                                      {type === 'link' ? 'BOTAO' : type}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {draft.content_type !== 'link' ? (
+                                              <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
+                                                  {draft.content_type === 'video' ? 'URL do Vídeo' : 'URL do PDF'}
+                                                </label>
+                                                <input 
+                                                  type="text" 
+                                                  value={draft.content_type === 'video' ? (draft.video_url || '') : (draft.pdf_url || '')}
+                                                  onChange={e => setEditingExistingChapter(prev => {
+                                                    if (!prev) return null;
+                                                    const field = prev.content_type === 'video' ? 'video_url' : 'pdf_url';
+                                                    return { ...prev, [field]: e.target.value };
+                                                  })}
+                                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-gray-400 font-mono focus:border-blue-500 outline-none transition-all"
+                                                />
+                                              </div>
+                                            ) : (() => {
+                                              const [draftColor, draftStyle] = (draft.button_link_color || '#10b981').split('|');
+                                              return (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                  <div className="space-y-2 col-span-2 sm:col-span-1">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Texto do Botão</label>
+                                                    <input 
+                                                      type="text" 
+                                                      value={draft.button_link_text || ''}
+                                                      onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, button_link_text: e.target.value }) : null)}
+                                                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-white focus:border-blue-500 outline-none transition-all placeholder:text-gray-600"
+                                                      placeholder="Ex: Acessar Material Externo"
+                                                    />
+                                                  </div>
+                                                  <div className="space-y-2 col-span-2 sm:col-span-1">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL do Link</label>
+                                                    <input 
+                                                      type="text" 
+                                                      value={draft.button_link_url || ''}
+                                                      onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, button_link_url: e.target.value }) : null)}
+                                                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-white focus:border-blue-500 outline-none transition-all placeholder:text-gray-600"
+                                                      placeholder="https://..."
+                                                    />
+                                                  </div>
+
+                                                  <div className="col-span-2 border-t border-white/5 my-2 pt-4">
+                                                    <span className="text-[11px] font-black text-blue-500 uppercase tracking-widest ml-1">Aparência do Botão</span>
+                                                  </div>
+
+                                                  {/* Linha de cima: Cor do Botão */}
+                                                  <div className="space-y-2 col-span-2">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Cor do Botão</label>
+                                                    <div className="flex gap-2">
+                                                      <input 
+                                                        type="color" 
+                                                        value={draftColor}
+                                                        onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, button_link_color: `${e.target.value}|${draftStyle || 'filled'}` }) : null)}
+                                                        className="w-14 h-[52px] bg-black/40 border border-white/10 rounded-2xl p-1.5 cursor-pointer focus:border-blue-500 outline-none transition-all shrink-0 hover:border-white/20"
+                                                      />
+                                                      <input 
+                                                        type="text" 
+                                                        value={draftColor}
+                                                        onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, button_link_color: `${e.target.value}|${draftStyle || 'filled'}` }) : null)}
+                                                        className="flex-1 bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-white focus:border-blue-500 outline-none transition-all font-mono"
+                                                        placeholder="#10b981"
+                                                      />
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Linha de baixo: Estilo do Botão */}
+                                                  <div className="space-y-2 col-span-2">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Estilo do Botão</label>
+                                                    <div className="relative group z-20">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => setIsEditStyleDropdownOpen(!isEditStyleDropdownOpen)}
+                                                        className="w-full h-[52px] bg-black/40 border border-white/10 rounded-2xl pl-6 pr-12 text-xs font-medium text-white flex items-center justify-between outline-none transition-all group-hover:border-white/20 cursor-pointer text-left"
+                                                      >
+                                                        <span>
+                                                          {draftStyle === 'outline' && 'Contornado (Outline)'}
+                                                          {draftStyle === 'glow' && 'Brilhante (Neon Glow)'}
+                                                          {draftStyle === 'gradient' && 'Degradê (Gradient)'}
+                                                          {(draftStyle === 'filled' || !draftStyle) && 'Preenchido (Solid)'}
+                                                        </span>
+                                                        <div className="absolute right-5 pointer-events-none text-gray-400 group-hover:text-gray-200 transition-colors">
+                                                          <ChevronDown size={18} className={`transform transition-transform duration-200 ${isEditStyleDropdownOpen ? 'rotate-180' : ''}`} />
+                                                        </div>
+                                                      </button>
+
+                                                      <AnimatePresence>
+                                                        {isEditStyleDropdownOpen && (
+                                                          <>
+                                                            <div className="fixed inset-0 z-40" onClick={() => setIsEditStyleDropdownOpen(false)} />
+                                                            <motion.div
+                                                              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                                              transition={{ duration: 0.15 }}
+                                                              className="absolute left-0 right-0 mt-2 bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden shadow-2xl z-50 divide-y divide-white/5 py-1"
+                                                            >
+                                                              {[
+                                                                { value: 'filled', label: 'Preenchido (Solid)' },
+                                                                { value: 'outline', label: 'Contornado (Outline)' },
+                                                                { value: 'glow', label: 'Brilhante (Neon Glow)' },
+                                                                { value: 'gradient', label: 'Degradê (Gradient)' }
+                                                              ].map(item => (
+                                                                <button
+                                                                  key={item.value}
+                                                                  type="button"
+                                                                  onClick={() => {
+                                                                    setEditingExistingChapter(prev => prev ? ({ ...prev, button_link_color: `${draftColor || '#10b981'}|${item.value}` }) : null);
+                                                                    setIsEditStyleDropdownOpen(false);
+                                                                  }}
+                                                                  className="w-full px-6 py-4 text-xs font-bold text-left transition-colors cursor-pointer hover:bg-white/5 flex items-center justify-between uppercase tracking-widest text-white"
+                                                                >
+                                                                  <span className={(draftStyle === item.value || (!draftStyle && item.value === 'filled')) ? "text-blue-500" : "text-gray-300"}>
+                                                                    {item.label}
+                                                                  </span>
+                                                                  {(draftStyle === item.value || (!draftStyle && item.value === 'filled')) && (
+                                                                    <Check size={14} className="text-blue-500" />
+                                                                  )}
+                                                                </button>
+                                                              ))}
+                                                            </motion.div>
+                                                          </>
+                                                        )}
+                                                      </AnimatePresence>
+                                                    </div>
+                                                  </div>
+
+                                                  {/* Em baixo: Preview do Botão */}
+                                                  <div className="space-y-2 col-span-2">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Visualização em Tempo Real</label>
+                                                    <div className="w-full bg-black/20 border border-dashed border-white/10 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[120px] relative overflow-hidden">
+                                                      <div 
+                                                        className="absolute w-24 h-24 rounded-full blur-[40px] opacity-10 pointer-events-none transition-colors duration-500"
+                                                        style={{ backgroundColor: draftColor }}
+                                                      />
+                                                      <div className="relative z-10 w-full flex justify-center">
+                                                        <button
+                                                          type="button"
+                                                          style={getButtonStyle(draftColor, draftStyle)}
+                                                          className="px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all duration-300 active:scale-95 shadow-xl cursor-default"
+                                                        >
+                                                          <span>{draft.button_link_text || 'Acessar Conteúdo'}</span>
+                                                          <Link size={14} />
+                                                        </button>
+                                                      </div>
+                                                      <span className="text-[9px] font-bold text-gray-600 uppercase tracking-widest mt-4">
+                                                        Como o aluno verá na plataforma
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })()}
+
                                             <div className="space-y-2">
-                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
-                                                {ch.content_type === 'video' ? 'URL do Vídeo' : 'URL do PDF'}
-                                              </label>
-                                              <input 
-                                                type="text" 
-                                                defaultValue={ch.content_type === 'video' ? ch.video_url : ch.pdf_url}
-                                                onBlur={e => {
-                                                  const field = ch.content_type === 'video' ? 'video_url' : 'pdf_url';
-                                                  if (e.target.value !== ch[field as keyof Chapter]) {
-                                                    supabase.from('chapters').update({ [field]: e.target.value }).eq('id', ch.id).then(() => {
-                                                      fetchCourseData();
-                                                      toast.success('Conteúdo atualizado');
-                                                    });
-                                                  }
-                                                }}
-                                                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-gray-400 font-mono focus:border-blue-500 outline-none transition-all"
+                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Resumo da Aula</label>
+                                              <textarea 
+                                                value={draft.description || ''}
+                                                onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, description: e.target.value }) : null)}
+                                                className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-gray-300 focus:border-blue-500 outline-none transition-all min-h-[120px] resize-none"
                                               />
                                             </div>
-                                          ) : (
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Texto do Botão</label>
-                                                <input 
-                                                  type="text" 
-                                                  defaultValue={ch.button_link_text || ''}
-                                                  onBlur={async (e) => {
-                                                    if (e.target.value !== ch.button_link_text) {
-                                                      await supabase.from('chapters').update({ button_link_text: e.target.value }).eq('id', ch.id);
-                                                      fetchCourseData();
-                                                      toast.success('Botão atualizado');
-                                                    }
-                                                  }}
-                                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-white focus:border-blue-500 outline-none transition-all"
-                                                />
-                                              </div>
-                                              <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">URL do Link</label>
-                                                <input 
-                                                  type="text" 
-                                                  defaultValue={ch.button_link_url || ''}
-                                                  onBlur={async (e) => {
-                                                    if (e.target.value !== ch.button_link_url) {
-                                                      await supabase.from('chapters').update({ button_link_url: e.target.value }).eq('id', ch.id);
-                                                      fetchCourseData();
-                                                      toast.success('Link atualizado');
-                                                    }
-                                                  }}
-                                                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-xs text-white focus:border-blue-500 outline-none transition-all"
-                                                />
-                                              </div>
-                                            </div>
-                                          )}
-
-                                          <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Resumo da Aula</label>
-                                            <textarea 
-                                              defaultValue={ch.description}
-                                              onBlur={e => {
-                                                if (e.target.value !== ch.description) {
-                                                  supabase.from('chapters').update({ description: e.target.value }).eq('id', ch.id).then(() => {
-                                                    fetchCourseData();
-                                                  });
-                                                }
-                                              }}
-                                              className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm text-gray-300 focus:border-blue-500 outline-none transition-all min-h-[120px] resize-none"
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <div className="space-y-8">
-                                          <div className="space-y-3">
-                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa desta Aula</label>
-                                            <div className="aspect-video rounded-3xl overflow-hidden relative bg-black border border-white/10">
-                                              {ch.cover_url ? (
-                                                <img src={ch.cover_url} className="w-full h-full object-cover" alt="Thumb" referrerPolicy="no-referrer" />
-                                              ) : (
-                                                <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-800">
-                                                  <ImageIcon size={32} />
-                                                </div>
-                                              )}
-                                            </div>
-                                            <input 
-                                              type="text" 
-                                              defaultValue={ch.cover_url || ''}
-                                              onBlur={e => {
-                                                if (e.target.value !== ch.cover_url) {
-                                                  supabase.from('chapters').update({ cover_url: e.target.value }).eq('id', ch.id).then(() => {
-                                                    fetchCourseData();
-                                                    toast.success('Thumbnail atualizada');
-                                                  });
-                                                }
-                                              }}
-                                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-gray-500 focus:border-blue-500 outline-none font-mono"
-                                              placeholder="URL da Imagem da Aula..."
-                                            />
                                           </div>
 
-                                          <div className="flex flex-col gap-3">
-                                            <div className="flex items-center justify-between px-4 py-3 bg-white/5 rounded-2xl border border-white/5">
-                                              <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Tipo: {ch.content_type.toUpperCase()}</span>
-                                              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                          <div className="space-y-8">
+                                            <div className="space-y-3">
+                                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa desta Aula</label>
+                                              
+                                              {/* Canva Guide Card */}
+                                              <div className="bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-blue-500/20 rounded-2xl p-4 text-center space-y-1.5 shadow-md">
+                                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                                                  🎨 Resolução Ideal no Canva
+                                                </p>
+                                                <p className="text-xs text-gray-200 font-semibold">
+                                                  Tamanho de <span className="text-blue-300 font-black">1920 x 1080 px</span> (Proporção 16:9)
+                                                </p>
+                                              </div>
+
+                                              <div 
+                                                onClick={() => {
+                                                  if (!draft.cover_url) {
+                                                    toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                                                    return;
+                                                  }
+                                                  setCropperType('existing-chapter');
+                                                  setCropperChapterId(ch.id);
+                                                  setCropperAspect(16/9);
+                                                  setCropperOpen(true);
+                                                }}
+                                                className="aspect-video rounded-3xl overflow-hidden relative bg-black border border-white/10 cursor-pointer group/lessonaura hover:border-blue-500/50 transition-all shadow-lg"
+                                              >
+                                                {draft.cover_url ? (
+                                                  <img src={draft.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
+                                                ) : (
+                                                  <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 p-6 text-center">
+                                                    <ImageIcon className="mb-3 opacity-20" size={32} />
+                                                    <span className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Capa da Aula</span>
+                                                    <span className="text-[9px] font-medium opacity-30 leading-normal max-w-[200px]">Cole a URL da imagem abaixo para habilitar o ajuste e visualização</span>
+                                                  </div>
+                                                )}
+                                                {draft.cover_url && (
+                                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
+                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest bg-blue-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (16:9)</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!draft.cover_url) {
+                                                    toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                                                    return;
+                                                  }
+                                                  setCropperType('existing-chapter');
+                                                  setCropperChapterId(ch.id);
+                                                  setCropperAspect(16/9);
+                                                  setCropperOpen(true);
+                                                }}
+                                                className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
+                                                  draft.cover_url 
+                                                    ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20' 
+                                                    : 'bg-white/[0.02] text-gray-600 border-white/5 cursor-not-allowed'
+                                                }`}
+                                              >
+                                                <ImageIcon size={14} /> Recortar / Ajustar Thumbnail
+                                              </button>
+                                              <input 
+                                                type="text" 
+                                                value={draft.cover_url || ''}
+                                                onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, cover_url: e.target.value }) : null)}
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-gray-400 focus:border-blue-500 outline-none font-mono"
+                                                placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
+                                              />
                                             </div>
-                                            <button 
-                                              onClick={() => setSelectedChapterId(null)}
-                                              className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl"
-                                            >
-                                              FECHAR EDIÇÃO
-                                            </button>
+
+                                            <div className="flex flex-col gap-3">
+                                              <div className="flex items-center justify-between px-4 py-3 bg-white/5 rounded-2xl border border-white/5">
+                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Tipo: {draft.content_type.toUpperCase()}</span>
+                                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                              </div>
+                                              
+                                              <button 
+                                                type="button"
+                                                onClick={handleSaveExistingChapter}
+                                                disabled={saving}
+                                                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-blue-900/20 active:scale-95 text-xs uppercase tracking-widest"
+                                              >
+                                                {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+                                                SALVAR ALTERAÇÕES
+                                              </button>
+                                              
+                                              <button 
+                                                type="button"
+                                                onClick={() => setSelectedChapterId(null)}
+                                                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-3 rounded-2xl flex items-center justify-center gap-2 transition-all text-[10px] uppercase tracking-widest"
+                                              >
+                                                CANCELAR
+                                              </button>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  </motion.div>
-                                )}
+                                    </motion.div>
+                                  );
+                                })()}
                               </AnimatePresence>
                             </div>
                           );
@@ -1771,6 +2346,47 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
       </section>
       </div>
     </div>
+
+    {/* Cover Image Cropper & Adjuster */}
+    <ImageCropperModal
+      isOpen={cropperOpen}
+      onClose={() => {
+        setCropperOpen(false);
+        setCropperChapterId(null);
+      }}
+      aspectRatio={cropperAspect}
+      allowUpload={cropperType !== 'standard'}
+      initialImageSrc={
+        cropperType === 'standard' 
+          ? course.cover_url 
+          : cropperType === 'premium' 
+            ? course.premium_cover_url 
+            : cropperType === 'chapter' 
+              ? editingChapter.cover_url 
+              : cropperType === 'existing-chapter'
+                ? editingExistingChapter?.cover_url
+                : undefined
+      }
+      title={
+        cropperType === 'standard' 
+          ? 'Ajustar Capa do Curso' 
+          : cropperType === 'premium' 
+            ? 'Ajustar Capa Premium' 
+            : 'Ajustar Capa da Aula'
+      }
+      onConfirm={async (url) => {
+        if (cropperType === 'standard') {
+          setCourse(prev => ({ ...prev, cover_url: url }));
+        } else if (cropperType === 'premium') {
+          setCourse(prev => ({ ...prev, premium_cover_url: url }));
+        } else if (cropperType === 'chapter') {
+          setEditingChapter(prev => ({ ...prev, cover_url: url }));
+        } else if (cropperType === 'existing-chapter') {
+          setEditingExistingChapter(prev => prev ? ({ ...prev, cover_url: url }) : null);
+          toast.success('Miniatura ajustada! Salve as alterações da aula para persistir.');
+        }
+      }}
+    />
   </div>
 );
 }

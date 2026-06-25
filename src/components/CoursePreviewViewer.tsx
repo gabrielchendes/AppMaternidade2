@@ -297,7 +297,7 @@ export default function CoursePreviewViewer({ course, onClose, onPurchase }: Cou
                 </div>
                 
                 <div className="p-8 rounded-[2rem] bg-zinc-900/40 border border-white/5 backdrop-blur-sm">
-                  <p className="text-zinc-400 text-lg lg:text-xl leading-relaxed font-medium">
+                  <p className="text-zinc-400 text-lg lg:text-xl leading-relaxed font-medium whitespace-pre-line">
                     {course.description}
                   </p>
                 </div>

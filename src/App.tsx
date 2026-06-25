@@ -1,11 +1,12 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { useSettings } from './contexts/SettingsContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { lazyWithRetry } from './lib/lazyWithRetry';
 
-const LoginPage = lazy(() => import('./pages/LoginPage'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
+const LoginPage = lazyWithRetry(() => import('./pages/LoginPage'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 
 // Main application component
 export default function App() {
@@ -14,6 +15,63 @@ export default function App() {
   const { settings, loading: settingsLoading } = useSettings();
 
   useEffect(() => {
+    // Clear chunk-failed-reload flag since the app is mounting successfully
+    try {
+      sessionStorage.removeItem('chunk-failed-reload');
+    } catch (e) {}
+
+    // Global listener for unhandled token refresh/Supabase API rejections
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const errorMsg = reason?.message || String(reason || '');
+      if (
+        errorMsg.includes('Refresh Token Not Found') || 
+        errorMsg.includes('invalid_grant') || 
+        errorMsg.includes('AuthApiError') ||
+        errorMsg.includes('Invalid Refresh Token')
+      ) {
+        console.warn('Caught unhandled auth rejection smoothly, cleaning up auth state...', errorMsg);
+        try {
+          localStorage.removeItem('maternidade_premium_auth');
+          for (const key in localStorage) {
+            if (key.includes('supabase') || key.includes('-auth-token') || key.includes('maternidade_premium')) {
+              localStorage.removeItem(key);
+            }
+          }
+        } catch (e) {}
+        if (isSupabaseConfigured) {
+          supabase.auth.signOut().catch(() => {});
+        }
+        setUser(null);
+        setAuthLoading(false);
+      }
+    };
+
+    // Global onerror handler to suppress and gracefully intercept cross-origin "Script error."
+    const handleGlobalError = (event: ErrorEvent) => {
+      const msg = event.message || '';
+      const source = event.filename || '';
+      const isCrossOriginOrChunk = 
+        msg.includes('Script error') || 
+        msg.toLowerCase().includes('script error') ||
+        msg.includes('Failed to fetch dynamically imported module') ||
+        !msg || // Empty error message
+        (source && (source.includes('gtag') || source.includes('googletagmanager') || source.includes('supabase') || source.includes('pwa')));
+
+      if (isCrossOriginOrChunk) {
+        console.warn('⚠️ Intercepted cross-origin or sandboxed Script error gracefully:', msg, 'from:', source);
+        try {
+          event.preventDefault();
+          event.stopPropagation();
+        } catch (e) {}
+        return true; // Stop error from bubbling and triggering parent iframe warnings
+      }
+      return false;
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleGlobalError);
+
     if (!isSupabaseConfigured) {
       setAuthLoading(false);
       return;
@@ -27,9 +85,9 @@ export default function App() {
         if (error) {
           console.error('Session error:', error.message);
           // If we have a refresh token error, we need to clear local state
-          if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant')) {
+          if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant') || error.message.includes('Invalid Refresh Token')) {
             console.warn('Handling stale session...');
-            await supabase.auth.signOut();
+            await supabase.auth.signOut().catch(() => {});
             // Fallback: manually clear if signOut doesn't clean everything
             try {
               localStorage.removeItem('maternidade_premium_auth');
@@ -94,6 +152,8 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
       clearTimeout(forceStopLoading);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleGlobalError);
     };
   }, []);
 
@@ -103,6 +163,10 @@ export default function App() {
 
   // Google Analytics GA4 dynamic initialization
   useEffect(() => {
+    // Avoid loading tracking scripts inside the sandboxed preview iframe to prevent security exceptions/Script errors
+    const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+    if (isIframe) return;
+
     const gaId = settings?.ga4_tag_id;
     if (!gaId) return;
 
