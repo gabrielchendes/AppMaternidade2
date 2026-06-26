@@ -56,6 +56,9 @@ const FALLBACK_TRANSLATIONS: { [key: string]: string } = {
   'course.secure_payment': 'Pagamento 100% Seguro • Acesso Imediato',
   'course.schedule_title': 'Cronograma do Curso',
   'course.completed': 'CONCLUÍDO',
+  'course.completed_lowercase': 'concluído',
+  'course.question_sent': 'Dúvida enviada com sucesso! O expert responderá em breve.',
+  'course.admin_answer': 'Resposta do Expert',
   'course.continue': 'CONTINUAR',
   'course.start': 'COMEÇAR',
   'course.exclusive': 'Exclusivo',
@@ -147,6 +150,7 @@ const FALLBACK_TRANSLATIONS: { [key: string]: string } = {
   'gamification.level_4_req': 'Conclua 100% dos conteúdos',
   'gamification.level_5_req': 'Você atingiu o topo!',
   'gamification.you_label': 'VOCÊ',
+  'gamification.view_progress_tooltip': 'Ver Progresso & Medalhas',
 };
 
 export function I18nProvider({ children }: { children: ReactNode }) {

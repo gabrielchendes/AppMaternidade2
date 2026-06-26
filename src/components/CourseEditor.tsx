@@ -1791,7 +1791,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                               🎨 Resolução Ideal no Canva
                             </p>
                             <p className="text-xs text-gray-200 font-semibold">
-                              Tamanho de <span className="text-emerald-300 font-black">1920 x 1080 px</span> (Proporção 16:9)
+                              Tamanho de <span className="text-emerald-300 font-black">1080 x 1080 px</span> (Proporção 1:1 Quadrada)
                             </p>
 
                           </div>
@@ -1803,10 +1803,10 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 return;
                               }
                               setCropperType('chapter');
-                              setCropperAspect(16/9);
+                              setCropperAspect(1);
                               setCropperOpen(true);
                             }}
-                            className="aspect-video rounded-2xl border border-white/10 overflow-hidden relative bg-black group/lessonaura cursor-pointer hover:border-emerald-500/50 transition-all shadow-lg"
+                            className="aspect-square max-w-[280px] mx-auto rounded-2xl border border-white/10 overflow-hidden relative bg-black group/lessonaura cursor-pointer hover:border-emerald-500/50 transition-all shadow-lg"
                           >
                             {editingChapter.cover_url ? (
                               <img src={editingChapter.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
@@ -1819,7 +1819,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                             )}
                             {editingChapter.cover_url && (
                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
-                                <span className="text-[9px] font-black text-white uppercase tracking-widest bg-emerald-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (16:9)</span>
+                                <span className="text-[9px] font-black text-white uppercase tracking-widest bg-emerald-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (1:1)</span>
                               </div>
                             )}
                           </div>
@@ -1831,7 +1831,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 return;
                               }
                               setCropperType('chapter');
-                              setCropperAspect(16/9);
+                              setCropperAspect(1);
                               setCropperOpen(true);
                             }}
                             className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
@@ -2228,7 +2228,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                   🎨 Resolução Ideal no Canva
                                                 </p>
                                                 <p className="text-xs text-gray-200 font-semibold">
-                                                  Tamanho de <span className="text-blue-300 font-black">1920 x 1080 px</span> (Proporção 16:9)
+                                                  Tamanho de <span className="text-blue-300 font-black">1080 x 1080 px</span> (Proporção 1:1 Quadrada)
                                                 </p>
                                               </div>
 
@@ -2240,10 +2240,10 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                   }
                                                   setCropperType('existing-chapter');
                                                   setCropperChapterId(ch.id);
-                                                  setCropperAspect(16/9);
+                                                  setCropperAspect(1);
                                                   setCropperOpen(true);
                                                 }}
-                                                className="aspect-video rounded-3xl overflow-hidden relative bg-black border border-white/10 cursor-pointer group/lessonaura hover:border-blue-500/50 transition-all shadow-lg"
+                                                className="aspect-square max-w-[280px] mx-auto rounded-3xl overflow-hidden relative bg-black border border-white/10 cursor-pointer group/lessonaura hover:border-blue-500/50 transition-all shadow-lg"
                                               >
                                                 {draft.cover_url ? (
                                                   <img src={draft.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
@@ -2256,7 +2256,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                 )}
                                                 {draft.cover_url && (
                                                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
-                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest bg-blue-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (16:9)</span>
+                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest bg-blue-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (1:1)</span>
                                                   </div>
                                                 )}
                                               </div>
@@ -2269,7 +2269,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                   }
                                                   setCropperType('existing-chapter');
                                                   setCropperChapterId(ch.id);
-                                                  setCropperAspect(16/9);
+                                                  setCropperAspect(1);
                                                   setCropperOpen(true);
                                                 }}
                                                 className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${

@@ -37,7 +37,7 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Scroll Container */}
         <div
           ref={scrollRef}
-          className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide px-4 sm:px-6 md:px-16 pb-4 snap-x snap-mandatory"
+          className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide px-6 md:px-16 pb-4 snap-x snap-mandatory"
         >
           {children}
         </div>

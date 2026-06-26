@@ -635,7 +635,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                                   <h3 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
                                     {module.title}
                                   </h3>
-                                  <span className="text-xs font-black text-primary italic">{moduleProgress}% concluído</span>
+                                  <span className="text-xs font-black text-primary italic">{moduleProgress}% {t('course.completed_lowercase') || 'concluído'}</span>
                                </div>
                              </div>
                            </div>
@@ -649,7 +649,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                         </div>
                       )}
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-8 gap-y-12">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 sm:gap-x-8 sm:gap-y-12">
                         {moduleChapters.map((chapter, idx) => {
                           const isCompleted = progress.find(p => p.chapter_id === chapter.id)?.completed;
                           
@@ -673,9 +673,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                               setViewMode('player');
                               window.scrollTo({ top: 0, behavior: 'smooth' });
                             }}
-                            className="group relative flex flex-col text-left transition-all"
+                            className="group relative flex flex-col text-left transition-all w-full"
                           >
-                            <div className={`relative aspect-[16/9] rounded-3xl overflow-hidden mb-5 border-2 shadow-2xl bg-zinc-900 transition-all duration-500 ${isCompleted ? 'border-green-500/30' : 'border-white/5 group-hover:border-primary/50'}`}>
+                            <div className={`relative aspect-square rounded-2xl sm:rounded-3xl overflow-hidden mb-3 sm:mb-5 border-2 shadow-2xl bg-zinc-900 transition-all duration-500 w-full ${isCompleted ? 'border-green-500/30' : 'border-white/5 group-hover:border-primary/50'}`}>
                               {chapter.cover_url ? (
                                 <img 
                                   src={chapter.cover_url} 
@@ -685,33 +685,29 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                                 />
                               ) : (
                                 <div className="w-full h-full bg-zinc-950 flex items-center justify-center opacity-40 group-hover:opacity-60 transition-opacity">
-                                  <PlayCircle size={40} className="text-white/10" />
+                                  <PlayCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white/10" />
                                 </div>
                               )}
                               
                               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
 
                               <div className="absolute inset-0 flex items-center justify-center">
-                                <div className={`w-14 h-14 rounded-2xl border flex items-center justify-center transition-all duration-500 backdrop-blur-md ${isCompleted ? 'bg-green-500 border-green-400 scale-90' : 'bg-black/40 border-white/20 group-hover:bg-primary group-hover:border-primary group-hover:rotate-0'}`}>
+                                <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl border flex items-center justify-center transition-all duration-500 backdrop-blur-md ${isCompleted ? 'bg-green-500 border-green-400 scale-90' : 'bg-black/40 border-white/20 group-hover:bg-primary group-hover:border-primary group-hover:rotate-0'}`}>
                                   {isCompleted ? (
-                                    <CheckCircle2 size={28} className="text-white" />
-                                  ) : chapter.content_type === 'video' ? (
-                                    <Play size={24} className="text-white fill-white ml-1" />
-                                  ) : chapter.content_type === 'pdf' ? (
-                                    <FileText size={24} className="text-white" />
+                                    <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
                                   ) : (
-                                    <Type size={24} className="text-white" />
+                                    <Play className="w-4 h-4 sm:w-6 sm:h-6 text-white fill-white ml-0.5 sm:ml-1" />
                                   )}
                                 </div>
                               </div>
 
                               {isCompleted && (
-                                <div className="absolute top-4 left-4 bg-green-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg italic">
+                                <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-green-500 text-white text-[8px] sm:text-[10px] font-black px-2 py-0.5 sm:px-3 sm:py-1 rounded-full uppercase tracking-widest shadow-lg italic">
                                   {t('course.completed')}
                                 </div>
                               )}
 
-                              <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-md text-[10px] font-black text-white/80 px-2 py-1 rounded-lg border border-white/10 uppercase tracking-widest italic">
+                              <div className="absolute bottom-2 right-2 sm:bottom-4 sm:right-4 bg-black/60 backdrop-blur-md text-[8px] sm:text-[10px] font-black text-white/80 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded sm:rounded-lg border border-white/10 uppercase tracking-widest italic">
                                 {chapter.duration_minutes} MIN
                               </div>
                             </div>
@@ -723,8 +719,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                                 </span>
                                 {isCompleted && <div className="w-1 h-1 rounded-full bg-green-500" />}
                               </div>
-                              <h4 className={`text-lg font-black uppercase italic tracking-tight leading-[1.1] transition-colors group-hover:text-primary ${isCompleted ? 'text-white/40' : 'text-white'}`}>
-                                <span className="text-primary/40 mr-1.5 opacity-50">{(idx + 1).toString().padStart(2, '0')}.</span>
+                              <h4 className={`text-xs sm:text-lg font-black uppercase italic tracking-tight leading-[1.1] transition-colors group-hover:text-primary ${isCompleted ? 'text-white/40' : 'text-white'}`}>
+                                <span className="text-primary/40 mr-1 sm:mr-1.5 opacity-50">{(idx + 1).toString().padStart(2, '0')}.</span>
                                 {chapter.title}
                               </h4>
                             </div>

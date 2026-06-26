@@ -13,9 +13,19 @@ interface NavbarProps {
   onTabChange: (tab: 'home' | 'profile' | 'community' | 'admin') => void;
   canInstall?: boolean;
   onInstall?: () => void;
+  totalProgress?: number;
+  onOpenProgress?: () => void;
 }
 
-const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: NavbarProps) => {
+const Navbar = memo(({ 
+  user, 
+  activeTab, 
+  onTabChange, 
+  canInstall, 
+  onInstall,
+  totalProgress = 0,
+  onOpenProgress
+}: NavbarProps) => {
   const { settings } = useSettings();
   const { t } = useI18n();
   const isAdmin = user.email === settings?.admin_email;
@@ -46,20 +56,51 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
             )}
           </div>
   
-          {/* Center: User Chip */}
+          {/* Center: Interactive User Chip with Progress */}
           <div className="absolute left-1/2 -translate-x-1/2">
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
-              <div className="w-5 h-5 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-primary/30 shrink-0">
+            <button
+              onClick={onOpenProgress}
+              className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 backdrop-blur-md active:scale-95 transition-all text-white shrink-0"
+              title={t('gamification.view_progress_tooltip') || "Ver Progresso & Medalhas"}
+            >
+              <div className="w-7 h-7 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-white/25 shrink-0">
                 {user.user_metadata?.avatar_url ? (
                   <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
-                  <UserIcon size={10} className="text-primary" />
+                  <UserIcon size={14} className="text-primary" />
                 )}
               </div>
-              <span className="text-[10px] font-bold tracking-tight max-w-[110px] truncate">
+              <span className="text-[10px] font-bold tracking-tight max-w-[85px] truncate">
                 {displayName}
               </span>
-            </div>
+              
+              <div className="flex items-center justify-center w-8 h-8 relative shrink-0">
+                <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="13"
+                    className="stroke-white/10"
+                    strokeWidth="2"
+                    fill="#18181b"
+                  />
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="13"
+                    className="stroke-primary"
+                    strokeWidth="2"
+                    fill="transparent"
+                    strokeDasharray={2 * Math.PI * 13}
+                    strokeDashoffset={2 * Math.PI * 13 * (1 - totalProgress / 100)}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="text-[9px] font-black text-zinc-100 italic relative z-10 leading-none">
+                  {totalProgress}%
+                </span>
+              </div>
+            </button>
           </div>
 
         {/* Right Section: Bell */}
@@ -123,19 +164,51 @@ const Navbar = memo(({ user, activeTab, onTabChange, canInstall, onInstall }: Na
             </button>
           )}
 
-          {/* User Chip */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
-            <div className="w-6 h-6 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-primary/30">
+          {/* User Chip clickable with Progress */}
+          <button
+            onClick={onOpenProgress}
+            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-white/10 hover:bg-white/15 border border-white/10 backdrop-blur-md active:scale-95 transition-all text-white shrink-0"
+            title={t('gamification.view_progress_tooltip') || "Ver Progresso & Medalhas"}
+          >
+            <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-white/25 shrink-0">
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
-                <UserIcon size={12} className="text-primary" />
+                <UserIcon size={16} className="text-primary" />
               )}
             </div>
             <span className="text-xs font-bold tracking-tight">
               {user.user_metadata?.full_name || user.email?.split('@')[0]}
             </span>
-          </div>
+
+            {/* Progress circle */}
+            <div className="flex items-center justify-center w-9 h-9 relative shrink-0 ml-1">
+              <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  className="stroke-white/10"
+                  strokeWidth="2"
+                  fill="#18181b"
+                />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  className="stroke-primary"
+                  strokeWidth="2"
+                  fill="transparent"
+                  strokeDasharray={2 * Math.PI * 15}
+                  strokeDashoffset={2 * Math.PI * 15 * (1 - totalProgress / 100)}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="text-[10px] font-black text-zinc-100 italic relative z-10 leading-none">
+                {totalProgress}%
+              </span>
+            </div>
+          </button>
           
           {/* Bell */}
           <NotificationBell user={user} />

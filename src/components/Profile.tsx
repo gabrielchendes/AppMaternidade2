@@ -191,7 +191,7 @@ export default function Profile({ user, canInstall, onInstall }: ProfileProps) {
           className="relative cursor-pointer group"
           onClick={() => fileInputRef.current?.click()}
         >
-          <div className="w-40 h-40 rounded-full bg-zinc-800 border-4 border-primary/20 overflow-hidden flex items-center justify-center shadow-2xl transition-transform group-hover:scale-[1.02]">
+          <div className="w-40 h-40 rounded-full bg-zinc-800 border-4 border-white/25 overflow-hidden flex items-center justify-center shadow-2xl transition-transform group-hover:scale-[1.02]">
             {avatarUrl ? (
               <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (

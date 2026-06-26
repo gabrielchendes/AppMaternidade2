@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { User } from '@supabase/supabase-js';
 import { supabase, CommunityPost, PostComment } from '../lib/supabase';
-import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight, Edit3, ShieldCheck } from 'lucide-react';
+import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight, Edit3, ShieldCheck, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, formatDistanceToNow, subDays, isAfter, formatRelative } from 'date-fns';
@@ -9,6 +10,24 @@ import { ptBR, enUS, es } from 'date-fns/locale';
 import imageCompression from 'browser-image-compression';
 import { useSettings } from '../contexts/SettingsContext';
 import { useI18n } from '../contexts/I18nContext';
+import { safeFetch } from '../lib/utils';
+
+export function parseCommentContent(content: string): { text: string; likes: number } {
+  if (!content) return { text: '', likes: 0 };
+  const match = content.match(/^(.*)\s+\[likes:(\d+)\]$/s);
+  if (match) {
+    return {
+      text: match[1],
+      likes: parseInt(match[2], 10),
+    };
+  }
+  return { text: content, likes: 0 };
+}
+
+export function formatCommentContent(text: string, likes: number): string {
+  if (likes <= 0) return text;
+  return `${text} [likes:${likes}]`;
+}
 
 interface CommunityProps {
   user: User;
@@ -29,6 +48,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const POSTS_PER_PAGE = 15;
   const [sending, setSending] = useState(false);
   const [likedPosts, setLikedPosts] = useState<string[]>([]);
+  const [likedComments, setLikedComments] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('liked_comments');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
   const [processingLikes, setProcessingLikes] = useState<Set<string>>(new Set());
   const [expandedComments, setExpandedComments] = useState<string[]>([]);
   const [comments, setComments] = useState<Record<string, PostComment[]>>({});
@@ -36,6 +63,8 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const [replyingTo, setReplyingTo] = useState<CommunityPost | null>(null);
   
   const [selectedPostImage, setSelectedPostImage] = useState<string | null>(null);
+  const [isAvatarPreview, setIsAvatarPreview] = useState(false);
+  const [previewUserName, setPreviewUserName] = useState<string | null>(null);
   const [postToDelete, setPostToDelete] = useState<{ id: string; imageUrl?: string } | null>(null);
   
   // Admin features
@@ -48,8 +77,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const [manualAvatarFile, setManualAvatarFile] = useState<File | null>(null);
   const [manualAvatarPreview, setManualAvatarPreview] = useState<string | null>(null);
   const [commentToDelete, setCommentToDelete] = useState<{ id: string; postId: string } | null>(null);
+  const [editingCommentLikes, setEditingCommentLikes] = useState<{ commentId: string; likesStr: string } | null>(null);
+  const [editingPostLikes, setEditingPostLikes] = useState<{ postId: string; likesStr: string } | null>(null);
 
-  const isAdmin = user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
+  const isAdmin = isImportMode || user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +132,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     }
   };
   const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('liked_comments', JSON.stringify(likedComments));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [likedComments]);
 
   useEffect(() => {
     fetchPosts(0, true);
@@ -159,6 +198,15 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                 const postComments = prev[postId] || [];
                 if (postComments.some(c => c.id === newComment.id)) return prev;
                 return { ...prev, [postId]: [...postComments, newComment] };
+              });
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedComment = payload.new as PostComment;
+              setComments(prev => {
+                const postComments = prev[postId] || [];
+                return {
+                  ...prev,
+                  [postId]: postComments.map(c => c.id === updatedComment.id ? updatedComment : c)
+                };
               });
             } else if (payload.eventType === 'DELETE') {
               setComments(prev => ({
@@ -363,6 +411,117 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     }
   };
 
+  const handleLikeComment = async (postId: string, commentId: string, targetLikes: number, currentLikes?: number) => {
+    if (!isAdmin) return;
+    
+    const newLikes = Math.max(0, targetLikes);
+    const rollbackLikes = currentLikes !== undefined ? currentLikes : 0;
+    
+    // 1. Optimistic state update: update this comment's content in the comments state
+    setComments(prev => {
+      const postComments = prev[postId] || [];
+      return {
+        ...prev,
+        [postId]: postComments.map(c => {
+          if (c.id === commentId) {
+            const { text } = parseCommentContent(c.content);
+            return {
+              ...c,
+              content: newLikes > 0 ? `${text} [likes:${newLikes}]` : text
+            };
+          }
+          return c;
+        })
+      };
+    });
+
+    try {
+      // 2. Retrieve session for authorization
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // 3. Make API request to our admin endpoint
+      const response = await safeFetch('/api/v1/admin?action=comment-like', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          commentId,
+          likesCount: newLikes
+        })
+      });
+
+      if (response && response.error) {
+        throw new Error(response.error);
+      }
+    } catch (error: any) {
+      console.error('Error liking comment:', error);
+      toast.error('Erro ao registrar curtida no comentário.');
+      
+      // Rollback on error
+      setComments(prev => {
+        const postComments = prev[postId] || [];
+        return {
+          ...prev,
+          [postId]: postComments.map(c => {
+            if (c.id === commentId) {
+              const { text } = parseCommentContent(c.content);
+              return {
+                ...c,
+                content: rollbackLikes > 0 ? `${text} [likes:${rollbackLikes}]` : text
+              };
+            }
+            return c;
+          })
+        };
+      });
+    }
+  };
+
+  const handleLikeCommentToggle = async (postId: string, commentId: string, currentLikes: number) => {
+    const isLiked = likedComments.includes(commentId);
+    const targetLikes = isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+    
+    // Toggle liked state
+    setLikedComments(prev => isLiked ? prev.filter(id => id !== commentId) : [...prev, commentId]);
+    
+    await handleLikeComment(postId, commentId, targetLikes, currentLikes);
+  };
+
+  const handlePostLikesDirect = async (postId: string, targetLikes: number, currentLikes: number) => {
+    if (!isImportMode) return;
+    
+    const newLikes = Math.max(0, targetLikes);
+    
+    // 1. Optimistic Update (Immediate UI feedback)
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: newLikes } : p));
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await safeFetch('/api/v1/admin?action=post-likes-update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          postId,
+          likesCount: newLikes
+        })
+      });
+
+      if (response && response.error) {
+        throw new Error(response.error);
+      }
+    } catch (error: any) {
+      console.error('Error updating post likes:', error);
+      toast.error('Erro ao registrar curtidas no post.');
+      // Rollback
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: currentLikes } : p));
+    }
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = newPostContent.trim();
@@ -504,25 +663,53 @@ export default function Community({ user, isImportMode = false }: CommunityProps
     if (processingLikes.has(postId)) return;
     setProcessingLikes(prev => new Set(prev).add(postId));
 
+    const targetPost = posts.find(p => p.id === postId);
+    const currentLikes = targetPost?.likes_count || 0;
+    const newLikes = isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+
     // 2. Optimistic Update (Immediate UI feedback)
     setLikedPosts(prev => isLiked ? prev.filter(id => id !== postId) : [...prev, postId]);
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const count = p.likes_count || 0;
-        return { ...p, likes_count: isLiked ? Math.max(0, count - 1) : count + 1 };
+        return { ...p, likes_count: newLikes };
       }
       return p;
     }));
 
     try {
-      if (isLiked) {
-        await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
+      if (isImportMode) {
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await safeFetch('/api/v1/admin?action=post-likes-update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            postId,
+            likesCount: newLikes
+          })
+        });
+
+        if (response && response.error) {
+          throw new Error(response.error);
+        }
       } else {
-        await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
+        if (isLiked) {
+          await supabase.from('post_likes').delete().match({ user_id: user.id, post_id: postId });
+        } else {
+          await supabase.from('post_likes').insert({ user_id: user.id, post_id: postId });
+        }
       }
     } catch (error) {
       console.error('Error toggling like:', error);
-      fetchUserLikes();
+      if (!isImportMode) {
+        fetchUserLikes();
+      } else {
+        // Rollback
+        setLikedPosts(prev => isLiked ? [...prev, postId] : prev.filter(id => id !== postId));
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, likes_count: currentLikes } : p));
+      }
     } finally {
       setTimeout(() => {
         setProcessingLikes(prev => {
@@ -867,8 +1054,20 @@ export default function Community({ user, isImportMode = false }: CommunityProps
             >
               {/* Post Header */}
               <div className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/5 overflow-hidden">
+                <div 
+                  className="flex items-center gap-3 cursor-pointer hover:opacity-85 active:scale-[0.98] transition-all"
+                  onClick={() => {
+                    if (post.user_avatar_url) {
+                      setIsAvatarPreview(true);
+                      setPreviewUserName(post.user_name);
+                      setSelectedPostImage(post.user_avatar_url);
+                    } else {
+                      toast.info("Este usuário não possui foto de perfil cadastrada.");
+                    }
+                  }}
+                  title="Clique para ver a foto de perfil ampliada"
+                >
+                  <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/10 overflow-hidden shrink-0">
                     {post.user_avatar_url ? (
                       <img src={post.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
@@ -876,7 +1075,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                     )}
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm">{post.user_name}</h4>
+                    <h4 className="font-bold text-sm hover:underline">{post.user_name}</h4>
                     <p className="text-[10px] text-gray-500">
                       {formatDate(post.created_at)}
                     </p>
@@ -891,7 +1090,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                       <Edit3 size={16} />
                     </button>
                   )}
-                  {(post.user_id === user.id || isAdmin) && (
+                  {(post.user_id === user.id || isImportMode) && (
                     <button 
                       onClick={() => setPostToDelete({ id: post.id, imageUrl: post.image_url })}
                       className="text-gray-600 hover:text-red-500 transition-colors p-1"
@@ -921,7 +1120,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               {post.image_url && (
                 <div 
                   className="bg-black/20 border-y border-white/5 cursor-zoom-in"
-                  onClick={() => setSelectedPostImage(post.image_url!)}
+                  onClick={() => {
+                    setIsAvatarPreview(false);
+                    setSelectedPostImage(post.image_url!);
+                  }}
                 >
                   <img 
                     src={post.image_url} 
@@ -935,15 +1137,83 @@ export default function Community({ user, isImportMode = false }: CommunityProps
 
               {/* Post Actions */}
               <div className="px-4 py-3 flex items-center gap-6 border-t border-white/5">
-                <button 
-                  onClick={() => handleLike(post.id)}
-                  className={`flex items-center gap-2 text-sm font-bold transition-all active:scale-95 ${
-                    likedPosts.includes(post.id) ? (isImportMode ? 'text-blue-500' : 'text-primary') : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Heart size={20} className={likedPosts.includes(post.id) ? 'fill-current' : ''} />
-                  <span>{post.likes_count || 0}</span>
-                </button>
+                {editingPostLikes?.postId === post.id ? (
+                  <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-lg p-1">
+                    <input
+                      type="number"
+                      value={editingPostLikes.likesStr}
+                      onChange={(e) => setEditingPostLikes({ postId: post.id, likesStr: e.target.value })}
+                      className="w-16 bg-zinc-950 border border-white/10 text-white rounded px-1.5 text-center font-semibold text-xs h-6 focus:outline-none focus:border-rose-500"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = parseInt(editingPostLikes.likesStr, 10);
+                          handlePostLikesDirect(post.id, isNaN(val) ? 0 : val, post.likes_count || 0);
+                          setEditingPostLikes(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingPostLikes(null);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        const val = parseInt(editingPostLikes.likesStr, 10);
+                        handlePostLikesDirect(post.id, isNaN(val) ? 0 : val, post.likes_count || 0);
+                        setEditingPostLikes(null);
+                      }}
+                      className="text-emerald-400 hover:text-emerald-300 p-0.5"
+                      title="Salvar"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => setEditingPostLikes(null)}
+                      className="text-gray-400 hover:text-white p-0.5"
+                      title="Cancelar"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button 
+                      onClick={() => handleLike(post.id)}
+                      className={`flex items-center gap-2 text-sm font-bold transition-all active:scale-95 ${
+                        likedPosts.includes(post.id) ? (isImportMode ? 'text-blue-500' : 'text-primary') : 'text-gray-400 hover:text-white'
+                      }`}
+                      title={isImportMode ? "Clique para curtir ou remover curtida" : undefined}
+                    >
+                      <Heart size={20} className={likedPosts.includes(post.id) ? 'fill-current' : ''} />
+                      <span>{post.likes_count || 0}</span>
+                    </button>
+
+                    {isImportMode && (
+                      <div className="flex items-center gap-1 bg-zinc-900/60 rounded-lg p-0.5 border border-white/5 ml-1">
+                        <button
+                          onClick={() => handlePostLikesDirect(post.id, (post.likes_count || 0) + 5, post.likes_count || 0)}
+                          className="text-[10px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-1.5 py-0.5 rounded font-mono transition-all font-semibold"
+                          title="Adicionar 5 curtidas"
+                        >
+                          +5
+                        </button>
+                        <button
+                          onClick={() => handlePostLikesDirect(post.id, (post.likes_count || 0) + 10, post.likes_count || 0)}
+                          className="text-[10px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-1.5 py-0.5 rounded font-mono transition-all font-semibold"
+                          title="Adicionar 10 curtidas"
+                        >
+                          +10
+                        </button>
+                        <button
+                          onClick={() => setEditingPostLikes({ postId: post.id, likesStr: String(post.likes_count || 0) })}
+                          className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-white/5 transition-all"
+                          title="Definir quantidade exata de curtidas"
+                        >
+                          <Edit3 size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 
                 <button 
                   onClick={() => toggleComments(post.id)}
@@ -981,36 +1251,150 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                     <div className="p-4 space-y-4">
                       {/* Comment List */}
                       <div className="space-y-3">
-                        {comments[post.id]?.map((comment) => (
-                          <div key={comment.id} className="flex gap-3 items-start group/comment">
-                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden">
-                              {comment.user_avatar_url ? (
-                                <img src={comment.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                <UserIcon size={14} />
-                              )}
-                            </div>
-                            <div className="flex-1 flex items-center gap-2">
-                              <div className="bg-zinc-800 rounded-2xl px-3 py-2 max-w-[90%] relative">
-                                <div className="flex items-center justify-between gap-4 mb-0.5">
-                                  <h5 className={`font-bold text-[11px] ${isImportMode ? 'text-blue-500' : 'text-primary'}`}>{comment.user_name}</h5>
-                                  <span className="text-[9px] text-gray-500">
-                                    {formatDate(comment.created_at)}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-300">{comment.content}</p>
+                        {comments[post.id]?.map((comment) => {
+                          const { text, likes } = parseCommentContent(comment.content);
+                          const isEditingLikes = editingCommentLikes?.commentId === comment.id;
+                          return (
+                            <div key={comment.id} className="flex gap-3 items-start group/comment">
+                              <div 
+                                className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden cursor-pointer hover:opacity-85 active:scale-[0.95] transition-all"
+                                onClick={() => {
+                                  if (comment.user_avatar_url) {
+                                    setIsAvatarPreview(true);
+                                    setPreviewUserName(comment.user_name);
+                                    setSelectedPostImage(comment.user_avatar_url);
+                                  } else {
+                                    toast.info("Este usuário não possui foto de perfil cadastrada.");
+                                  }
+                                }}
+                                title="Clique para ver a foto de perfil ampliada"
+                              >
+                                {comment.user_avatar_url ? (
+                                  <img src={comment.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <UserIcon size={14} />
+                                )}
                               </div>
-                              {(comment.user_id === user.id || isAdmin) && (
-                                <button 
-                                  onClick={() => setCommentToDelete({ id: comment.id, postId: post.id })}
-                                  className="text-gray-600 hover:text-red-500 transition-all p-2 shrink-0"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
+                              <div className="flex-1 flex items-start gap-2 justify-between">
+                                <div className="bg-zinc-800 rounded-2xl px-3 py-2 max-w-[85%] relative text-left">
+                                  <div className="flex items-center justify-between gap-4 mb-0.5">
+                                    <h5 
+                                      className={`font-bold text-[11px] cursor-pointer hover:underline ${isImportMode ? 'text-blue-500' : 'text-primary'}`}
+                                      onClick={() => {
+                                        if (comment.user_avatar_url) {
+                                          setIsAvatarPreview(true);
+                                          setPreviewUserName(comment.user_name);
+                                          setSelectedPostImage(comment.user_avatar_url);
+                                        } else {
+                                          toast.info("Este usuário não possui foto de perfil cadastrada.");
+                                        }
+                                      }}
+                                      title="Clique para ver a foto de perfil ampliada"
+                                    >
+                                      {comment.user_name}
+                                    </h5>
+                                    <span className="text-[9px] text-gray-500">
+                                      {formatDate(comment.created_at)}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-300 break-words">{text}</p>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0 mt-1">
+                                  {isEditingLikes ? (
+                                    <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-lg p-1">
+                                      <input
+                                        type="number"
+                                        value={editingCommentLikes.likesStr}
+                                        onChange={(e) => setEditingCommentLikes({ commentId: comment.id, likesStr: e.target.value })}
+                                        className="w-12 bg-zinc-950 border border-white/10 text-white rounded px-1 text-center font-semibold text-[10px] h-5 focus:outline-none focus:border-rose-500"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            const val = parseInt(editingCommentLikes.likesStr, 10);
+                                            handleLikeComment(post.id, comment.id, isNaN(val) ? 0 : val, likes);
+                                            setEditingCommentLikes(null);
+                                          } else if (e.key === 'Escape') {
+                                            setEditingCommentLikes(null);
+                                          }
+                                        }}
+                                        autoFocus
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          const val = parseInt(editingCommentLikes.likesStr, 10);
+                                          handleLikeComment(post.id, comment.id, isNaN(val) ? 0 : val, likes);
+                                          setEditingCommentLikes(null);
+                                        }}
+                                        className="text-emerald-400 hover:text-emerald-300 p-0.5"
+                                        title="Salvar"
+                                      >
+                                        <Check size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingCommentLikes(null)}
+                                        className="text-gray-400 hover:text-white p-0.5"
+                                        title="Cancelar"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Like button for comment */}
+                                      <button
+                                        onClick={() => handleLikeCommentToggle(post.id, comment.id, likes)}
+                                        className="flex items-center gap-1 text-[10px] py-1 px-1.5 rounded-lg transition-all text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 active:scale-95 cursor-pointer"
+                                        title="Clique para curtir ou remover curtida"
+                                      >
+                                        <Heart 
+                                          size={12} 
+                                          className={likedComments.includes(comment.id) ? "fill-rose-500 text-rose-500" : (likes > 0 ? "text-rose-400" : "text-gray-500")} 
+                                        />
+                                        {likes > 0 && <span className="font-semibold">{likes}</span>}
+                                      </button>
+
+                                      {/* Admin custom likes controls */}
+                                      {isImportMode && (
+                                        <div className="flex items-center gap-1 bg-zinc-900/50 rounded-lg p-0.5 border border-white/5">
+                                          <button
+                                            onClick={() => handleLikeComment(post.id, comment.id, likes + 5, likes)}
+                                            className="text-[9px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-1 py-0.5 rounded font-mono transition-all font-semibold"
+                                            title="Adicionar 5 curtidas"
+                                          >
+                                            +5
+                                          </button>
+                                          <button
+                                            onClick={() => handleLikeComment(post.id, comment.id, likes + 10, likes)}
+                                            className="text-[9px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-1 py-0.5 rounded font-mono transition-all font-semibold"
+                                            title="Adicionar 10 curtidas"
+                                          >
+                                            +10
+                                          </button>
+                                          <button
+                                            onClick={() => setEditingCommentLikes({ commentId: comment.id, likesStr: String(likes) })}
+                                            className="text-zinc-400 hover:text-zinc-200 p-1 rounded hover:bg-white/5 transition-all"
+                                            title="Definir quantidade exata"
+                                          >
+                                            <Edit3 size={11} />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                  
+                                  {(comment.user_id === user.id || isImportMode) && (
+                                    <button 
+                                      onClick={() => setCommentToDelete({ id: comment.id, postId: post.id })}
+                                      className="text-gray-600 hover:text-red-500 transition-all p-1.5 shrink-0"
+                                      title="Excluir comentário"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* Add Comment Input */}
@@ -1080,39 +1464,90 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         </div>
       )}
 
-      {/* Full-screen Image Viewer */}
-      <AnimatePresence>
-        {selectedPostImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] bg-black/95 flex items-center justify-center p-2 sm:p-4 overflow-hidden"
-            onClick={() => setSelectedPostImage(null)}
-          >
-            <button 
-              className="absolute top-4 right-4 sm:top-6 sm:right-6 text-white/70 hover:text-white p-2 bg-white/10 rounded-full backdrop-blur-md z-[310]"
-              onClick={() => setSelectedPostImage(null)}
-            >
-              <X size={24} />
-            </button>
+      {/* Full-screen Image Viewer / Avatar Viewer */}
+      {createPortal(
+        <AnimatePresence>
+          {selectedPostImage && (
             <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              className="relative w-full h-full flex items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex p-4 items-center justify-center overflow-hidden"
+              onClick={() => {
+                setSelectedPostImage(null);
+                setPreviewUserName(null);
+                setIsAvatarPreview(false);
+              }}
             >
-              <img
-                src={selectedPostImage}
-                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-                alt="Full screen"
-                referrerPolicy="no-referrer"
-                onClick={(e) => e.stopPropagation()}
-              />
+              {isAvatarPreview ? (
+                <motion.div
+                  initial={{ scale: 0.85, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.85, opacity: 0 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                  className="relative flex flex-col items-center max-w-xs sm:max-w-sm w-full p-4"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button 
+                    className="absolute -top-12 right-4 text-white/60 hover:text-white p-2 bg-white/10 hover:bg-white/20 rounded-full backdrop-blur-md transition-all active:scale-95 shadow-lg"
+                    onClick={() => {
+                      setSelectedPostImage(null);
+                      setPreviewUserName(null);
+                      setIsAvatarPreview(false);
+                    }}
+                  >
+                    <X size={20} />
+                  </button>
+                  
+                  {previewUserName && (
+                    <div className="w-full text-center mb-6 px-4">
+                      <h3 className="text-lg font-bold text-white tracking-tight drop-shadow-md">
+                        {previewUserName}
+                      </h3>
+                    </div>
+                  )}
+
+                  <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-full overflow-hidden border-[6px] border-white/25 bg-zinc-950 shadow-2xl flex items-center justify-center transition-all">
+                    <img
+                      src={selectedPostImage}
+                      className="w-full h-full object-cover"
+                      alt={previewUserName || "Perfil"}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                </motion.div>
+              ) : (
+                <div className="relative w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    className="absolute top-4 right-4 sm:top-6 sm:right-6 text-white/70 hover:text-white p-2 bg-white/10 rounded-full backdrop-blur-md z-[10000] hover:bg-white/20 transition-all active:scale-95"
+                    onClick={() => {
+                      setSelectedPostImage(null);
+                      setPreviewUserName(null);
+                      setIsAvatarPreview(false);
+                    }}
+                  >
+                    <X size={24} />
+                  </button>
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="max-w-4xl w-full flex items-center justify-center p-4"
+                  >
+                    <img
+                      src={selectedPostImage}
+                      className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-4 border-white/25"
+                      alt="Full screen"
+                      referrerPolicy="no-referrer"
+                    />
+                  </motion.div>
+                </div>
+              )}
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Delete Confirmation Modal */}
       <AnimatePresence>

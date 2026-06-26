@@ -56,6 +56,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
@@ -325,14 +326,14 @@ export default function Dashboard({ user }: DashboardProps) {
     }
   };
 
-  const isUnlocked = useCallback((course: Course) => {
-    // 0. Administrador tem acesso mestre/liberado a todos os cursos
-    const isAdmin = user?.email && (
+  const isAdmin = useMemo(() => {
+    return !!user?.email && (
       (settings?.admin_email && user.email.toLowerCase() === settings.admin_email.toLowerCase()) ||
       user.email.toLowerCase() === 'gabrielchendes@gmail.com'
     );
-    if (isAdmin) return true;
+  }, [user, settings]);
 
+  const isUnlocked = useCallback((course: Course) => {
     // 1. If it has a direct purchase or is part of an owned package, it's unlocked
     if (purchases.some(p => p.product_id === course.id)) return true;
 
@@ -349,8 +350,13 @@ export default function Dashboard({ user }: DashboardProps) {
     // 5. If it's a general bonus course (not exclusive), it's usually unlocked for everyone
     if (course.is_bonus) return true;
 
+    // 6. Administrador tem acesso mestre/liberado a todos os outros cursos, EXCEPT paid courses that are not purchased,
+    // so they can test the purchase flow on the dashboard.
+    const isPaidCourse = !course.is_free && !course.is_bonus;
+    if (isAdmin && !isPaidCourse) return true;
+
     return false;
-  }, [purchases, settings, courses, user]);
+  }, [purchases, courses, isAdmin]);
 
   const handleOpenCourse = useCallback(async (course: Course) => {
     if (isUnlocked(course)) {
@@ -404,24 +410,38 @@ export default function Dashboard({ user }: DashboardProps) {
   }, [courses, isUnlocked]);
 
   const mainCourses = useMemo(() => {
-    const list = courses.filter(c => !!c.is_free && !c.is_bonus);
-    return [...list].sort((a, b) => {
+    // 1. Default free/main courses
+    const defaultList = courses.filter(c => !!c.is_free && !c.is_bonus);
+    const sortedDefault = [...defaultList].sort((a, b) => {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [courses]);
+
+    // 2. Paid courses that are purchased
+    const purchasedPaidList = courses.filter(c => !c.is_free && !c.is_bonus && purchases.some(p => p.product_id === c.id));
+    const sortedPurchasedPaid = [...purchasedPaidList].sort((a, b) => {
+      const orderA = a.order_index ?? 9999;
+      const orderB = b.order_index ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    // 3. Combine: default free courses first, purchased paid courses always at the end!
+    return [...sortedDefault, ...sortedPurchasedPaid];
+  }, [courses, purchases]);
 
   const paidCourses = useMemo(() => {
-    const list = courses.filter(c => !c.is_free && !c.is_bonus);
+    // Paid courses that are NOT purchased
+    const list = courses.filter(c => !c.is_free && !c.is_bonus && !purchases.some(p => p.product_id === c.id));
     return [...list].sort((a, b) => {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [courses]);
+  }, [courses, purchases]);
 
   const bonusCourses = useMemo(() => {
     const list = courses.filter(p => !!p.is_bonus && isUnlocked(p));
@@ -628,6 +648,8 @@ export default function Dashboard({ user }: DashboardProps) {
         onTabChange={setActiveTab} 
         canInstall={canInstall}
         onInstall={() => setShowPWAInstall(true)}
+        totalProgress={globalStats.totalProgress}
+        onOpenProgress={() => setShowProgressModal(true)}
       />
 
       {/* Tab Content and Transitions */}
@@ -654,19 +676,21 @@ export default function Dashboard({ user }: DashboardProps) {
                   </div>
 
                   {/* Gamification Header */}
-                  <div className="mt-4">
-                    <SmartHomeHeader 
-                      totalProgress={globalStats.totalProgress} 
-                      lastCourse={globalStats.lastCourse}
-                      onContinueCourse={(course) => handleOpenCourse(course as any)}
-                      settings={settings}
-                      t={t}
-                    />
-                  </div>
+                  <SmartHomeHeader 
+                    totalProgress={globalStats.totalProgress} 
+                    lastCourse={globalStats.lastCourse}
+                    onContinueCourse={(course) => handleOpenCourse(course as any)}
+                    settings={settings}
+                    t={t}
+                    showModal={showProgressModal}
+                    onCloseModal={() => setShowProgressModal(false)}
+                  />
 
                   {/* Content Sections */}
                   <div className="relative z-10 space-y-4 mt-4">
-                    <Carousel title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Sua Jornada Principal  🔥'}>
+                    <Carousel 
+                      title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Sua Jornada Principal  🔥'}
+                    >
                       {mainCourses.length > 0 ? (
                         mainCourses.map(course => (
                           <ProductCard
@@ -680,7 +704,7 @@ export default function Dashboard({ user }: DashboardProps) {
                           />
                         ))
                       ) : (
-                        <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl mx-12 bg-white/5">
+                        <div className="w-full h-48 flex flex-col items-center justify-center text-gray-600 border border-white/5 rounded-3xl bg-white/5">
                           <Book size={32} className="mb-4 opacity-20" />
                           <p className="font-bold text-xs uppercase tracking-widest text-center px-4">
                             {settings.custom_texts?.['dashboard.empty_locked'] || t('dashboard.empty_locked') || 'Você ainda não possui cursos liberados.'}
@@ -690,7 +714,9 @@ export default function Dashboard({ user }: DashboardProps) {
                     </Carousel>
 
                     {bonusCourses.length > 0 && (
-                      <Carousel title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Prêmios & Bônus Exclusivos  🎁'}>
+                      <Carousel 
+                        title={settings.custom_texts?.['dashboard.courses_bonus'] || t('dashboard.courses_bonus') || 'Prêmios & Bônus Exclusivos  🎁'}
+                      >
                         {bonusCourses.map(course => (
                           <ProductCard
                             key={course.id + refreshKey}
@@ -705,7 +731,9 @@ export default function Dashboard({ user }: DashboardProps) {
                       </Carousel>
                     )}
 
-                    <Carousel title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}>
+                    <Carousel 
+                      title={settings.custom_texts?.['dashboard.courses_free'] || t('dashboard.courses_free') || 'Acelere sua Evolução  🚀'}
+                    >
                       {paidCourses.length > 0 ? (
                         paidCourses.map(course => (
                           <ProductCard
@@ -719,7 +747,7 @@ export default function Dashboard({ user }: DashboardProps) {
                           />
                         ))
                       ) : (
-                        <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl mx-12">
+                        <div className="w-full py-16 flex flex-col items-center justify-center text-gray-600 border-2 border-dashed border-white/5 rounded-3xl">
                           <p className="font-bold text-center px-4">{settings.custom_texts?.['dashboard.empty_all_unlocked'] || t('dashboard.empty_all_unlocked') || 'Você já possui todos os cursos disponíveis!'}</p>
                         </div>
                       )}

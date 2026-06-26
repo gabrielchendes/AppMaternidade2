@@ -64,7 +64,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isHardcodedAdmin = user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
     const isSuperAdmin = (settings?.admin_email && user.email?.toLowerCase() === settings.admin_email.toLowerCase()) || isHardcodedAdmin;
     
-    if (!profile?.is_admin && !isSuperAdmin) {
+    const isUserAdmin = profile?.is_admin || isSuperAdmin;
+    const publicActions = ['comment-like'];
+
+    if (!isUserAdmin && !publicActions.includes(action)) {
       return res.status(403).json({ error: 'Acesso negado: Apenas administradores' });
     }
 
@@ -85,6 +88,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return await handlePurchases(req, res);
       case 'update-settings':
         return await handleUpdateSettings(req, res);
+      case 'comment-like':
+        return await handleCommentLike(req, res);
+      case 'post-likes-update':
+        return await handlePostLikesUpdate(req, res);
       case 'info':
         return res.status(200).json({ status: 'online', version: '2.5.0' });
       default:
@@ -518,6 +525,76 @@ async function handlePurchases(req: VercelRequest, res: VercelResponse) {
   } catch (err: any) {
     console.error('[Admin API] All purchase list retrieval routines failed:', err);
     return res.status(500).json({ error: err.message || 'Erro ao carregar lista de vendas' });
+  }
+}
+
+async function handleCommentLike(req: VercelRequest, res: VercelResponse) {
+  const { commentId, likesCount } = req.body;
+  if (!commentId || typeof likesCount !== 'number') {
+    return res.status(400).json({ error: 'Parâmetros inválidos' });
+  }
+
+  try {
+    // 1. Fetch the comment
+    const { data: comment, error: fetchError } = await supabaseAdmin
+      .from('post_comments')
+      .select('*')
+      .eq('id', commentId)
+      .single();
+
+    if (fetchError || !comment) {
+      return res.status(404).json({ error: 'Comentário não encontrado' });
+    }
+
+    // 2. Parse existing content and clean text, and format with the new likesCount
+    const originalContent = comment.content || '';
+    // Extract text by removing any trailing [likes:X]
+    const cleanText = originalContent.replace(/\s+\[likes:\d+\]$/s, '');
+    const updatedContent = likesCount > 0 ? `${cleanText} [likes:${likesCount}]` : cleanText;
+
+    // 3. Update the comment content on Supabase (using service role key, bypassing RLS!)
+    const { data: updatedComment, error: updateError } = await supabaseAdmin
+      .from('post_comments')
+      .update({ content: updatedContent })
+      .eq('id', commentId)
+      .select('*')
+      .single();
+
+    if (updateError) {
+      console.error('[Admin API] Error updating comment content:', updateError);
+      return res.status(500).json({ error: 'Erro ao atualizar comentário' });
+    }
+
+    return res.status(200).json(updatedComment);
+  } catch (err: any) {
+    console.error('[Admin API] handleCommentLike failed:', err);
+    return res.status(500).json({ error: err.message || 'Erro ao curtir comentário' });
+  }
+}
+
+async function handlePostLikesUpdate(req: VercelRequest, res: VercelResponse) {
+  const { postId, likesCount } = req.body;
+  if (!postId || typeof likesCount !== 'number') {
+    return res.status(400).json({ error: 'Parâmetros inválidos' });
+  }
+
+  try {
+    const { data: updatedPost, error: updateError } = await supabaseAdmin
+      .from('community_posts')
+      .update({ likes_count: Math.max(0, likesCount) })
+      .eq('id', postId)
+      .select('*')
+      .single();
+
+    if (updateError) {
+      console.error('[Admin API] Error updating post likes:', updateError);
+      return res.status(500).json({ error: 'Erro ao atualizar curtidas do post' });
+    }
+
+    return res.status(200).json(updatedPost);
+  } catch (err: any) {
+    console.error('[Admin API] handlePostLikesUpdate failed:', err);
+    return res.status(500).json({ error: err.message || 'Erro ao curtir post' });
   }
 }
 
