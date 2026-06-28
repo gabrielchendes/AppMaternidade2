@@ -1,20 +1,34 @@
 import { createClient } from '@supabase/supabase-js';
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import * as admin from 'firebase-admin';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
+if (getApps().length === 0) {
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (serviceAccount) {
-      admin.initializeApp({
-        credential: admin.credential.cert(JSON.parse(serviceAccount))
+      let parsedServiceAccount;
+      if (typeof serviceAccount === 'string') {
+        const cleaned = serviceAccount.trim();
+        parsedServiceAccount = JSON.parse(cleaned);
+      } else {
+        parsedServiceAccount = serviceAccount;
+      }
+
+      // Fix private key formatting if it was escaped or has literal '\n'
+      if (parsedServiceAccount && parsedServiceAccount.private_key) {
+        parsedServiceAccount.private_key = parsedServiceAccount.private_key.replace(/\\n/g, '\n');
+      }
+
+      initializeApp({
+        credential: cert(parsedServiceAccount)
       });
-      console.log('[Notifications API] Firebase Admin initialized');
+      console.log('[Notifications API] Firebase Admin initialized successfully');
     } else {
       console.warn('[Notifications API] FIREBASE_SERVICE_ACCOUNT is missing. Push notifications will be skipped.');
     }
@@ -146,19 +160,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function sendPushNotification(userIds: string[], title: string, body: string) {
-  if (!admin.apps.length || !userIds.length) return { success: false, reason: 'No apps or no users' };
+  console.log(`[Notifications API] sendPushNotification triggered for ${userIds.length} users:`, userIds);
+  
+  if (getApps().length === 0) {
+    console.warn('[Notifications API] sendPushNotification skipped: Firebase Admin is not initialized.');
+    return { success: false, reason: 'Firebase Admin not initialized (getApps is empty)' };
+  }
+  
+  if (!userIds.length) {
+    console.warn('[Notifications API] sendPushNotification skipped: No user IDs provided.');
+    return { success: false, reason: 'No user IDs' };
+  }
 
   try {
     // 1. Get tokens for users
+    console.log('[Notifications API] Querying push_tokens from Supabase...');
     const { data: tokens, error } = await supabaseAdmin
       .from('push_tokens')
       .select('token')
       .in('user_id', userIds);
 
-    if (error) throw error;
-    if (!tokens || tokens.length === 0) return { success: false, reason: 'No tokens found' };
+    if (error) {
+      console.error('[Notifications API] Supabase error fetching tokens:', error);
+      throw error;
+    }
+    
+    if (!tokens || tokens.length === 0) {
+      console.warn('[Notifications API] sendPushNotification skipped: No push tokens registered in Supabase database for these users.');
+      return { success: false, reason: 'No registered push tokens found in database' };
+    }
 
     const registrationTokens = tokens.map(t => t.token);
+    console.log(`[Notifications API] Found ${registrationTokens.length} active tokens for sending.`);
 
     // 2. Send multicast
     const message = {
@@ -166,7 +199,8 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
       tokens: registrationTokens,
     };
 
-    const response = await admin.messaging().sendEachForMulticast(message);
+    const messaging = getMessaging();
+    const response = await messaging.sendEachForMulticast(message);
     console.log(`[Notifications API] Push sent: ${response.successCount} success, ${response.failureCount} failure`);
     
     // Optional: cleanup failed tokens
@@ -175,6 +209,11 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           const error = resp.error;
+          console.warn(`[Notifications API] Token delivery failed:`, {
+            tokenPreview: registrationTokens[idx].substring(0, 15) + '...',
+            errorCode: error?.code,
+            errorMessage: error?.message
+          });
           if (error?.code === 'messaging/invalid-registration-token' ||
               error?.code === 'messaging/registration-token-not-registered') {
             failedTokens.push(registrationTokens[idx]);
@@ -183,14 +222,18 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
       });
       
       if (failedTokens.length > 0) {
-        await supabaseAdmin.from('push_tokens').delete().in('token', failedTokens);
+        console.log(`[Notifications API] Cleaning up ${failedTokens.length} invalid/unregistered tokens...`);
+        const { error: deleteError } = await supabaseAdmin.from('push_tokens').delete().in('token', failedTokens);
+        if (deleteError) {
+          console.error('[Notifications API] Error cleaning up failed tokens:', deleteError);
+        }
       }
     }
 
     return { success: true, count: response.successCount };
-  } catch (e) {
-    console.error('[Notifications API] Error sending push:', e);
-    return { success: false, error: e };
+  } catch (e: any) {
+    console.error('[Notifications API] Error sending push notification:', e);
+    return { success: false, error: e?.message || e, reason: 'Exception in sendPushNotification' };
   }
 }
 
@@ -241,9 +284,17 @@ async function handlePush(req: VercelRequest, res: VercelResponse) {
     
   // Send background push if not skipped and not only in_app
   if (!skipPush && type !== 'in_app') {
-    sendPushNotification(userIds, title, body).catch(err => {
-      console.error('[Notifications API] Background push failed:', err);
-    });
+    sendPushNotification(userIds, title, body)
+      .then(result => {
+        if (!result.success) {
+          console.warn('[Notifications API] Background push failed with result:', result);
+        } else {
+          console.log('[Notifications API] Background push succeeded with result:', result);
+        }
+      })
+      .catch(err => {
+        console.error('[Notifications API] Background push failed with error:', err);
+      });
   }
 
   return res.status(200).json({ success: true, count: userIds.length });
@@ -334,9 +385,17 @@ async function handleNotifyAdmin(req: VercelRequest, res: VercelResponse) {
   }
 
   // 3. Send Push Notification to admins
-  sendPushNotification(adminIds, title || 'Nova Dúvida Aula', body || 'Alguém enviou uma pergunta no curso.').catch(err => {
-    console.error('[Notifications API] Background push to admins failed:', err);
-  });
+  sendPushNotification(adminIds, title || 'Nova Dúvida Aula', body || 'Alguém enviou uma pergunta no curso.')
+    .then(result => {
+      if (!result.success) {
+        console.warn('[Notifications API] Background push to admins failed with result:', result);
+      } else {
+        console.log('[Notifications API] Background push to admins succeeded with result:', result);
+      }
+    })
+    .catch(err => {
+      console.error('[Notifications API] Background push to admins failed with error:', err);
+    });
 
   return res.status(200).json({ success: true, adminCount: adminIds.length, notifyEmails: adminEmails });
 }
