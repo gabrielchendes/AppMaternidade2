@@ -676,9 +676,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             className="group relative flex flex-col text-left transition-all w-full"
                           >
                             <div className={`relative aspect-square rounded-2xl sm:rounded-3xl overflow-hidden mb-3 sm:mb-5 border-2 shadow-2xl bg-zinc-900 transition-all duration-500 w-full ${isCompleted ? 'border-green-500/30' : 'border-white/5 group-hover:border-primary/50'}`}>
-                              {chapter.cover_url ? (
+                              {chapter.cover_url && chapter.cover_url.trim() ? (
                                 <img 
-                                  src={chapter.cover_url} 
+                                  src={chapter.cover_url.trim()} 
                                   className={`w-full h-full object-cover transition-all duration-700 ${isCompleted ? 'opacity-30 grayscale-[50%]' : 'opacity-40 group-hover:opacity-60 group-hover:scale-110'}`} 
                                   alt={chapter.title} 
                                   referrerPolicy="no-referrer"

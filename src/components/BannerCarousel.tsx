@@ -14,33 +14,37 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
 
   const [isDragging, setIsDragging] = useState(false);
 
+  const validImages = (images || []).filter(img => Boolean(img && img.trim()));
+
   useEffect(() => {
-    if (!images || images.length <= 1) return;
+    if (!validImages || validImages.length <= 1) return;
 
     // Pre-cache next image
-    const nextIndex = (currentIndex + 1) % images.length;
-    const nextImg = new Image();
-    nextImg.src = images[nextIndex];
+    const nextIndex = (currentIndex + 1) % validImages.length;
+    if (validImages[nextIndex]) {
+      const nextImg = new Image();
+      nextImg.src = validImages[nextIndex];
+    }
 
     const timer = setInterval(() => {
       if (!isDragging) {
         setDirection(1);
-        setCurrentIndex((prev) => (prev + 1) % images.length);
+        setCurrentIndex((prev) => (prev + 1) % validImages.length);
       }
     }, interval);
 
     return () => clearInterval(timer);
-  }, [images?.length, interval, currentIndex, isDragging]);
+  }, [validImages.length, interval, currentIndex, isDragging]);
 
-  if (!images || images.length === 0) return null;
+  if (!validImages || validImages.length === 0) return null;
 
   const next = () => {
     setDirection(1);
-    setCurrentIndex((prev) => (prev + 1) % images.length);
+    setCurrentIndex((prev) => (prev + 1) % validImages.length);
   };
   const prev = () => {
     setDirection(-1);
-    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+    setCurrentIndex((prev) => (prev - 1 + validImages.length) % validImages.length);
   };
 
   const variants = {
@@ -121,7 +125,7 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
             onClick={() => handleBannerClick(config[currentIndex]?.link)}
           >
             <motion.img
-              src={images[currentIndex]}
+              src={validImages[currentIndex]}
               loading={currentIndex === 0 ? "eager" : "lazy"}
               initial={false}
               animate={{ 

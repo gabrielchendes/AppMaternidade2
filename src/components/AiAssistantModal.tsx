@@ -49,7 +49,9 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
 
   const expertName = settings?.custom_texts?.['ai_expert.name'] || 'Victoria';
   const expertSubtitle = settings?.custom_texts?.['ai_expert.subtitle'] || 'Psychologist & Relationship Expert';
-  const expertAvatar = settings?.custom_texts?.['ai_expert.avatar_url'] || DEFAULT_AVATAR;
+  const expertAvatar = (settings?.custom_texts?.['ai_expert.avatar_url'] && settings.custom_texts['ai_expert.avatar_url'].trim())
+    ? settings.custom_texts['ai_expert.avatar_url'].trim()
+    : DEFAULT_AVATAR;
   const customWelcome = settings?.custom_texts?.['ai_expert.welcome_message'];
   const typingText = settings?.custom_texts?.['ai_expert.typing_indicator'] || `${expertName} is typing...`;
   const inputPlaceholder = settings?.custom_texts?.['ai_expert.input_placeholder'] || `Ask ${expertName}...`;
@@ -79,10 +81,22 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
     }
   };
 
-  const recordSentTimestamp = () => {
+  const recordSentTimestamp = (): number => {
     try {
+      const ts = Date.now();
       const list = getSentMessageTimestamps();
-      list.push(Date.now());
+      list.push(ts);
+      localStorage.setItem('ai_expert_sent_messages_history', JSON.stringify(list));
+      return ts;
+    } catch (e) {
+      console.error(e);
+      return Date.now();
+    }
+  };
+
+  const removeSentTimestamp = (ts: number) => {
+    try {
+      const list = getSentMessageTimestamps().filter(t => t !== ts);
       localStorage.setItem('ai_expert_sent_messages_history', JSON.stringify(list));
     } catch (e) {
       console.error(e);
@@ -183,7 +197,7 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
       return;
     }
 
-    recordSentTimestamp();
+    const sentTs = recordSentTimestamp();
     setSentTimestamps(getSentMessageTimestamps());
 
     const userMsg: Message = {
@@ -220,6 +234,8 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
       const data = await res.json();
 
       if (!res.ok) {
+        removeSentTimestamp(sentTs);
+        setSentTimestamps(getSentMessageTimestamps());
         throw new Error(data.error || errorMessage);
       }
 
@@ -233,6 +249,8 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
       setMessages(prev => [...prev, botMsg]);
     } catch (err: any) {
       console.error('AI Chat Error:', err);
+      removeSentTimestamp(sentTs);
+      setSentTimestamps(getSentMessageTimestamps());
       toast.error(err.message || errorMessage);
       setMessages(prev => [
         ...prev,
@@ -307,7 +325,7 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
                   {isLimitEnabled && (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20">
                       <Clock size={12} className="text-rose-400" />
-                      <span>{remainingMessages}/{maxMessages} {getFrequencyLabel(frequency)}</span>
+                      <span>{messagesSentCount}/{maxMessages} {getFrequencyLabel(frequency)}</span>
                     </span>
                   )}
                 </div>
@@ -343,9 +361,9 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
                 className={`flex gap-3 sm:gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
               >
                 {msg.role === 'user' ? (
-                  userAvatar ? (
+                  userAvatar && userAvatar.trim() ? (
                     <img
-                      src={userAvatar}
+                      src={userAvatar.trim()}
                       alt={userName || 'User'}
                       className="w-9 h-9 rounded-full object-cover border border-rose-500/40 shadow-md shrink-0"
                       referrerPolicy="no-referrer"

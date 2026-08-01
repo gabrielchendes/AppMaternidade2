@@ -68,8 +68,8 @@ const Navbar = memo(({
               title={t('gamification.view_progress_tooltip') || "Ver Progresso & Medalhas"}
             >
               <div className="w-7 h-7 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-white/25 shrink-0">
-                {user.user_metadata?.avatar_url ? (
-                  <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                {user.user_metadata?.avatar_url && user.user_metadata.avatar_url.trim() ? (
+                  <img src={user.user_metadata.avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
                   <UserIcon size={14} className="text-primary" />
                 )}
@@ -185,8 +185,8 @@ const Navbar = memo(({
             title={t('gamification.view_progress_tooltip') || "Ver Progresso & Medalhas"}
           >
             <div className="w-8 h-8 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center border border-white/25 shrink-0">
-              {user.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              {user.user_metadata?.avatar_url && user.user_metadata.avatar_url.trim() ? (
+                <img src={user.user_metadata.avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               ) : (
                 <UserIcon size={16} className="text-primary" />
               )}

@@ -110,7 +110,7 @@ const CoursePurchaseModal = memo(({
               {/* Image Section */}
               <div className="relative aspect-video w-full overflow-hidden group border-b border-white/5 bg-zinc-900 flex items-center justify-center">
                 <img
-                  src={image || `https://picsum.photos/seed/${title}/1200/800`}
+                  src={(image && image.trim()) ? image.trim() : `https://picsum.photos/seed/${title}/1200/800`}
                   className="relative z-10 w-full h-full object-cover transition-transform duration-1000 lg:group-hover:scale-[1.02]"
                   alt={title}
                   referrerPolicy="no-referrer"

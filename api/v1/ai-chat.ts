@@ -58,7 +58,7 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       ? `${customSystemPrompt.trim()}\n\nIMPORTANT FORMATTING RULE: Do NOT use markdown bold stars (**text**) or asterisks in output. Write in natural plain text.\n\n${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`
       : defaultSystemInstruction;
 
-    const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const candidateModels = ['gemini-3.6-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
     let responseText: string | undefined = undefined;
     let lastError: any = null;
 

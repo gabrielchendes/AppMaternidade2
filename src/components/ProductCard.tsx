@@ -121,7 +121,7 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
         {/* Thumbnail Area */}
         <div className="relative aspect-[4/5] overflow-hidden w-full z-10">
           <img
-            src={product.cover_url || `https://picsum.photos/seed/${product.id}/400/500`}
+            src={(product.cover_url && product.cover_url.trim()) ? product.cover_url.trim() : `https://picsum.photos/seed/${product.id}/400/500`}
             alt={product.title}
             loading="lazy"
             className={cn(

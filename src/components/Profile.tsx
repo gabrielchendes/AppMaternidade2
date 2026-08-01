@@ -192,8 +192,8 @@ export default function Profile({ user, canInstall, onInstall }: ProfileProps) {
           onClick={() => fileInputRef.current?.click()}
         >
           <div className="w-40 h-40 rounded-full bg-zinc-800 border-4 border-white/25 overflow-hidden flex items-center justify-center shadow-2xl transition-transform group-hover:scale-[1.02]">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            {avatarUrl && avatarUrl.trim() ? (
+              <img src={avatarUrl.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             ) : (
               <User size={64} className="text-gray-600" />
             )}

@@ -867,8 +867,8 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                           className="relative w-16 h-16 rounded-full bg-zinc-800 border-2 border-white/10 flex items-center justify-center overflow-hidden cursor-pointer group shrink-0"
                           onClick={() => manualAvatarInputRef.current?.click()}
                         >
-                          {manualAvatarPreview ? (
-                            <img src={manualAvatarPreview} className="w-full h-full object-cover" />
+                          {manualAvatarPreview && manualAvatarPreview.trim() ? (
+                            <img src={manualAvatarPreview.trim()} className="w-full h-full object-cover" />
                           ) : (
                             <UserIcon size={24} className="text-gray-600" />
                           )}
@@ -904,8 +904,8 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 rounded-full bg-zinc-800 border ${isImportMode ? 'border-blue-500/30' : 'border-primary/30'} overflow-hidden`}>
-                          {manualAvatarPreview ? (
-                            <img src={manualAvatarPreview} className="w-full h-full object-cover" />
+                          {manualAvatarPreview && manualAvatarPreview.trim() ? (
+                            <img src={manualAvatarPreview.trim()} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-600">
                               <UserIcon size={20} />
@@ -964,13 +964,13 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               {(!isImportMode || (isImportMode && personaActive)) && (
                 <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/5 shrink-0 overflow-hidden">
                   {(adminMode && personaActive) ? (
-                    manualAvatarPreview ? (
-                      <img src={manualAvatarPreview} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    manualAvatarPreview && manualAvatarPreview.trim() ? (
+                      <img src={manualAvatarPreview.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <UserIcon size={20} />
                     )
-                  ) : user.user_metadata?.avatar_url ? (
-                    <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (user.user_metadata?.avatar_url && user.user_metadata.avatar_url.trim()) ? (
+                    <img src={user.user_metadata.avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <UserIcon size={20} />
                   )}
@@ -988,14 +988,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
             </div>
 
           <AnimatePresence>
-            {imagePreview && (
+            {imagePreview && imagePreview.trim() && (
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="relative rounded-xl overflow-hidden aspect-video bg-black/20"
               >
-                <img src={imagePreview} className="w-full h-full object-cover" alt="Preview" />
+                <img src={imagePreview.trim()} className="w-full h-full object-cover" alt="Preview" />
                 <button
                   type="button"
                   onClick={() => { setSelectedImage(null); setImagePreview(null); }}
@@ -1070,8 +1070,8 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   title="Clique para ver a foto de perfil ampliada"
                 >
                   <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-gray-400 border border-white/10 overflow-hidden shrink-0">
-                    {post.user_avatar_url ? (
-                      <img src={post.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    {post.user_avatar_url && post.user_avatar_url.trim() ? (
+                      <img src={post.user_avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <UserIcon size={20} />
                     )}
@@ -1119,7 +1119,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               </div>
 
               {/* Post Image */}
-              {post.image_url && (
+              {post.image_url && post.image_url.trim() && (
                 <div 
                   className="bg-black/20 border-y border-white/5 cursor-zoom-in"
                   onClick={() => {
@@ -1128,7 +1128,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   }}
                 >
                   <img 
-                    src={post.image_url} 
+                    src={post.image_url.trim()} 
                     loading="lazy"
                     className="w-full max-h-[500px] object-contain" 
                     alt="Post" 
@@ -1271,8 +1271,8 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                                 }}
                                 title="Clique para ver a foto de perfil ampliada"
                               >
-                                {comment.user_avatar_url ? (
-                                  <img src={comment.user_avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                {comment.user_avatar_url && comment.user_avatar_url.trim() ? (
+                                  <img src={comment.user_avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                   <UserIcon size={14} />
                                 )}
@@ -1405,13 +1405,13 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                           {(!isImportMode || (isImportMode && personaActive)) && (
                             <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-gray-500 border border-white/5 shrink-0 overflow-hidden">
                               {(adminMode && personaActive) ? (
-                                manualAvatarPreview ? (
-                                  <img src={manualAvatarPreview} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                manualAvatarPreview && manualAvatarPreview.trim() ? (
+                                  <img src={manualAvatarPreview.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                   <UserIcon size={14} />
                                 )
-                              ) : user.user_metadata?.avatar_url ? (
-                                <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (user.user_metadata?.avatar_url && user.user_metadata.avatar_url.trim()) ? (
+                                <img src={user.user_metadata.avatar_url.trim()} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               ) : (
                                 <UserIcon size={14} />
                               )}
@@ -1510,12 +1510,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   )}
 
                   <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-full overflow-hidden border-[6px] border-white/25 bg-zinc-950 shadow-2xl flex items-center justify-center transition-all">
-                    <img
-                      src={selectedPostImage}
-                      className="w-full h-full object-cover"
-                      alt={previewUserName || "Perfil"}
-                      referrerPolicy="no-referrer"
-                    />
+                    {selectedPostImage && selectedPostImage.trim() ? (
+                      <img
+                        src={selectedPostImage.trim()}
+                        className="w-full h-full object-cover"
+                        alt={previewUserName || "Perfil"}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : null}
                   </div>
                 </motion.div>
               ) : (
@@ -1536,12 +1538,14 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                     exit={{ scale: 0.9, opacity: 0 }}
                     className="max-w-4xl w-full flex items-center justify-center p-4"
                   >
-                    <img
-                      src={selectedPostImage}
-                      className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-4 border-white/25"
-                      alt="Full screen"
-                      referrerPolicy="no-referrer"
-                    />
+                    {selectedPostImage && selectedPostImage.trim() ? (
+                      <img
+                        src={selectedPostImage.trim()}
+                        className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-4 border-white/25"
+                        alt="Full screen"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : null}
                   </motion.div>
                 </div>
               )}
