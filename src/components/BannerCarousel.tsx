@@ -90,7 +90,7 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
   };
 
   return (
-    <div className="relative w-full h-[40vh] md:h-[60vh] overflow-hidden bg-bg-main">
+    <div className="relative w-full h-[46vh] md:h-[60vh] overflow-hidden bg-bg-main">
       <div className="absolute inset-0">
         <AnimatePresence initial={false} custom={direction}>
           <motion.div

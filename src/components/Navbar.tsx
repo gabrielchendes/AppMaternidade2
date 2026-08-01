@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { LogOut, User as UserIcon, Bell, Shield, Download } from 'lucide-react';
+import { LogOut, User as UserIcon, Bell, Shield, Download, GraduationCap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -11,6 +11,8 @@ interface NavbarProps {
   user: User;
   activeTab: 'home' | 'profile' | 'community' | 'admin';
   onTabChange: (tab: 'home' | 'profile' | 'community' | 'admin') => void;
+  onOpenAi?: () => void;
+  isAiOpen?: boolean;
   canInstall?: boolean;
   onInstall?: () => void;
   totalProgress?: number;
@@ -21,6 +23,8 @@ const Navbar = memo(({
   user, 
   activeTab, 
   onTabChange, 
+  onOpenAi,
+  isAiOpen,
   canInstall, 
   onInstall,
   totalProgress = 0,
@@ -130,6 +134,16 @@ const Navbar = memo(({
             >
               {settings?.custom_texts?.['nav.community'] || 'Comunidade'}
             </button>
+            {onOpenAi && settings?.custom_texts?.['ai_expert.enabled'] !== 'false' && (
+              <button
+                onClick={onOpenAi}
+                className={`text-sm font-bold tracking-widest uppercase transition-colors ${
+                  isAiOpen ? 'text-primary' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {settings?.custom_texts?.['ai_expert.name'] ? `Ask ${settings.custom_texts['ai_expert.name']}` : 'Ask Victoria'}
+              </button>
+            )}
             <button
               onClick={() => onTabChange('profile')}
               className={`text-sm font-bold tracking-widest uppercase transition-colors ${

@@ -1030,7 +1030,9 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               className={`${isImportMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-primary hover:bg-primary-hover'} text-white px-6 py-2 rounded-full font-bold text-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2`}
             >
               {sending ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-              {t('community.post') || 'Publicar'}
+              {replyingTo 
+                ? (t('community.send_reply') || 'Enviar Resposta') 
+                : (t('community.post') || 'Publicar')}
             </button>
           </div>
         </form>

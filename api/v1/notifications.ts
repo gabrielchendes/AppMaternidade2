@@ -160,21 +160,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function sendPushNotification(userIds: string[], title: string, body: string) {
-  console.log(`[Notifications API] sendPushNotification triggered for ${userIds.length} users:`, userIds);
-  
   if (getApps().length === 0) {
-    console.warn('[Notifications API] sendPushNotification skipped: Firebase Admin is not initialized.');
-    return { success: false, reason: 'Firebase Admin not initialized (getApps is empty)' };
+    return { success: false, reason: 'Firebase Admin not initialized' };
   }
   
   if (!userIds.length) {
-    console.warn('[Notifications API] sendPushNotification skipped: No user IDs provided.');
     return { success: false, reason: 'No user IDs' };
   }
 
   try {
     // 1. Get tokens for users
-    console.log('[Notifications API] Querying push_tokens from Supabase...');
     const { data: tokens, error } = await supabaseAdmin
       .from('push_tokens')
       .select('token')
@@ -186,12 +181,10 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
     }
     
     if (!tokens || tokens.length === 0) {
-      console.warn('[Notifications API] sendPushNotification skipped: No push tokens registered in Supabase database for these users.');
       return { success: false, reason: 'No registered push tokens found in database' };
     }
 
     const registrationTokens = tokens.map(t => t.token);
-    console.log(`[Notifications API] Found ${registrationTokens.length} active tokens for sending.`);
 
     // 2. Send multicast
     const message = {
@@ -201,7 +194,6 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
 
     const messaging = getMessaging();
     const response = await messaging.sendEachForMulticast(message);
-    console.log(`[Notifications API] Push sent: ${response.successCount} success, ${response.failureCount} failure`);
     
     // Optional: cleanup failed tokens
     if (response.failureCount > 0) {
@@ -209,11 +201,6 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
           const error = resp.error;
-          console.warn(`[Notifications API] Token delivery failed:`, {
-            tokenPreview: registrationTokens[idx].substring(0, 15) + '...',
-            errorCode: error?.code,
-            errorMessage: error?.message
-          });
           if (error?.code === 'messaging/invalid-registration-token' ||
               error?.code === 'messaging/registration-token-not-registered') {
             failedTokens.push(registrationTokens[idx]);
@@ -222,7 +209,6 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
       });
       
       if (failedTokens.length > 0) {
-        console.log(`[Notifications API] Cleaning up ${failedTokens.length} invalid/unregistered tokens...`);
         const { error: deleteError } = await supabaseAdmin.from('push_tokens').delete().in('token', failedTokens);
         if (deleteError) {
           console.error('[Notifications API] Error cleaning up failed tokens:', deleteError);
@@ -239,10 +225,8 @@ async function sendPushNotification(userIds: string[], title: string, body: stri
 
 async function handlePush(req: VercelRequest, res: VercelResponse) {
   const { title, body, userIds, type = 'both', skipPush = false } = req.body;
-  console.log('[Notifications API] handlePush starting:', { title, body, userIdsCount: userIds?.length, skipPush });
   
   if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-    console.warn('[Notifications API] handlePush called with no userIds');
     return res.status(400).json({ error: 'No userIds provided' });
   }
 
@@ -264,8 +248,6 @@ async function handlePush(req: VercelRequest, res: VercelResponse) {
     
     if (insertError) {
       console.error('[Notifications API] Error inserting internal notifications:', insertError);
-    } else {
-      console.log(`[Notifications API] ${userIds.length} internal notifications created successfully`);
     }
   } catch (err) {
     console.error('[Notifications API] Exception during notification insert:', err);
@@ -284,17 +266,9 @@ async function handlePush(req: VercelRequest, res: VercelResponse) {
     
   // Send background push if not skipped and not only in_app
   if (!skipPush && type !== 'in_app') {
-    sendPushNotification(userIds, title, body)
-      .then(result => {
-        if (!result.success) {
-          console.warn('[Notifications API] Background push failed with result:', result);
-        } else {
-          console.log('[Notifications API] Background push succeeded with result:', result);
-        }
-      })
-      .catch(err => {
-        console.error('[Notifications API] Background push failed with error:', err);
-      });
+    sendPushNotification(userIds, title, body).catch(err => {
+      console.error('[Notifications API] Background push failed:', err);
+    });
   }
 
   return res.status(200).json({ success: true, count: userIds.length });
@@ -302,7 +276,6 @@ async function handlePush(req: VercelRequest, res: VercelResponse) {
 
 async function handleNotifyAdmin(req: VercelRequest, res: VercelResponse) {
   const { title, body } = req.body;
-  console.log('[Notifications API] handleNotifyAdmin started:', { title, body });
   
   // 1. Find all admins
   let adminIds: string[] = [];
@@ -351,10 +324,7 @@ async function handleNotifyAdmin(req: VercelRequest, res: VercelResponse) {
   adminIds = [...new Set(adminIds.filter(id => !!id))];
   adminEmails = [...new Set(adminEmails.map(e => e.toLowerCase()))];
 
-  console.log('[Notifications API] Admins identified:', { count: adminIds.length, emails: adminEmails });
-
   if (adminIds.length === 0) {
-    console.warn('[Notifications API] No admins found to notify. Check profiles table and is_admin flag.');
     return res.status(200).json({ success: true, message: 'No admins found' });
   }
 
@@ -386,13 +356,6 @@ async function handleNotifyAdmin(req: VercelRequest, res: VercelResponse) {
 
   // 3. Send Push Notification to admins
   sendPushNotification(adminIds, title || 'Nova Dúvida Aula', body || 'Alguém enviou uma pergunta no curso.')
-    .then(result => {
-      if (!result.success) {
-        console.warn('[Notifications API] Background push to admins failed with result:', result);
-      } else {
-        console.log('[Notifications API] Background push to admins succeeded with result:', result);
-      }
-    })
     .catch(err => {
       console.error('[Notifications API] Background push to admins failed with error:', err);
     });

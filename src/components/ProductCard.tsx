@@ -58,7 +58,7 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
     <motion.div
       whileTap={{ scale: 0.98 }}
       className={cn(
-        "relative flex-shrink-0 w-[140px] sm:w-[190px] cursor-pointer group rounded-2xl overflow-hidden shadow-2xl bg-zinc-950 transition-all duration-500 snap-start flex flex-col p-[1.5px] hover:p-[4px]",
+        "relative flex-shrink-0 w-[140px] sm:w-[190px] cursor-pointer group rounded-2xl overflow-hidden shadow-2xl bg-zinc-950 transition-all duration-500 snap-start scroll-ml-6 md:scroll-ml-16 flex flex-col p-[1.5px] hover:p-[4px]",
         stateConfig.bgGlow
       )}
       onClick={() => onOpen(product)}

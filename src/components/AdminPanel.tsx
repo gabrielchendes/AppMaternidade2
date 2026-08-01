@@ -28,6 +28,7 @@ import {
   Search,
   CheckCircle2,
   Clock,
+  Bot,
   AlertCircle,
   Star,
   Lock as LockIcon,
@@ -129,7 +130,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const { settings, refreshSettings } = useSettings();
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions'>('packages');
+  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions' | 'ai_expert'>('packages');
   const [activePageTab, setActivePageTab] = useState<'home' | 'community' | 'profile' | 'login' | 'nav' | 'course' | 'lesson' | 'push' | 'pwa' | 'support'>('home');
   const [loading, setLoading] = useState(true);
   
@@ -171,6 +172,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [showAddPwaImageUrl, setShowAddPwaImageUrl] = useState<{ deviceId: string, currentUrls: string[], updateFn: (urls: string[]) => void } | null>(null);
   const [pwaUrlInput, setPwaUrlInput] = useState('');
   const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
+  const [questionsFilter, setQuestionsFilter] = useState<'all' | 'unanswered'>('all');
   const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [sendingAnswer, setSendingAnswer] = useState(false);
@@ -699,36 +701,53 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   };
 
   const toggleCourseAccess = async (userId: string, courseId: string, isUnlocked: boolean) => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({
-          userId,
-          courseId,
-          action: isUnlocked ? 'revoke' : 'grant'
-        })
-      });
+    const executeToggle = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            userId,
+            courseId,
+            action: isUnlocked ? 'revoke' : 'grant'
+          })
+        });
 
-      if (!response || response.error) throw new Error(response?.error || 'Erro ao comunicar com o servidor');
+        if (!response || response.error) throw new Error(response?.error || 'Erro ao comunicar com o servidor');
 
-      if (isUnlocked) {
-        setUserPurchases(prev => prev.filter(id => id !== courseId));
-        toast.success('Acesso removido');
-      } else {
-        setUserPurchases(prev => [...new Set([...prev, courseId])]);
-        toast.success('Acesso liberado');
+        if (isUnlocked) {
+          setUserPurchases(prev => prev.filter(id => id !== courseId));
+          toast.success('Acesso removido');
+        } else {
+          setUserPurchases(prev => [...new Set([...prev, courseId])]);
+          toast.success('Acesso liberado');
+        }
+        // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
+        setTimeout(() => fetchUserPurchases(userId), 1000);
+      } catch (err: any) {
+        console.error('Toggle access error:', err);
+        toast.error('Erro ao alterar acesso: ' + (err.message || 'Erro desconhecido'));
       }
-      // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
-      setTimeout(() => fetchUserPurchases(userId), 1000);
-    } catch (err: any) {
-      console.error('Toggle access error:', err);
-      toast.error('Erro ao alterar acesso: ' + (err.message || 'Erro desconhecido'));
+    };
+
+    if (isUnlocked) {
+      setConfirmationModal({
+        isOpen: true,
+        title: 'Remover Acesso ao Curso',
+        message: 'Tem certeza que deseja remover o acesso do usuário a este curso?',
+        type: 'danger',
+        confirmText: 'Sim, Remover',
+        onConfirm: () => {
+          executeToggle();
+        }
+      });
+    } else {
+      executeToggle();
     }
   };
 
@@ -746,40 +765,57 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   };
 
   const togglePackageAccess = async (userId: string, pkg: any, isUnlocked: boolean) => {
-    // ALWAYS use pkg.id (UUID) for internal API calls to ensure valid expansion in the backend
-    const productId = pkg.id; 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({
-          userId,
-          courseId: productId,
-          action: isUnlocked ? 'revoke' : 'grant'
-        })
-      });
+    const executeToggle = async () => {
+      // ALWAYS use pkg.id (UUID) for internal API calls to ensure valid expansion in the backend
+      const productId = pkg.id; 
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            userId,
+            courseId: productId,
+            action: isUnlocked ? 'revoke' : 'grant'
+          })
+        });
 
-      if (!response || response.error) throw new Error(response?.error || 'Erro ao comunicar com o servidor');
+        if (!response || response.error) throw new Error(response?.error || 'Erro ao comunicar com o servidor');
 
-      if (isUnlocked) {
-        setUserPurchases(prev => prev.filter(id => id !== productId));
-        toast.success('Pacote removido');
-      } else {
-        // When liberating a package locally, also unlock all its courses if we have the info
-        const expandedIds = pkg.package_courses?.map((pc: any) => pc.course_id) || [];
-        setUserPurchases(prev => [...new Set([...prev, productId, ...expandedIds])]);
-        toast.success('Pacote liberado');
+        if (isUnlocked) {
+          setUserPurchases(prev => prev.filter(id => id !== productId));
+          toast.success('Pacote removido');
+        } else {
+          // When liberating a package locally, also unlock all its courses if we have the info
+          const expandedIds = pkg.package_courses?.map((pc: any) => pc.course_id) || [];
+          setUserPurchases(prev => [...new Set([...prev, productId, ...expandedIds])]);
+          toast.success('Pacote liberado');
+        }
+        // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
+        setTimeout(() => fetchUserPurchases(userId), 1000);
+      } catch (err: any) {
+        console.error('Toggle package access error:', err);
+        toast.error('Erro ao alterar acesso do pacote: ' + (err.message || 'Erro desconhecido'));
       }
-      // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
-      setTimeout(() => fetchUserPurchases(userId), 1000);
-    } catch (err: any) {
-      console.error('Toggle package access error:', err);
-      toast.error('Erro ao alterar acesso do pacote: ' + (err.message || 'Erro desconhecido'));
+    };
+
+    if (isUnlocked) {
+      setConfirmationModal({
+        isOpen: true,
+        title: 'Remover Acesso ao Pacote',
+        message: `Tem certeza que deseja remover o acesso do usuário ao pacote "${pkg.title}"?`,
+        type: 'danger',
+        confirmText: 'Sim, Remover',
+        onConfirm: () => {
+          executeToggle();
+        }
+      });
+    } else {
+      executeToggle();
     }
   };
 
@@ -1187,6 +1223,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             onClick={() => { setActiveTab('languages'); setIsMobileMenuOpen(false); }} 
           />
           <SidebarItem 
+            icon={<Sparkles size={20} className="text-pink-400" />} 
+            label="IA Expert" 
+            active={activeTab === 'ai_expert'} 
+            onClick={() => { setActiveTab('ai_expert'); setIsMobileMenuOpen(false); }} 
+          />
+          <SidebarItem 
             icon={<Settings size={20} />} 
             label="Configurações" 
             active={activeTab === 'settings'} 
@@ -1233,6 +1275,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                activeTab === 'community' ? 'Comunidade' :
                activeTab === 'notifications' ? 'Notificações' :
                activeTab === 'languages' ? 'Idiomas / Textos' :
+               activeTab === 'ai_expert' ? 'IA Expert' :
                activeTab === 'settings' ? 'Configurações' :
                activeTab === 'security' ? 'Segurança' :
                activeTab === 'questions' ? 'Dúvidas' :
@@ -1273,20 +1316,41 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         </p>
                       </div>
                       <div className="flex gap-2">
-                         <div className="flex bg-black/40 rounded-xl p-1 border border-white/5">
-                            <button className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-blue-600 text-white rounded-lg">Todas</button>
+                         <div className="flex bg-black/40 rounded-xl p-1 border border-white/5 gap-1">
+                            <button 
+                              onClick={() => setQuestionsFilter('all')}
+                              className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                questionsFilter === 'all' 
+                                  ? 'bg-blue-600 text-white' 
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              Todas
+                            </button>
+                            <button 
+                              onClick={() => setQuestionsFilter('unanswered')}
+                              className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                questionsFilter === 'unanswered' 
+                                  ? 'bg-blue-600 text-white' 
+                                  : 'text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              Aguardando Resposta
+                            </button>
                          </div>
                       </div>
                     </div>
 
                     <div className="grid gap-4">
-                      {pendingQuestions.length === 0 ? (
+                      {pendingQuestions.filter(q => questionsFilter === 'all' || !q.answer).length === 0 ? (
                         <div className="text-center py-20 bg-zinc-900/50 rounded-3xl border border-dashed border-white/10">
                           <HelpCircle size={48} className="mx-auto text-gray-700 mb-4 opacity-20" />
-                          <p className="text-gray-500 font-bold italic uppercase tracking-widest text-xs">Nenhuma dúvida encontrada</p>
+                          <p className="text-gray-500 font-bold italic uppercase tracking-widest text-xs">
+                            {questionsFilter === 'unanswered' ? 'Nenhuma dúvida pendente encontrada' : 'Nenhuma dúvida encontrada'}
+                          </p>
                         </div>
                       ) : (
-                        pendingQuestions.map((q) => (
+                        pendingQuestions.filter(q => questionsFilter === 'all' || !q.answer).map((q) => (
                           <motion.div
                             key={q.id}
                             layout
@@ -1389,7 +1453,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     className="px-8 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
                                   >
                                     {sendingAnswer ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                                    {t('admin.reply_send') || 'ENVIAR RESPOSTA'}
+                                    Enviar Resposta
                                   </button>
                                 </div>
                               </div>
@@ -2407,6 +2471,386 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                              />
                            </div>
                         ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'ai_expert' && (
+                  <div className="max-w-5xl space-y-8 pb-20">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+                          <Sparkles className="text-pink-500" size={28} /> IA Expert & Prompt
+                        </h3>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Configure a base de conhecimento, o contexto do sistema, a foto da especialista e todas as variáveis exibidas no chat da IA.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          setIsSavingPages(true);
+                          await updateSettings({ custom_texts: draftCustomTexts });
+                          await refreshSettings();
+                          setIsSavingPages(false);
+                          toast.success('Configurações da IA salvas com sucesso!');
+                        }}
+                        disabled={isSavingPages}
+                        className="flex items-center gap-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white px-8 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-pink-600/20 shrink-0"
+                      >
+                        {isSavingPages ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                        Salvar Alterações
+                      </button>
+                    </div>
+
+                    {/* Section 0: Status Global da Função IA Expert */}
+                    <div className="bg-zinc-900/60 rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                      <div className="flex items-center justify-between gap-4 pb-4 border-b border-white/10">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-emerald-500/20 rounded-xl text-emerald-400 border border-emerald-500/30">
+                            <Bot size={22} />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-base">Status da Função IA Expert</h4>
+                            <p className="text-xs text-gray-500">Ative ou desative a função de IA Expert (Ask Victoria) para todas as alunas no app.</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={(draftCustomTexts['ai_expert.enabled'] ?? settings.custom_texts?.['ai_expert.enabled']) !== 'false'}
+                            onChange={(e) => setDraftCustomTexts({
+                              ...draftCustomTexts,
+                              'ai_expert.enabled': e.target.checked ? 'true' : 'false'
+                            })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-12 h-6.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-400">
+                        {(draftCustomTexts['ai_expert.enabled'] ?? settings.custom_texts?.['ai_expert.enabled']) !== 'false' 
+                          ? '✅ A aba e o botão "Ask Victoria" estão visíveis para as alunas.' 
+                          : '🚫 A função está desativada e oculta em todo o aplicativo.'}
+                      </p>
+                    </div>
+
+                    {/* Section 1: Perfil da Expert */}
+                    <div className="bg-zinc-900/60 rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                      <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                        <div className="p-2.5 bg-pink-500/20 rounded-xl text-pink-400 border border-pink-500/30">
+                          <UserIcon size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base">Perfil e Identidade da Expert</h4>
+                          <p className="text-xs text-gray-500">Altere o nome, cargo e foto de perfil exibidos para as alunas.</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Nome da Expert</label>
+                          <input
+                            type="text"
+                            value={draftCustomTexts['ai_expert.name'] ?? settings.custom_texts?.['ai_expert.name'] ?? 'Victoria'}
+                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.name': e.target.value })}
+                            className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-pink-500 outline-none"
+                            placeholder="Ex: Victoria"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Cargo / Subtítulo</label>
+                          <input
+                            type="text"
+                            value={draftCustomTexts['ai_expert.subtitle'] ?? settings.custom_texts?.['ai_expert.subtitle'] ?? 'Psychologist & Relationship Expert'}
+                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.subtitle': e.target.value })}
+                            className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-pink-500 outline-none"
+                            placeholder="Ex: Psychologist & Relationship Expert"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 pt-2">
+                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest">URL da Foto da Expert</label>
+                        <div className="flex flex-col md:flex-row items-center gap-4">
+                          <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-black border-2 border-pink-500/40 shrink-0 shadow-lg">
+                            <img
+                              src={draftCustomTexts['ai_expert.avatar_url'] ?? settings.custom_texts?.['ai_expert.avatar_url'] ?? 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png'}
+                              alt="Preview da Expert"
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png';
+                              }}
+                            />
+                          </div>
+                          <div className="flex-1 w-full space-y-1">
+                            <input
+                              type="text"
+                              value={draftCustomTexts['ai_expert.avatar_url'] ?? settings.custom_texts?.['ai_expert.avatar_url'] ?? 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png'}
+                              onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.avatar_url': e.target.value })}
+                              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-pink-500 outline-none"
+                              placeholder="https://sua-imagem.com/foto-expert.png"
+                            />
+                            <p className="text-[11px] text-gray-500">Cole aqui o link direto da imagem JPG ou PNG que aparecerá na foto de perfil do chat.</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 2: Contexto & Base de Conhecimento Grande */}
+                    <div className="bg-zinc-900/60 rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                      <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                        <div className="p-2.5 bg-blue-500/20 rounded-xl text-blue-400 border border-blue-500/30">
+                          <Sparkles size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base">Contexto Grande & Base de Conhecimento da IA (System Prompt)</h4>
+                          <p className="text-xs text-gray-500">
+                            Insira o contexto detalhado, diretrizes de atendimento psicológico, tom de voz, regras e metodologia. A IA seguirá este guia estritamente durante os atendimentos.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <textarea
+                          rows={16}
+                          value={draftCustomTexts['ai_expert.system_prompt'] ?? settings.custom_texts?.['ai_expert.system_prompt'] ?? ''}
+                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.system_prompt': e.target.value })}
+                          className="w-full bg-black border border-white/10 rounded-2xl p-5 text-white text-xs md:text-sm font-mono leading-relaxed focus:border-pink-500 outline-none custom-scrollbar"
+                          placeholder={`Você é a Victoria, uma psicóloga e mentora de relacionamentos altamente empática e técnica...\n\nDIRETRIZES DE ATENDIMENTO:\n1. Mantenha um tom acolhedor e seguro.\n2. Faça perguntas reflexivas para ajudar a aluna...\n3. Metodologia: Foco em comunicação não violenta e inteligência emocional.`}
+                        />
+                        <p className="text-[11px] text-gray-500 italic">
+                          💡 Dica: Se deixado em branco, a IA usará as diretrizes padrão de mentora de relacionamento e comunicação.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Section 3: Mensagens & Digitando */}
+                    <div className="bg-zinc-900/60 rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                      <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                        <div className="p-2.5 bg-purple-500/20 rounded-xl text-purple-400 border border-purple-500/30">
+                          <MessageSquare size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base">Mensagem de Boas-Vindas e Digitando</h4>
+                          <p className="text-xs text-gray-500">Edite os textos do indicador de digitação e mensagens de boas-vindas exibidas no chat.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Texto de Digitando</label>
+                          <input
+                            type="text"
+                            value={draftCustomTexts['ai_expert.typing_indicator'] ?? settings.custom_texts?.['ai_expert.typing_indicator'] ?? `${draftCustomTexts['ai_expert.name'] ?? settings.custom_texts?.['ai_expert.name'] ?? 'Victoria'} is typing...`}
+                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.typing_indicator': e.target.value })}
+                            className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-pink-500 outline-none"
+                            placeholder="Ex: Victoria is typing..."
+                          />
+                          <p className="text-[11px] text-gray-500">Aparece enquanto a IA está gerando a resposta.</p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Texto do Campo de Digitar (Placeholder)</label>
+                          <input
+                            type="text"
+                            value={draftCustomTexts['ai_expert.input_placeholder'] ?? settings.custom_texts?.['ai_expert.input_placeholder'] ?? `Ask ${draftCustomTexts['ai_expert.name'] ?? settings.custom_texts?.['ai_expert.name'] ?? 'Victoria'}...`}
+                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.input_placeholder': e.target.value })}
+                            className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-pink-500 outline-none"
+                            placeholder="Ex: Ask Victoria..."
+                          />
+                          <p className="text-[11px] text-gray-500">Texto exibido na caixa de digitação antes de digitar a pergunta.</p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Mensagem Inicial de Boas-Vindas</label>
+                          <textarea
+                            rows={5}
+                            value={draftCustomTexts['ai_expert.welcome_message'] ?? settings.custom_texts?.['ai_expert.welcome_message'] ?? ''}
+                            onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.welcome_message': e.target.value })}
+                            className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-sm focus:border-pink-500 outline-none"
+                            placeholder={`Hello, {name}! ❤️ I’m Victoria Hayes, your Relationship Expert.\n\nWhatever is happening between you and him, you don’t have to figure it out alone.\n\nTell me what’s going on — what he said, what he did, how things have changed, or what you’re hoping will happen.\n\nI’m here to help with whatever you need, and together, we’ll figure out what’s happening and what to do next. 💕`}
+                          />
+                        </div>
+
+                        {/* Quick Prompts Section with Toggle */}
+                        <div className="space-y-3 pt-4 border-t border-white/10">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest block">Sugestões de Perguntas Rápidas</label>
+                              <p className="text-xs text-gray-500">Por padrão vem desabilitado. Se ativado, exibe botões com sugestões para a aluna no início do chat.</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={(draftCustomTexts['ai_expert.enable_quick_prompts'] ?? settings.custom_texts?.['ai_expert.enable_quick_prompts']) === 'true'}
+                                onChange={(e) => setDraftCustomTexts({
+                                  ...draftCustomTexts,
+                                  'ai_expert.enable_quick_prompts': e.target.checked ? 'true' : 'false'
+                                })}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600"></div>
+                            </label>
+                          </div>
+
+                          {(draftCustomTexts['ai_expert.enable_quick_prompts'] ?? settings.custom_texts?.['ai_expert.enable_quick_prompts']) === 'true' && (
+                            <div className="space-y-2 pt-2">
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Lista de Perguntas Rápidas (Uma por linha)</label>
+                              <textarea
+                                rows={4}
+                                value={draftCustomTexts['ai_expert.quick_prompts'] ?? settings.custom_texts?.['ai_expert.quick_prompts'] ?? ''}
+                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.quick_prompts': e.target.value })}
+                                className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-sm focus:border-pink-500 outline-none"
+                                placeholder={`Como melhorar a comunicação com meu parceiro?\nFormas de reconstruir a confiança no relacionamento\nComo impor limites emocionais saudáveis`}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 4: Limite de Mensagens */}
+                    <div className="bg-zinc-900/60 rounded-3xl border border-white/10 p-6 md:p-8 space-y-6">
+                      <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                        <div className="p-2.5 bg-rose-500/20 rounded-xl text-rose-400 border border-rose-500/30">
+                          <Clock size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-base">Limite de Mensagens do Chat</h4>
+                          <p className="text-xs text-gray-500">Configure se a aluna terá um número restrito de mensagens que pode enviar para a IA Expert.</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between gap-4 p-4 bg-black/40 rounded-2xl border border-white/5">
+                          <div>
+                            <label className="text-sm font-bold text-white block">Ativar Limite de Mensagens</label>
+                            <p className="text-xs text-gray-500">Quando ativado, bloqueia novas perguntas assim que a aluna atingir o limite configurado.</p>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={(draftCustomTexts['ai_expert.enable_message_limit'] ?? settings.custom_texts?.['ai_expert.enable_message_limit']) === 'true'}
+                              onChange={(e) => setDraftCustomTexts({
+                                ...draftCustomTexts,
+                                'ai_expert.enable_message_limit': e.target.checked ? 'true' : 'false'
+                              })}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                          </label>
+                        </div>
+
+                        {(draftCustomTexts['ai_expert.enable_message_limit'] ?? settings.custom_texts?.['ai_expert.enable_message_limit']) === 'true' && (
+                          <div className="space-y-5 pt-2 animate-fadeIn">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Quantidade de Mensagens Permitidas</label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={draftCustomTexts['ai_expert.max_messages_count'] ?? settings.custom_texts?.['ai_expert.max_messages_count'] ?? '3'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.max_messages_count': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                  placeholder="Ex: 3"
+                                />
+                                <p className="text-[11px] text-gray-500">Número de perguntas que a aluna pode fazer no período.</p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Frequência de Renovação do Limite</label>
+                                <select
+                                  value={draftCustomTexts['ai_expert.limit_frequency'] ?? settings.custom_texts?.['ai_expert.limit_frequency'] ?? 'daily'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.limit_frequency': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none appearance-none"
+                                >
+                                  <option value="daily">Por Dia (Diário - Reseta a cada 24 horas)</option>
+                                  <option value="weekly">Por Semana (Semanal - Reseta a cada 7 dias)</option>
+                                  <option value="monthly">Por Mês (Mensal - Reseta a cada 30 dias)</option>
+                                  <option value="lifetime">Única Vez (Total absoluto acumulado)</option>
+                                </select>
+                                <p className="text-[11px] text-gray-500">Determina com que frequência a contagem é reiniciada.</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Título do Alerta de Limite</label>
+                                <input
+                                  type="text"
+                                  value={draftCustomTexts['ai_expert.limit_reached_title'] ?? settings.custom_texts?.['ai_expert.limit_reached_title'] ?? 'Message Limit Reached'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.limit_reached_title': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                  placeholder="Ex: Message Limit Reached"
+                                />
+                                <p className="text-[11px] text-gray-500">Título exibido no quadro de limite atingido.</p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Texto do Botão de Compra de Cotas</label>
+                                <input
+                                  type="text"
+                                  value={draftCustomTexts['ai_expert.buy_more_button_text'] ?? settings.custom_texts?.['ai_expert.buy_more_button_text'] ?? 'Buy More Messages'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.buy_more_button_text': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                  placeholder="Ex: Buy More Messages"
+                                />
+                                <p className="text-[11px] text-gray-500">Rótulo do botão para adquirir mais mensagens.</p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Link para Comprar Mais Cotas (URL)</label>
+                              <input
+                                type="url"
+                                value={draftCustomTexts['ai_expert.buy_more_url'] ?? settings.custom_texts?.['ai_expert.buy_more_url'] ?? ''}
+                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.buy_more_url': e.target.value })}
+                                className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                placeholder="Ex: https://suapagina.com/checkout-mensagens"
+                              />
+                              <p className="text-[11px] text-gray-500">Link direcionando a aluna para a página de upgrade ou compra de mais mensagens.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Texto no Campo de Digitação (Quando Bloqueado)</label>
+                              <input
+                                type="text"
+                                value={draftCustomTexts['ai_expert.input_disabled_placeholder'] ?? settings.custom_texts?.['ai_expert.input_disabled_placeholder'] ?? 'Message limit reached for this period.'}
+                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.input_disabled_placeholder': e.target.value })}
+                                className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                placeholder="Ex: Message limit reached for this period."
+                              />
+                              <p className="text-[11px] text-gray-500">Texto de marca d'água exibido dentro da caixa de digitação quando o limite for atingido.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Mensagem Exibida ao Atingir o Limite</label>
+                              <textarea
+                                rows={3}
+                                value={draftCustomTexts['ai_expert.limit_reached_message'] ?? settings.custom_texts?.['ai_expert.limit_reached_message'] ?? 'You have reached your message limit for this period. Upgrade your plan or try again later.'}
+                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.limit_reached_message': e.target.value })}
+                                className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-sm focus:border-rose-500 outline-none"
+                                placeholder="Ex: You have reached your message limit for this period. Upgrade your plan or try again later."
+                              />
+                              <p className="text-[11px] text-gray-500">Alerta e instrução exibidos no chat quando a aluna atinge o limite máximo.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Mensagem Padrão de Erro no Chat</label>
+                              <textarea
+                                rows={2}
+                                value={draftCustomTexts['ai_expert.error_message'] ?? settings.custom_texts?.['ai_expert.error_message'] ?? 'Sorry, I am unable to respond right now. Please try again shortly.'}
+                                onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.error_message': e.target.value })}
+                                className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white text-sm focus:border-rose-500 outline-none"
+                                placeholder="Ex: Sorry, I am unable to respond right now. Please try again shortly."
+                              />
+                              <p className="text-[11px] text-gray-500">Mensagem amigável exibida caso ocorra alguma falha na conexão com a IA (substitui avisos técnicos).</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4191,6 +4635,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 { key: 'community.like', label: 'Texto Curtir' },
                                 { key: 'community.comment_placeholder', label: 'Placeholder Comentar' },
                                 { key: 'community.add_photo', label: 'Botão Adicionar Foto' },
+                                { key: 'community.send_reply', label: 'Botão Enviar Resposta' },
                                 { key: 'community.post_sent', label: 'Toast: Post Enviado' },
                                 { key: 'community.post_updated', label: 'Toast: Post Atualizado' },
                                 { key: 'community.edit_post', label: 'Título Modal Editar' },

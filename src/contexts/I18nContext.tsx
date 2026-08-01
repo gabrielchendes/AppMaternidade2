@@ -86,6 +86,7 @@ const FALLBACK_TRANSLATIONS: { [key: string]: string } = {
   'community.empty_title': 'Ainda não há publicações.',
   'community.empty_subtitle': 'Comece compartilhando algo com a comunidade!',
   'community.post': 'Publicar',
+  'community.send_reply': 'Enviar Resposta',
   'community.reply': 'Responder',
   'community.replying_to': 'Em resposta a',
   'community.like': 'Curtir',
@@ -166,6 +167,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const t = useCallback((key: string, variables?: { [key: string]: any }) => {
     // 1. Prioridade máxima: Texto customizado pelo administrador no banco
     let text = settings?.custom_texts?.[key];
+
+    // Ignore old "Teacher's Answer", "Resposta do Professor", etc., to let them fallback to current localized presets
+    if (key === 'course.admin_answer' && text && (
+      text.toLowerCase().includes('teacher') || 
+      text.toLowerCase().includes('professora') || 
+      text.toLowerCase().includes('professor')
+    )) {
+      text = undefined;
+    }
     
     // 2. Segunda prioridade: Preset do idioma selecionado (en, es, pt)
     if (!text) {

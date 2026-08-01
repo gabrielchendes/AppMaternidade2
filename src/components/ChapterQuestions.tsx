@@ -170,7 +170,8 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
     try {
       const locales: Record<string, any> = { ptBR, enUS, es };
       const locale = locales[t('community.locale') || 'ptBR'] || ptBR;
-      return format(new Date(dateString), "d 'de' MMM, HH:mm", { locale });
+      const formatStr = t('community.date_format') || "d 'de' MMM, HH:mm";
+      return format(new Date(dateString), formatStr, { locale });
     } catch (e) {
       return dateString;
     }

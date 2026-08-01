@@ -18,7 +18,16 @@ export default function AuthForm() {
   const { isInstallable, isInstalled, isDismissed, promptInstall } = usePWAInstall();
   const [loading, setLoading] = useState(false);
   const [isPWAModalOpen, setIsPWAModalOpen] = useState(false);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      const saved = localStorage.getItem('prefilled_email');
+      if (saved) {
+        localStorage.removeItem('prefilled_email');
+        return saved;
+      }
+    } catch (e) {}
+    return '';
+  });
   const [password, setPassword] = useState('');
   const [masterPassword, setMasterPassword] = useState('');
   const [step, setStep] = useState<'initial' | 'master_password'>('initial');

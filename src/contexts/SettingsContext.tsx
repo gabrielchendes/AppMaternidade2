@@ -135,7 +135,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       const cached = localStorage.getItem('app_settings_cache');
       if (cached) {
-        return { ...defaultSettings, ...JSON.parse(cached) };
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.custom_texts && typeof parsed.custom_texts === 'object') {
+          const adminAnswerText = parsed.custom_texts['course.admin_answer'];
+          if (adminAnswerText && (
+            adminAnswerText.toLowerCase().includes('teacher') || 
+            adminAnswerText.toLowerCase().includes('professora') || 
+            adminAnswerText.toLowerCase().includes('professor')
+          )) {
+            delete parsed.custom_texts['course.admin_answer'];
+          }
+        }
+        return { ...defaultSettings, ...parsed };
       }
     } catch (e) {
       console.error('Failed to parse cached settings on build:', e);
@@ -166,15 +177,25 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) {
-        console.error('Supabase error fetching settings:', error);
+        console.warn('Supabase notice fetching settings, falling back to cached/defaults:', error?.message || error);
         // If it's an auth error, it might be a stale token
-        if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant')) {
+        if (error.message && (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant'))) {
           console.warn('Stale auth detected in SettingsProvider, clearing...');
           localStorage.removeItem('maternidade_premium_auth');
         }
       }
 
       if (data) {
+        if (data.custom_texts && typeof data.custom_texts === 'object') {
+          const adminAnswerText = data.custom_texts['course.admin_answer'];
+          if (adminAnswerText && (
+            adminAnswerText.toLowerCase().includes('teacher') || 
+            adminAnswerText.toLowerCase().includes('professora') || 
+            adminAnswerText.toLowerCase().includes('professor')
+          )) {
+            delete data.custom_texts['course.admin_answer'];
+          }
+        }
         setSettings(data);
         applyTheme(data);
         try {
@@ -184,7 +205,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (error) {
-      console.error('Error fetching settings:', error);
+      console.warn('Notice fetching settings, using defaults:', error);
     } finally {
       clearTimeout(timeoutId);
       setLoading(false);

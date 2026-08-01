@@ -4,6 +4,8 @@ import { User } from '@supabase/supabase-js';
 import { useSettings } from './contexts/SettingsContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { lazyWithRetry } from './lib/lazyWithRetry';
+import { safeFetch } from './lib/utils';
+import { toast } from 'sonner';
 
 const LoginPage = lazyWithRetry(() => import('./pages/LoginPage'));
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
@@ -124,7 +126,62 @@ export default function App() {
       }
     };
 
-    checkInitialSession();
+    // Check for Custom Magic Link
+    const checkMagicLink = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const magicB64 = urlParams.get('magic');
+        if (magicB64) {
+          // Remove the parameter from URL immediately so it doesn't trigger on reload
+          const cleanUrl = window.location.pathname + window.location.search.replace(/[?&]magic=[^&]+/, '').replace(/^&/, '?');
+          window.history.replaceState(null, '', cleanUrl);
+
+          setAuthLoading(true);
+          const targetEmail = atob(magicB64);
+          console.log('[Magic Link] Attempting auto login for:', targetEmail);
+
+          const data = await safeFetch('/api/v1/auth?action=login-verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: targetEmail })
+          });
+
+          if (!data || data.error) {
+            toast.error(data?.error || 'Erro ao processar MagicLink');
+            setAuthLoading(false);
+            return;
+          }
+
+          if (data.tempPassword) {
+            const { error: signInError } = await supabase.auth.signInWithPassword({
+              email: targetEmail,
+              password: data.tempPassword
+            });
+            if (signInError) {
+              console.error('[Magic Link] Sign in failed:', signInError);
+              toast.error('Ocorreu um erro no login via MagicLink.');
+              setAuthLoading(false);
+            } else {
+              toast.success('Login realizado com sucesso via MagicLink!');
+            }
+          } else {
+            // It's the master admin (no tempPassword returned)
+            toast.info('MagicLink do Administrador. Insira sua senha para continuar.');
+            localStorage.setItem('prefilled_email', targetEmail);
+            setAuthLoading(false);
+          }
+        } else {
+          // Check normal initial session
+          await checkInitialSession();
+        }
+      } catch (err) {
+        console.error('[Magic Link] Error processing magic link:', err);
+        setAuthLoading(false);
+        await checkInitialSession();
+      }
+    };
+
+    checkMagicLink();
 
     // Absolute fallback to ensure we don't get stuck on loading screen
     const forceStopLoading = setTimeout(() => {

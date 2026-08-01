@@ -40,14 +40,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   } catch (error: any) {
     console.error(`[Auth API] Error in ${action} details:`, {
-      message: (error as any).message,
-      code: (error as any).code,
-      details: (error as any).details,
-      stack: (error as any).stack
+      message: (error as any)?.message,
+      code: (error as any)?.code,
+      details: (error as any)?.details,
+      stack: (error as any)?.stack
     });
-    return res.status(500).json({ 
-      error: (error as any).message || 'Erro interno no servidor de autenticação',
-      details: (error as any).details || null
+
+    const isFetchError = error?.message?.includes('fetch failed') || error?.message?.includes('ENOTFOUND');
+    const statusCode = isFetchError ? 503 : 500;
+    const errorMessage = isFetchError
+      ? 'Não foi possível conectar ao banco de dados Supabase. Verifique se as variáveis SUPABASE_URL e VITE_SUPABASE_URL estão corretas.'
+      : ((error as any)?.message || 'Erro interno no servidor de autenticação');
+
+    return res.status(statusCode).json({ 
+      error: errorMessage,
+      details: (error as any)?.details || null
     });
   }
 }
@@ -67,7 +74,12 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
 
   if (profileError && profileError.code !== '42P01') {
     console.error('[Auth API] Profile fetch error:', profileError);
-    throw profileError;
+    if (profileError.message?.includes('fetch failed') || profileError.message?.includes('ENOTFOUND')) {
+      return res.status(503).json({
+        error: 'Serviço do Supabase temporariamente indisponível ou URL inválida. Verifique a conexão com o Supabase.',
+        details: profileError.message
+      });
+    }
   }
 
   let authUserId = profile?.id;
@@ -196,20 +208,12 @@ async function handleMagicLink(req: VercelRequest, res: VercelResponse) {
   }
 
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-  const redirectUrl = `${cleanBaseUrl}/dashboard`;
 
-  const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-    type: 'magiclink',
-    email,
-    options: { redirectTo: redirectUrl }
-  });
-  
-  if (error) {
-    console.error('[Auth API] Error generating magic link:', error);
-    throw error;
-  }
-  
-  return res.status(200).json({ success: true, link: data.properties?.action_link });
+  // Generate robust, custom Base64 magic link
+  const encodedEmail = Buffer.from(email.toLowerCase()).toString('base64');
+  const customMagicLink = `${cleanBaseUrl}/?magic=${encodedEmail}`;
+
+  return res.status(200).json({ success: true, link: customMagicLink });
 }
 
 async function handlePasswordSet(req: VercelRequest, res: VercelResponse) {

@@ -26,6 +26,8 @@ import { dataCache } from '../lib/cache';
 import { cn } from '../lib/utils';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 
+import AiAssistantModal from '../components/AiAssistantModal';
+
 // Lazy load heavy components
 const Profile = lazyWithRetry(() => import('../components/Profile'));
 const Community = lazyWithRetry(() => import('../components/Community'));
@@ -57,6 +59,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
@@ -646,6 +649,8 @@ export default function Dashboard({ user }: DashboardProps) {
         user={user} 
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
+        onOpenAi={() => setIsAiModalOpen(true)}
+        isAiOpen={isAiModalOpen}
         canInstall={canInstall}
         onInstall={() => setShowPWAInstall(true)}
         totalProgress={globalStats.totalProgress}
@@ -835,8 +840,22 @@ export default function Dashboard({ user }: DashboardProps) {
         )}
       </AnimatePresence>
 
-      {!viewingCourseId && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} userEmail={user.email} />}
+      {!viewingCourseId && (
+        <BottomNav 
+          activeTab={activeTab} 
+          onTabChange={setActiveTab} 
+          onOpenAi={() => setIsAiModalOpen(true)}
+          isAiOpen={isAiModalOpen}
+          userEmail={user.email} 
+        />
+      )}
       <FloatingWhatsApp page={activeTab as any} />
+      <AiAssistantModal 
+        userName={user?.user_metadata?.full_name || user?.email?.split('@')[0]} 
+        userAvatar={user?.user_metadata?.avatar_url}
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+      />
       
       <PWAInstallModal 
         isOpen={showPWAInstall} 
