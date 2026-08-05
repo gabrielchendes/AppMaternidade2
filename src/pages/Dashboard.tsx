@@ -851,6 +851,7 @@ export default function Dashboard({ user }: DashboardProps) {
       )}
       <FloatingWhatsApp page={activeTab as any} />
       <AiAssistantModal 
+        userId={user?.id}
         userName={user?.user_metadata?.full_name || user?.email?.split('@')[0]} 
         userAvatar={user?.user_metadata?.avatar_url}
         isOpen={isAiModalOpen}

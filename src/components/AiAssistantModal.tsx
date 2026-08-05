@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, X, User as UserIcon, RefreshCw, Copy, Check, AlertCircle, Loader2, GraduationCap, ArrowLeft, Clock, Lock, ExternalLink, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface Message {
   id: string;
@@ -12,6 +13,7 @@ interface Message {
 }
 
 interface AiAssistantModalProps {
+  userId?: string;
   userName?: string;
   userAvatar?: string;
   isOpen?: boolean;
@@ -27,7 +29,7 @@ const DEFAULT_QUICK_PROMPTS = [
   'Navigating long-distance relationship challenges'
 ];
 
-export default function AiAssistantModal({ userName, userAvatar, isOpen: externalIsOpen, onClose: externalOnClose }: AiAssistantModalProps) {
+export default function AiAssistantModal({ userId, userName, userAvatar, isOpen: externalIsOpen, onClose: externalOnClose }: AiAssistantModalProps) {
   const { settings } = useSettings();
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
@@ -69,10 +71,17 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
 
   const resetChatWelcome = settings?.custom_texts?.['ai_expert.reset_chat_welcome'] || `Chat reset! ❤️ I'm ${expertName}, how can I help you now?`;
 
-  // Message Limit Storage and Checks
+  // Message Limit Storage and Checks per User (Synced with Supabase + LocalStorage fallback)
+  const getStorageKey = (): string => {
+    if (userId && userId.trim()) return `ai_expert_sent_messages_history_${userId.trim()}`;
+    if (userName && userName.trim()) return `ai_expert_sent_messages_history_${userName.trim()}`;
+    return 'ai_expert_sent_messages_history_guest';
+  };
+
   const getSentMessageTimestamps = (): number[] => {
     try {
-      const stored = localStorage.getItem('ai_expert_sent_messages_history');
+      const key = getStorageKey();
+      const stored = localStorage.getItem(key);
       if (!stored) return [];
       const parsed = JSON.parse(stored);
       return Array.isArray(parsed) ? parsed : [];
@@ -82,22 +91,51 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
   };
 
   const recordSentTimestamp = (): number => {
+    const ts = Date.now();
     try {
-      const ts = Date.now();
+      const key = getStorageKey();
       const list = getSentMessageTimestamps();
       list.push(ts);
-      localStorage.setItem('ai_expert_sent_messages_history', JSON.stringify(list));
-      return ts;
+      localStorage.setItem(key, JSON.stringify(list));
+
+      if (isSupabaseConfigured && supabase && userId && userId.trim()) {
+        supabase
+          .from('ai_message_logs')
+          .insert({
+            user_id: userId.trim(),
+            created_at: new Date(ts).toISOString()
+          })
+          .then(({ error }) => {
+            if (error) {
+              console.warn('[AI Expert] Supabase ai_message_logs insert warning:', error.message);
+            }
+          })
+          .catch((err) => {
+            console.warn('[AI Expert] Supabase ai_message_logs catch:', err);
+          });
+      }
     } catch (e) {
       console.error(e);
-      return Date.now();
     }
+    return ts;
   };
 
   const removeSentTimestamp = (ts: number) => {
     try {
+      const key = getStorageKey();
       const list = getSentMessageTimestamps().filter(t => t !== ts);
-      localStorage.setItem('ai_expert_sent_messages_history', JSON.stringify(list));
+      localStorage.setItem(key, JSON.stringify(list));
+
+      if (isSupabaseConfigured && supabase && userId && userId.trim()) {
+        const isoString = new Date(ts).toISOString();
+        supabase
+          .from('ai_message_logs')
+          .delete()
+          .eq('user_id', userId.trim())
+          .eq('created_at', isoString)
+          .then(() => {})
+          .catch(() => {});
+      }
     } catch (e) {
       console.error(e);
     }
@@ -106,26 +144,74 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
   const [sentTimestamps, setSentTimestamps] = useState<number[]>(getSentMessageTimestamps);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const syncLogs = async () => {
+      // 1. Immediately load local storage cache for instant rendering
+      const localList = getSentMessageTimestamps();
+      setSentTimestamps(localList);
+
+      // 2. If user is logged in & Supabase is configured, fetch real records from database
+      if (isOpen && isSupabaseConfigured && supabase && userId && userId.trim()) {
+        try {
+          const { data, error } = await supabase
+            .from('ai_message_logs')
+            .select('created_at')
+            .eq('user_id', userId.trim());
+
+          if (!error && data && Array.isArray(data)) {
+            const dbTimestamps = data
+              .map((item: { created_at: string }) => new Date(item.created_at).getTime())
+              .filter(t => !isNaN(t));
+
+            if (isMounted) {
+              setSentTimestamps(dbTimestamps);
+              // Save to localStorage as fallback cache
+              try {
+                const key = getStorageKey();
+                localStorage.setItem(key, JSON.stringify(dbTimestamps));
+              } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.warn('[AI Expert] Supabase logs sync note:', err);
+        }
+      }
+    };
+
     if (isOpen) {
-      setSentTimestamps(getSentMessageTimestamps());
+      syncLogs();
     }
-  }, [isOpen]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, userId, userName]);
 
   const getMessagesSentInWindow = (timestamps: number[], freq: string): number => {
-    const now = Date.now();
+    const now = new Date();
+    
     if (freq === 'daily') {
-      const windowMs = 24 * 60 * 60 * 1000;
-      return timestamps.filter(ts => now - ts < windowMs).length;
+      // Calendar day reset (resets at 00:00:00 AM local time on the next day)
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      return timestamps.filter(ts => ts >= startOfToday).length;
     } else if (freq === 'weekly') {
-      const windowMs = 7 * 24 * 60 * 60 * 1000;
-      return timestamps.filter(ts => now - ts < windowMs).length;
+      // Calendar week reset (resets at 00:00:00 AM on Monday of current week)
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), diff).getTime();
+      return timestamps.filter(ts => ts >= startOfWeek).length;
     } else if (freq === 'monthly') {
-      const windowMs = 30 * 24 * 60 * 60 * 1000;
-      return timestamps.filter(ts => now - ts < windowMs).length;
+      // Calendar month reset (resets at 00:00:00 AM on the 1st day of current month)
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      return timestamps.filter(ts => ts >= startOfMonth).length;
     } else if (freq === 'lifetime') {
       return timestamps.length;
     }
-    return timestamps.filter(ts => now - ts < 24 * 60 * 60 * 1000).length;
+
+    // Default to daily calendar reset
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return timestamps.filter(ts => ts >= startOfToday).length;
   };
 
   const messagesSentCount = getMessagesSentInWindow(sentTimestamps, frequency);
@@ -294,21 +380,21 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
           className="fixed inset-0 z-[100] w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden"
         >
           {/* Top Full Screen Navigation Bar */}
-          <div className="flex items-center justify-between px-4 sm:px-8 py-4 border-b border-white/10 bg-zinc-900/90 backdrop-blur-md shrink-0">
-            <div className="flex items-center gap-3.5">
+          <div className="flex items-center justify-between px-3.5 sm:px-8 py-3.5 sm:py-4 border-b border-white/10 bg-zinc-900/90 backdrop-blur-md shrink-0 gap-2">
+            <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
               <button
                 onClick={handleClose}
-                className="p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-2xl transition-colors flex items-center gap-1"
-                title="Voltar"
+                className="p-1.5 sm:p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-2xl transition-colors flex items-center gap-1 shrink-0"
+                title="Back"
               >
                 <ArrowLeft size={22} />
               </button>
 
-              <div className="relative">
+              <div className="relative shrink-0">
                 <img
                   src={expertAvatar}
                   alt={expertName}
-                  className="w-11 h-11 rounded-full object-cover border-2 border-pink-500/50 shadow-md shadow-pink-500/20"
+                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-full aspect-square object-cover border-2 border-pink-500/50 shadow-md shadow-pink-500/20 shrink-0"
                   onError={(e) => {
                     // Fallback image if custom image URL fails
                     (e.target as HTMLImageElement).src = DEFAULT_AVATAR;
@@ -317,33 +403,33 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
                 <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full" />
               </div>
 
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-white font-bold text-lg leading-tight">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
+                  <h3 className="text-white font-bold text-base sm:text-lg leading-tight truncate">
                     {expertName}
                   </h3>
                   {isLimitEnabled && (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20">
-                      <Clock size={12} className="text-rose-400" />
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20 shrink-0">
+                      <Clock size={11} className="text-rose-400" />
                       <span>{messagesSentCount}/{maxMessages} {getFrequencyLabel(frequency)}</span>
                     </span>
                   )}
                 </div>
-                <p className="text-gray-400 text-xs">{expertSubtitle}</p>
+                <p className="text-gray-400 text-xs truncate">{expertSubtitle}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={handleClear}
-                title="Reiniciar conversa"
+                title="Reset conversation"
                 className="p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
               >
                 <RefreshCw size={18} />
               </button>
               <button
                 onClick={handleClose}
-                title="Fechar chat"
+                title="Close chat"
                 className="p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
               >
                 <X size={22} />
@@ -402,9 +488,10 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
                       <button
                         onClick={() => handleCopy(msg.content.replace(/\*\*/g, ''), msg.id)}
                         className="hover:text-white transition-colors flex items-center gap-1 opacity-60 group-hover:opacity-100"
+                        title={copiedId === msg.id ? 'Copied' : 'Copy message'}
                       >
                         {copiedId === msg.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                        {copiedId === msg.id ? 'Copiado' : 'Copiar'}
+                        {copiedId === msg.id ? 'Copied' : 'Copy'}
                       </button>
                     )}
                   </div>
@@ -479,7 +566,7 @@ export default function AiAssistantModal({ userName, userAvatar, isOpen: externa
           {enableQuickPrompts && messages.length <= 2 && !loading && !isLimitReached && (
             <div className="px-4 py-3 border-t border-white/5 bg-zinc-900/50 max-w-4xl mx-auto w-full flex flex-wrap gap-2">
               <span className="text-xs text-gray-400 w-full mb-1 flex items-center gap-1.5 font-medium">
-                <GraduationCap size={15} className="text-pink-400" /> Sugestões para perguntar para {expertName}:
+                <GraduationCap size={15} className="text-pink-400" /> Suggested questions for {expertName}:
               </span>
               {quickPrompts.map((prompt, idx) => (
                 <button

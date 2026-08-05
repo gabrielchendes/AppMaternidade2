@@ -141,7 +141,7 @@ const Navbar = memo(({
                   isAiOpen ? 'text-primary' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                {settings?.custom_texts?.['ai_expert.name'] ? `Ask ${settings.custom_texts['ai_expert.name']}` : 'Ask Victoria'}
+                {settings?.custom_texts?.['ai_expert.tab_name']?.trim() || 'Ask Victoria'}
               </button>
             )}
             <button

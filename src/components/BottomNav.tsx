@@ -1,9 +1,10 @@
 import { memo } from 'react';
-import { Home, User, MessageSquare, Shield } from 'lucide-react';
+import { Home, User, Shield } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { motion } from 'motion/react';
 import { AskVictoriaIcon } from './AskVictoriaIcon';
+import { CommunityIcon } from './CommunityIcon';
 
 interface BottomNavProps {
   activeTab: 'home' | 'profile' | 'community' | 'admin';
@@ -18,11 +19,12 @@ const BottomNav = memo(({ activeTab, onTabChange, onOpenAi, isAiOpen, userEmail 
   const isAdmin = userEmail === settings?.admin_email;
   const isAiEnabled = settings?.custom_texts?.['ai_expert.enabled'] !== 'false';
   const expertName = settings?.custom_texts?.['ai_expert.name'] || 'Victoria';
+  const tabName = settings?.custom_texts?.['ai_expert.tab_name']?.trim() || 'Ask Victoria';
 
   const tabs = [
     { id: 'home', icon: Home, label: settings?.custom_texts?.['nav.home'] || 'Início' },
-    { id: 'community', icon: MessageSquare, label: settings?.custom_texts?.['nav.community'] || 'Comunidade' },
-    ...(isAiEnabled ? [{ id: 'ai', icon: null, label: `Ask ${expertName}`, isAi: true }] : []),
+    { id: 'community', icon: CommunityIcon, label: settings?.custom_texts?.['nav.community'] || 'Comunidade' },
+    ...(isAiEnabled ? [{ id: 'ai', icon: null, label: tabName, isAi: true }] : []),
     { id: 'profile', icon: User, label: settings?.custom_texts?.['nav.profile'] || 'Perfil' },
     ...(isAdmin ? [{ id: 'admin', icon: Shield, label: settings?.custom_texts?.['nav.admin'] || 'Admin' }] : []),
   ];
@@ -71,14 +73,14 @@ const BottomNav = memo(({ activeTab, onTabChange, onOpenAi, isAiOpen, userEmail 
                   )}
 
                   {/* Icon */}
-                  <div className="relative flex items-center justify-center h-6 w-6 mb-1">
+                  <div className="relative flex items-center justify-center h-7 w-7 mb-1">
                     {tab.isAi ? (
                       <motion.div
-                        animate={{ scale: isActive ? 1.1 : 1 }}
+                        animate={{ scale: isActive ? 1.15 : 1 }}
                         transition={{ type: "spring", stiffness: 400, damping: 20 }}
                       >
                         <AskVictoriaIcon
-                          size={23}
+                          size={32}
                           isActive={isActive}
                           className={cn(
                             "transition-colors duration-200 relative z-10",
@@ -91,7 +93,7 @@ const BottomNav = memo(({ activeTab, onTabChange, onOpenAi, isAiOpen, userEmail 
                         animate={{ scale: isActive ? 1.1 : 1 }}
                         transition={{ type: "spring", stiffness: 400, damping: 20 }}
                       >
-                        <Icon size={20} strokeWidth={isActive ? 2.4 : 2} className={cn(
+                        <Icon size={22} strokeWidth={isActive ? 2.4 : 2} className={cn(
                           "transition-colors duration-200 relative z-10",
                           isActive ? "text-white drop-shadow-[0_0_8px_rgba(244,63,94,0.6)]" : "text-gray-400 group-hover:text-gray-200"
                         )} />

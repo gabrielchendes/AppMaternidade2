@@ -353,6 +353,33 @@ CREATE TABLE IF NOT EXISTS public.package_courses (
     PRIMARY KEY (package_id, course_id)
 );
 
+-- 14. Tabela `ai_message_logs` (Controle de Limites do Chat de IA por Usuário)
+CREATE TABLE IF NOT EXISTS public.ai_message_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index para otimizar busca de limite por usuário e data
+CREATE INDEX IF NOT EXISTS idx_ai_message_logs_user_date ON public.ai_message_logs (user_id, created_at DESC);
+
+-- Habilitar RLS
+ALTER TABLE public.ai_message_logs ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de RLS para ai_message_logs
+DROP POLICY IF EXISTS "Permitir inserção de logs da IA" ON public.ai_message_logs;
+CREATE POLICY "Permitir inserção de logs da IA" ON public.ai_message_logs FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir consulta de logs da IA" ON public.ai_message_logs;
+CREATE POLICY "Permitir consulta de logs da IA" ON public.ai_message_logs FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Permitir deleção de logs da IA" ON public.ai_message_logs;
+CREATE POLICY "Permitir deleção de logs da IA" ON public.ai_message_logs FOR DELETE USING (true);
+
+GRANT ALL ON public.ai_message_logs TO authenticated;
+GRANT ALL ON public.ai_message_logs TO anon;
+GRANT ALL ON public.ai_message_logs TO service_role;
+
 -- NOVAS ATUALIZAÇÕES (Execute no SQL Editor para habilitar novas funcionalidades)
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_config JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS banner_images_mobile TEXT[] DEFAULT '{}'::text[];
