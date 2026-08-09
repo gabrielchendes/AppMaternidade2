@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, X, User as UserIcon, RefreshCw, Copy, Check, AlertCircle, Loader2, GraduationCap, ArrowLeft, Clock, Lock, ExternalLink, ShoppingBag } from 'lucide-react';
+import { Send, X, User as UserIcon, RefreshCw, Copy, Check, AlertCircle, Loader2, GraduationCap, ArrowLeft, Clock, Lock, ExternalLink, ShoppingBag, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -14,10 +14,12 @@ interface Message {
 
 interface AiAssistantModalProps {
   userId?: string;
+  userEmail?: string;
   userName?: string;
   userAvatar?: string;
   isOpen?: boolean;
   onClose?: () => void;
+  hasUnlimitedAi?: boolean;
 }
 
 const DEFAULT_AVATAR = 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png';
@@ -29,7 +31,7 @@ const DEFAULT_QUICK_PROMPTS = [
   'Navigating long-distance relationship challenges'
 ];
 
-export default function AiAssistantModal({ userId, userName, userAvatar, isOpen: externalIsOpen, onClose: externalOnClose }: AiAssistantModalProps) {
+export default function AiAssistantModal({ userId, userEmail, userName, userAvatar, isOpen: externalIsOpen, onClose: externalOnClose, hasUnlimitedAi }: AiAssistantModalProps) {
   const { settings } = useSettings();
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen;
@@ -42,8 +44,10 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
   
   const limitTitle = settings?.custom_texts?.['ai_expert.limit_reached_title'] || 'Message Limit Reached';
   const limitReachedMsg = settings?.custom_texts?.['ai_expert.limit_reached_message'] || 'You have reached your message limit for this period. Upgrade your plan or try again later.';
-  const buyMoreButtonText = settings?.custom_texts?.['ai_expert.buy_more_button_text'] || 'Buy More Messages';
+  const buyMoreButtonText = settings?.custom_texts?.['ai_expert.buy_more_button_text'] || 'Upgrade to Unlimited Monthly';
   const buyMoreUrl = settings?.custom_texts?.['ai_expert.buy_more_url'] || '';
+  const benefit1 = settings?.custom_texts?.['ai_expert.benefit_1'] || 'Unlimited messages 24 hours a day, 7 days a week';
+  const benefit2 = settings?.custom_texts?.['ai_expert.benefit_2'] || 'Instant access with zero commitments';
   const errorMessage = settings?.custom_texts?.['ai_expert.error_message'] || 'Sorry, I am unable to connect right now. Please try again shortly.';
   const limitToast = settings?.custom_texts?.['ai_expert.limit_reached_toast'] || 'You have reached your message limit for this period.';
   const copiedToast = settings?.custom_texts?.['ai_expert.copied_toast'] || 'Response copied!';
@@ -143,6 +147,107 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
 
   const [sentTimestamps, setSentTimestamps] = useState<number[]>(getSentMessageTimestamps);
 
+  // VIP Unlimited Status Check
+  const [isUserUnlimited, setIsUserUnlimited] = useState<boolean>(() => {
+    if (hasUnlimitedAi) return true;
+    return false;
+  });
+  const [isCheckingVip, setIsCheckingVip] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (userId && isSupabaseConfigured && supabase) {
+      checkUserVipStatus(false);
+    } else if (hasUnlimitedAi) {
+      setIsUserUnlimited(true);
+    } else {
+      setIsUserUnlimited(false);
+    }
+  }, [hasUnlimitedAi, userId]);
+
+  const checkUserVipStatus = async (showToastOnCheck = false) => {
+    if (!userId || !userId.trim()) {
+      setIsUserUnlimited(false);
+      if (showToastOnCheck) toast.info('Nenhuma conta detectada. Garanta seu acesso VIP!');
+      return;
+    }
+    const cleanId = userId.trim();
+    if (showToastOnCheck) setIsCheckingVip(true);
+
+    try {
+      // Query Supabase profiles & purchases table for live status
+      if (isSupabaseConfigured && supabase) {
+        const isUUID = (str: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
+
+        let profileData: { has_unlimited_ai?: boolean; is_admin?: boolean; email?: string } | null = null;
+
+        if (isUUID(cleanId)) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('has_unlimited_ai, is_admin, email')
+            .eq('id', cleanId)
+            .maybeSingle();
+          profileData = data;
+        }
+
+        if (!profileData && (cleanId.includes('@') || userEmail)) {
+          const emailToFind = (userEmail || cleanId).toLowerCase();
+          const { data } = await supabase
+            .from('profiles')
+            .select('has_unlimited_ai, is_admin, email')
+            .eq('email', emailToFind)
+            .maybeSingle();
+          profileData = data;
+        }
+
+        let isUnlimited = false;
+
+        if (profileData) {
+          if (profileData.has_unlimited_ai === false) {
+            isUnlimited = false;
+          } else if (profileData.has_unlimited_ai === true) {
+            isUnlimited = true;
+          } else {
+            const emailToFind = profileData.email || userEmail;
+            let q = supabase.from('purchases').select('id');
+            if (emailToFind) {
+              q = q.or(`user_id.eq.${cleanId},user_id.ilike.${emailToFind}`);
+            } else {
+              q = q.eq('user_id', cleanId);
+            }
+            const { data: pRes } = await q.in('product_id', ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited']).maybeSingle();
+            isUnlimited = !!pRes;
+          }
+        } else {
+          isUnlimited = Boolean(hasUnlimitedAi);
+        }
+
+        setIsUserUnlimited(isUnlimited);
+
+        try {
+          localStorage.removeItem(`unlimited_ai_user_${cleanId}`);
+          if (profileData?.email) {
+            localStorage.removeItem(`unlimited_ai_user_${profileData.email}`);
+          }
+        } catch (e) {}
+
+        if (showToastOnCheck) {
+          if (isUnlimited) {
+            toast.success('Acesso VIP Ilimitado verificado com sucesso! 🎉 Você pode conversar sem limites.');
+          } else {
+            toast.info('Nenhuma assinatura VIP ativa encontrada no momento.');
+          }
+        }
+      } else {
+        setIsUserUnlimited(hasUnlimitedAi || false);
+      }
+    } catch (err) {
+      console.warn('VIP Check Note:', err);
+    } finally {
+      if (showToastOnCheck) setIsCheckingVip(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -181,6 +286,9 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
 
     if (isOpen) {
       syncLogs();
+      if (userId) {
+        checkUserVipStatus(false);
+      }
     }
 
     return () => {
@@ -216,7 +324,7 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
 
   const messagesSentCount = getMessagesSentInWindow(sentTimestamps, frequency);
   const remainingMessages = Math.max(0, maxMessages - messagesSentCount);
-  const isLimitReached = isLimitEnabled && messagesSentCount >= maxMessages;
+  const isLimitReached = !isUserUnlimited && isLimitEnabled && messagesSentCount >= maxMessages;
 
   const getFrequencyLabel = (freq: string) => {
     switch (freq) {
@@ -311,9 +419,11 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
         },
         body: JSON.stringify({
           messages: historyForApi,
-          userContext: { userName },
+          userContext: { userName, userId, email: userEmail },
           customSystemPrompt: systemPromptContext || undefined,
-          expertName: expertName || undefined
+          expertName: expertName || undefined,
+          userId: userId || undefined,
+          messagesSentCount
         })
       });
 
@@ -322,6 +432,11 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
       if (!res.ok) {
         removeSentTimestamp(sentTs);
         setSentTimestamps(getSentMessageTimestamps());
+        if (data.error === 'VIP_REQUIRED' || data.isLimitReached) {
+          setIsUserUnlimited(false);
+          toast.error(data.message || limitToast);
+          return;
+        }
         throw new Error(data.error || errorMessage);
       }
 
@@ -380,59 +495,64 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
           className="fixed inset-0 z-[100] w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden"
         >
           {/* Top Full Screen Navigation Bar */}
-          <div className="flex items-center justify-between px-3.5 sm:px-8 py-3.5 sm:py-4 border-b border-white/10 bg-zinc-900/90 backdrop-blur-md shrink-0 gap-2">
-            <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+          <div className="flex items-center justify-between px-2.5 sm:px-8 py-2.5 sm:py-4 border-b border-white/10 bg-zinc-900/90 backdrop-blur-md shrink-0 gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
               <button
                 onClick={handleClose}
-                className="p-1.5 sm:p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-2xl transition-colors flex items-center gap-1 shrink-0"
+                className="p-1 sm:p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-2xl transition-colors flex items-center gap-1 shrink-0"
                 title="Back"
               >
-                <ArrowLeft size={22} />
+                <ArrowLeft size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
 
               <div className="relative shrink-0">
                 <img
                   src={expertAvatar}
                   alt={expertName}
-                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-full aspect-square object-cover border-2 border-pink-500/50 shadow-md shadow-pink-500/20 shrink-0"
+                  className="w-9 h-9 sm:w-11 sm:h-11 rounded-full aspect-square object-cover border-2 border-pink-500/50 shadow-md shadow-pink-500/20 shrink-0"
                   onError={(e) => {
                     // Fallback image if custom image URL fails
                     (e.target as HTMLImageElement).src = DEFAULT_AVATAR;
                   }}
                 />
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full" />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-emerald-500 border-2 border-zinc-900 rounded-full" />
               </div>
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
-                  <h3 className="text-white font-bold text-base sm:text-lg leading-tight truncate">
+                  <h3 className="text-white font-bold text-sm sm:text-lg leading-tight truncate">
                     {expertName}
                   </h3>
-                  {isLimitEnabled && (
+                  {isUserUnlimited ? (
+                    <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 text-amber-300 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.2)] shrink-0 animate-pulse">
+                      <Sparkles size={11} className="text-amber-400" />
+                      <span>VIP Unlimited</span>
+                    </span>
+                  ) : isLimitEnabled ? (
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20 shrink-0">
                       <Clock size={11} className="text-rose-400" />
                       <span>{messagesSentCount}/{maxMessages} {getFrequencyLabel(frequency)}</span>
                     </span>
-                  )}
+                  ) : null}
                 </div>
-                <p className="text-gray-400 text-xs truncate">{expertSubtitle}</p>
+                <p className="text-gray-400 text-[10px] sm:text-xs whitespace-nowrap leading-tight">{expertSubtitle}</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 onClick={handleClear}
                 title="Reset conversation"
-                className="p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
+                className="p-1.5 sm:p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
               >
-                <RefreshCw size={18} />
+                <RefreshCw size={17} className="sm:w-[18px] sm:h-[18px]" />
               </button>
               <button
                 onClick={handleClose}
                 title="Close chat"
-                className="p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
+                className="p-1.5 sm:p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
               >
-                <X size={22} />
+                <X size={20} className="sm:w-[22px] sm:h-[22px]" />
               </button>
             </div>
           </div>
@@ -522,40 +642,76 @@ export default function AiAssistantModal({ userId, userName, userAvatar, isOpen:
 
             {isLimitReached && (
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mx-auto my-4 max-w-md bg-gradient-to-br from-rose-950/90 via-zinc-900 to-rose-950/90 border border-rose-500/40 rounded-3xl p-6 text-center shadow-2xl backdrop-blur-md"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mx-auto my-6 max-w-md bg-gradient-to-br from-zinc-900 via-zinc-900 to-rose-950/90 border border-amber-500/30 rounded-3xl p-6 sm:p-7 text-center shadow-2xl shadow-rose-950/60 backdrop-blur-md relative overflow-hidden"
               >
-                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto mb-3 shadow-inner">
-                  <Lock size={22} />
-                </div>
-                <h4 className="text-white font-bold text-base mb-1.5">
-                  {limitTitle}
-                </h4>
-                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed mb-4">
-                  {limitReachedMsg}
-                </p>
-                <div className="inline-flex items-center gap-1.5 text-xs text-rose-300 font-medium bg-rose-500/10 py-1.5 px-3.5 rounded-full border border-rose-500/20">
-                  <Clock size={13} />
-                  <span>
-                    Limit: {maxMessages} {maxMessages === 1 ? 'message' : 'messages'} ({getFrequencyLabel(frequency)})
-                  </span>
+                {/* Decorative background glows */}
+                <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-pink-500/10 rounded-full blur-2xl pointer-events-none" />
+
+                {/* Header Badge */}
+                <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-widest bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 text-amber-300 border border-amber-500/30 shadow-sm mb-4">
+                  <Sparkles size={13} className="text-amber-400" />
+                  <span>VIP Unlimited Plan</span>
                 </div>
 
-                {buyMoreUrl && (
-                  <div className="mt-5">
+                <h4 className="text-white font-black text-lg sm:text-xl leading-snug mb-2">
+                  {limitTitle || "Unlock Unlimited Conversations"}
+                </h4>
+                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed mb-5">
+                  {limitReachedMsg || "Get 24/7 unlimited relationship & psychological advice with Victoria, with no daily or monthly message limits."}
+                </p>
+
+                {/* Benefits List */}
+                <div className="bg-black/50 border border-white/10 rounded-2xl p-3.5 mb-6 text-left space-y-2.5 text-xs text-gray-200">
+                  {benefit1 && (
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                        <Check size={12} />
+                      </div>
+                      <span>{benefit1}</span>
+                    </div>
+                  )}
+                  {benefit2 && (
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                        <Check size={12} />
+                      </div>
+                      <span>{benefit2}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Main CTA */}
+                <div className="space-y-3">
+                  {buyMoreUrl ? (
                     <a
                       href={buyMoreUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold text-xs tracking-wider uppercase transition-all shadow-lg shadow-pink-500/25 active:scale-95 cursor-pointer"
+                      className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-pink-500 to-rose-600 hover:from-amber-600 hover:to-rose-700 text-white font-black text-xs sm:text-sm tracking-wider uppercase transition-all shadow-xl shadow-pink-500/25 active:scale-95 cursor-pointer"
                     >
-                      <ShoppingBag size={15} />
-                      <span>{buyMoreButtonText}</span>
-                      <ExternalLink size={14} className="opacity-70" />
+                      <Sparkles size={16} />
+                      <span>{buyMoreButtonText || "Upgrade to Unlimited Monthly"}</span>
+                      <ExternalLink size={14} className="opacity-80" />
                     </a>
-                  </div>
-                )}
+                  ) : (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-300 font-medium">
+                      Configure the purchase link in Admin Panel &gt; IA Settings to enable instant online checkout!
+                    </div>
+                  )}
+
+                  {/* Verify / Refresh Button */}
+                  <button
+                    onClick={() => checkUserVipStatus(true)}
+                    disabled={isCheckingVip}
+                    className="text-xs text-gray-400 hover:text-white flex items-center justify-center gap-1.5 mx-auto py-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw size={13} className={isCheckingVip ? "animate-spin text-pink-400" : ""} />
+                    <span>Already subscribed? Check access</span>
+                  </button>
+                </div>
               </motion.div>
             )}
 

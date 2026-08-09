@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
-import { supabase, Product, CommunityPost } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, Product, CommunityPost } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { CommunityIcon } from './CommunityIcon';
 import { 
@@ -16,6 +16,7 @@ import {
   Save, 
   X, 
   Loader2, 
+  Copy,
   Settings,
   Globe,
   Languages,
@@ -31,9 +32,13 @@ import {
   Clock,
   Bot,
   AlertCircle,
+  AlertTriangle,
   Star,
   Lock as LockIcon,
   ShoppingBag,
+  Store,
+  RefreshCw,
+  Layers,
   Palette,
   Menu,
   ArrowUp,
@@ -43,7 +48,15 @@ import {
   PlusCircle,
   BarChart3,
   Send,
+  DollarSign,
+  CreditCard,
+  TrendingUp,
+  XCircle,
+  Filter,
+  Calendar,
+  Tag,
   Zap,
+  Database,
   Shield,
   ShieldCheck,
   Smartphone,
@@ -63,7 +76,10 @@ import {
   Sparkles,
   Package,
   MousePointer2,
-  PlayCircle
+  PlayCircle,
+  RotateCcw,
+  EyeOff,
+  Lock
 } from 'lucide-react';
 import WhatsAppIcon from './WhatsAppIcon';
 import { toast } from 'sonner';
@@ -131,7 +147,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const { settings, refreshSettings } = useSettings();
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions' | 'ai_expert'>('packages');
+  const [activeTab, setActiveTab] = useState<'users' | 'courses' | 'community' | 'notifications' | 'texts' | 'settings' | 'security' | 'pages' | 'vendas' | 'packages' | 'languages' | 'questions' | 'ai_expert' | 'central_produtos'>('central_produtos');
   const [activePageTab, setActivePageTab] = useState<'home' | 'community' | 'profile' | 'login' | 'nav' | 'course' | 'lesson' | 'push' | 'pwa' | 'support'>('home');
   const [loading, setLoading] = useState(true);
   
@@ -140,6 +156,32 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [courses, setCourses] = useState<any[]>([]);
   const [coursePackages, setCoursePackages] = useState<any[]>([]);
   const [allPurchases, setAllPurchases] = useState<any[]>([]);
+  const [mappedProducts, setMappedProducts] = useState<any[]>([]);
+  const [webhookLogs, setWebhookLogs] = useState<any[]>([]);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [productForm, setProductForm] = useState({
+    id: '',
+    hotmart_product_id: '',
+    name: '',
+    product_type: 'main_product',
+    internal_target_id: '',
+    checkout_url: '',
+    is_active: true,
+    description: ''
+  });
+  const [deletingProduct, setDeletingProduct] = useState<{ id: string; name: string } | null>(null);
+  const [isSyncingProducts, setIsSyncingProducts] = useState(false);
+  const [simulatingWebhook, setSimulatingWebhook] = useState(false);
+  const [simTestEmail, setSimTestEmail] = useState('');
+  const [simTestEvent, setSimTestEvent] = useState('PURCHASE_APPROVED');
+  const [simTestProductId, setSimTestProductId] = useState('');
+  const [simResult, setSimResult] = useState<any>(null);
+  const [customWebhookInput, setCustomWebhookInput] = useState('');
+  const [customWebhookTokenInput, setCustomWebhookTokenInput] = useState('');
+  const [showWebhookToken, setShowWebhookToken] = useState(false);
+  const [isSavingWebhookUrl, setIsSavingWebhookUrl] = useState(false);
+  const [isTestingWebhookUrl, setIsTestingWebhookUrl] = useState(false);
   const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -206,6 +248,88 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     }
   };
 
+  // Official Sales Dashboard states
+  const [salesList, setSalesList] = useState<any[]>([]);
+  const [salesMetrics, setSalesMetrics] = useState<any>({
+    totalRevenue: 0,
+    totalCount: 0,
+    averageTicket: 0,
+    refundCount: 0,
+    cancelCount: 0,
+    statusDistribution: {},
+    topProducts: [],
+    paymentTypeDistribution: {}
+  });
+  const [loadingSales, setLoadingSales] = useState<boolean>(false);
+
+  // Sales Filters
+  const [salesStartDate, setSalesStartDate] = useState<string>('');
+  const [salesEndDate, setSalesEndDate] = useState<string>('');
+  const [salesProductId, setSalesProductId] = useState<string>('all');
+  const [salesProductType, setSalesProductType] = useState<string>('all');
+  const [salesStatus, setSalesStatus] = useState<string>('all');
+  const [salesPaymentType, setSalesPaymentType] = useState<string>('all');
+  const [salesSearch, setSalesSearch] = useState<string>('');
+  const [salesDatePreset, setSalesDatePreset] = useState<string>('all');
+
+  // Payload detail modal state
+  const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null);
+
+  const fetchSalesData = async () => {
+    setLoadingSales(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const queryParams = new URLSearchParams({
+        action: 'sales-list',
+        startDate: salesStartDate,
+        endDate: salesEndDate,
+        productId: salesProductId,
+        productType: salesProductType,
+        status: salesStatus,
+        paymentType: salesPaymentType,
+        search: salesSearch
+      });
+
+      const res = await safeFetch(`/api/v1/admin?${queryParams.toString()}`, {
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+      });
+
+      if (res && res.sales) {
+        setSalesList(res.sales || []);
+        setSalesMetrics(res.metrics || {});
+      }
+    } catch (err) {
+      console.error('Error fetching sales:', err);
+    } finally {
+      setLoadingSales(false);
+    }
+  };
+
+  const applySalesDatePreset = (preset: string) => {
+    setSalesDatePreset(preset);
+    const now = new Date();
+    if (preset === 'today') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      setSalesStartDate(start);
+      setSalesEndDate(now.toISOString());
+    } else if (preset === '7days') {
+      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      setSalesStartDate(start);
+      setSalesEndDate(now.toISOString());
+    } else if (preset === '30days') {
+      const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      setSalesStartDate(start);
+      setSalesEndDate(now.toISOString());
+    } else if (preset === 'month') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      setSalesStartDate(start);
+      setSalesEndDate(now.toISOString());
+    } else {
+      setSalesStartDate('');
+      setSalesEndDate('');
+    }
+  };
+
   const isAdminAuthorized = !settings?.admin_email || user.email?.toLowerCase() === settings?.admin_email?.toLowerCase();
 
   useEffect(() => {
@@ -214,6 +338,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       fetchNotificationHistory();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'vendas') {
+      fetchSalesData();
+    }
+  }, [activeTab, salesStartDate, salesEndDate, salesProductId, salesProductType, salesStatus, salesPaymentType, salesSearch]);
 
   const fetchNotificationHistory = async () => {
     setLoadingHistory(true);
@@ -269,6 +399,21 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   // User detail states
   const [userNewPassword, setUserNewPassword] = useState('');
   const [isChangingUserPassword, setIsChangingUserPassword] = useState(false);
+  const [isUpdatingUserAi, setIsUpdatingUserAi] = useState(false);
+
+  const handleToggleUserUnlimitedAi = async (targetUser: any) => {
+    if (!targetUser?.id) return;
+    setIsUpdatingUserAi(true);
+    const isUnlocked = Boolean(
+      targetUser.has_unlimited_ai || 
+      userPurchases.some(p => ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(String(p).toLowerCase()))
+    );
+    try {
+      await toggleCourseAccess(targetUser.id, 'ai_subscription', isUnlocked);
+    } finally {
+      setIsUpdatingUserAi(false);
+    }
+  };
 
   // User management states
   const [showUserCreator, setShowUserCreator] = useState(false);
@@ -442,7 +587,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       
       // Mapeia os nomes do banco para os nomes usados no estado local da UI
       initialLocal.support_whatsapp_home_floating = settings.support_whatsapp_floating_enabled;
-      initialLocal.support_type = settings.support_type || 'floating';
+      initialLocal.support_type = settings.custom_texts?.['config.support_type'] || settings.support_type || 'floating';
       initialLocal.support_whatsapp_community_floating = settings.support_whatsapp_floating_community_enabled;
       initialLocal.support_whatsapp_profile_floating = settings.support_whatsapp_floating_profile_enabled;
       initialLocal.support_whatsapp_course_floating = settings.support_whatsapp_floating_course_enabled;
@@ -469,6 +614,18 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
       setLocalSettings(initialLocal);
     }
+    
+    const defaultEdgeUrl = isSupabaseConfigured && supabase ? (supabase as any).supabaseUrl + '/functions/v1/hotmart-webhook' : '';
+    if (settings?.custom_texts?.['hotmart.webhook_url']) {
+      setCustomWebhookInput(settings.custom_texts['hotmart.webhook_url']);
+    } else if (defaultEdgeUrl && !customWebhookInput) {
+      setCustomWebhookInput(defaultEdgeUrl);
+    }
+
+    if (settings?.custom_texts?.['hotmart.webhook_token']) {
+      setCustomWebhookTokenInput(settings.custom_texts['hotmart.webhook_token']);
+    }
+
     if (settings?.custom_texts && Object.keys(draftCustomTexts).length === 0) {
       setDraftCustomTexts(settings.custom_texts);
     }
@@ -481,26 +638,26 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      if (activeTab === 'users' || activeTab === 'courses' || activeTab === 'vendas' || activeTab === 'packages' || activeTab === 'questions') {
-        const fetchCourses = async () => {
+      const tasks: Promise<any>[] = [];
+
+      // Only fetch courses if not loaded
+      if (courses.length === 0) {
+        tasks.push((async () => {
           let response = await supabase
             .from('courses')
             .select('*')
             .order('order_index', { ascending: true });
           
           if (response.error && (response.error.code === '42703' || response.error.message?.includes('order_index'))) {
-            // Fallback if column doesn't exist
             response = await supabase
               .from('courses')
               .select('*')
               .order('created_at', { ascending: false });
           }
-          
-          if (response.error) throw response.error;
+          if (!response.error && response.data) {
+            setCourses(response.data);
+          }
 
-          setCourses(response.data || []);
-
-          // Fetch stats
           const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
           if (chaptersData) {
             const stats: Record<string, { lessons: number, materials: number }> = {};
@@ -512,106 +669,408 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             });
             setCourseStats(stats);
           }
-        };
+        })());
+      }
 
-        const fetchPackages = async () => {
+      // Only fetch packages if not loaded
+      if (coursePackages.length === 0) {
+        tasks.push((async () => {
           const { data: packagesData, error: packagesError } = await supabase
             .from('course_packages')
             .select('*, package_courses(course_id)')
             .order('created_at', { ascending: false });
           
-          if (packagesError) throw packagesError;
-          setCoursePackages(packagesData || []);
-        };
+          if (!packagesError && packagesData) {
+            setCoursePackages(packagesData);
+          }
+        })());
+      }
 
-        const fetchQuestions = async () => {
+      // Questions
+      if (pendingQuestions.length === 0 || activeTab === 'questions') {
+        tasks.push((async () => {
           try {
             const { data, error } = await supabase
               .from('chapter_questions')
               .select('*, chapters:chapter_id(title, modules:module_id(courses:course_id(title)))')
               .order('created_at', { ascending: false });
             
-            if (error) {
-              console.warn('Questions table might not exist yet:', error.message);
-              setPendingQuestions([]);
-              if (error.code === '42P01') {
-                toast.error('Tabela de questões não encontrada no Supabase. Execute o SQL de SETUP.');
-              }
-              return;
-            }
-            setPendingQuestions(data || []);
-            
-            // Mark all as read when opening the tab
-            if (activeTab === 'questions' && data) {
-              const unreadIds = data.filter((q: any) => !q.is_read_by_admin).map((q: any) => q.id);
-              if (unreadIds.length > 0) {
-                await supabase.from('chapter_questions').update({ is_read_by_admin: true }).in('id', unreadIds);
+            if (!error && data) {
+              setPendingQuestions(data);
+              if (activeTab === 'questions') {
+                const unreadIds = data.filter((q: any) => !q.is_read_by_admin).map((q: any) => q.id);
+                if (unreadIds.length > 0) {
+                  await supabase.from('chapter_questions').update({ is_read_by_admin: true }).in('id', unreadIds);
+                }
               }
             }
           } catch (e) {
             console.error('Error in fetchQuestions:', e);
           }
-        };
+        })());
+      }
 
-        await Promise.all([fetchCourses(), fetchPackages(), fetchQuestions()]);
+      // Run shared background tasks in parallel
+      await Promise.all(tasks);
 
-        if (activeTab === 'users') {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.access_token) {
-            setAllUsers([]);
-            return;
-          }
-          
-          try {
-            const data = await safeFetch('/api/v1/admin?action=users-list', {
-              headers: { 'Authorization': `Bearer ${session.access_token}` }
-            });
-            
-            if (data && !data.error) {
-              setAllUsers(Array.isArray(data) ? data : []);
-            } else {
-              // Fallback to profiles table if API fails
-              const { data: profiles } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false });
-              setAllUsers(profiles || []);
-            }
-          } catch (e) {
+      // Get session once for tab-specific requests
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (activeTab === 'users' && token) {
+        try {
+          const data = await safeFetch('/api/v1/admin?action=users-list', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (data && !data.error) {
+            setAllUsers(Array.isArray(data) ? data : []);
+          } else {
             const { data: profiles } = await supabase
               .from('profiles')
               .select('*')
               .order('created_at', { ascending: false });
             setAllUsers(profiles || []);
           }
+        } catch (e) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('created_at', { ascending: false });
+          setAllUsers(profiles || []);
         }
+      }
 
-        if (activeTab === 'vendas') {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.access_token) {
-            console.error('No session found for purchases-list');
-            setAllPurchases([]);
-            setLoading(false);
-            return;
-          }
-          const data = await safeFetch('/api/v1/admin?action=purchases-list', {
-            headers: { 'Authorization': `Bearer ${session.access_token}` }
-          });
-          
-          if (data && data.error) {
-            console.error('API returned error for purchases:', data.error);
-            toast.error('Erro ao carregar vendas: ' + data.error);
-            setAllPurchases([]);
-          } else {
-            setAllPurchases(Array.isArray(data) ? data : []);
-          }
+      if (activeTab === 'vendas' && token) {
+        const data = await safeFetch('/api/v1/admin?action=purchases-list', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (data && !data.error) {
+          setAllPurchases(Array.isArray(data) ? data : []);
+        } else {
+          setAllPurchases([]);
         }
+      }
+
+      if (activeTab === 'central_produtos' || mappedProducts.length === 0) {
+        await fetchCentralProducts();
       }
     } catch (err: any) {
       console.error('Error fetching admin data:', err);
       toast.error('Erro ao carregar dados');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCentralProducts = async (showToast = false) => {
+    try {
+      setIsSyncingProducts(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      const [productsRes, eventsRes] = await Promise.all([
+        safeFetch('/api/v1/admin?action=products-list', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
+        }),
+        safeFetch('/api/v1/admin?action=webhook-events-list', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
+        })
+      ]);
+
+      if (productsRes && !productsRes.error) {
+        const rawList: any[] = Array.isArray(productsRes) ? [...productsRes] : [];
+        
+        // Sanitize duplicates by product_type and hotmart_product_id
+        const cleanedList: any[] = [];
+        const seenHotmartIds = new Set<string>();
+
+        // 1. Pick single main_product (prioritizing custom ID over HOTMART_PRODUTO_PRINCIPAL)
+        const mainProds = rawList.filter(p => p.product_type === 'main_product');
+        if (mainProds.length > 0) {
+          const chosenMain = mainProds.find(p => p.hotmart_product_id && p.hotmart_product_id.trim() !== 'HOTMART_PRODUTO_PRINCIPAL') || mainProds[0];
+          cleanedList.push(chosenMain);
+          if (chosenMain.hotmart_product_id) seenHotmartIds.add(chosenMain.hotmart_product_id);
+        }
+
+        // 2. Pick single ai_subscription (prioritizing custom ID over HOTMART_IA_VICTORIA)
+        const aiProds = rawList.filter(p => p.product_type === 'ai_subscription');
+        if (aiProds.length > 0) {
+          const chosenAi = aiProds.find(p => p.hotmart_product_id && p.hotmart_product_id.trim() !== 'HOTMART_IA_VICTORIA') || aiProds[0];
+          cleanedList.push(chosenAi);
+          if (chosenAi.hotmart_product_id) seenHotmartIds.add(chosenAi.hotmart_product_id);
+        }
+
+        // 3. Add all remaining products without duplicating hotmart_product_ids or special types
+        for (const item of rawList) {
+          if (item.product_type === 'main_product' || item.product_type === 'ai_subscription') continue;
+          if (item.hotmart_product_id && seenHotmartIds.has(item.hotmart_product_id)) continue;
+          cleanedList.push(item);
+          if (item.hotmart_product_id) seenHotmartIds.add(item.hotmart_product_id);
+        }
+
+        // Sanitize names for ai_subscription products
+        for (const p of cleanedList) {
+          if (p.product_type === 'ai_subscription' || (p.name && p.name.includes('Victoria'))) {
+            p.name = p.name
+              ? p.name.replace(/IA Victoria VIP \(Ilimitada\)/gi, 'IA Expert VIP (Ilimitada)')
+                     .replace(/IA Victoria VIP/gi, 'IA Expert VIP')
+                     .replace(/IA Victoria/gi, 'IA Expert')
+              : 'IA Expert VIP (Ilimitada)';
+          }
+        }
+
+        // Sort so 'main_product' is strictly the first item in the catalog
+        cleanedList.sort((a: any, b: any) => {
+          if (a.product_type === 'main_product') return -1;
+          if (b.product_type === 'main_product') return 1;
+          return 0;
+        });
+        setMappedProducts(cleanedList);
+      }
+
+      if (eventsRes && !eventsRes.error) {
+        setWebhookLogs(Array.isArray(eventsRes) ? eventsRes : []);
+      }
+
+      if (showToast) {
+        toast.success('Catálogo de produtos e logs atualizados!');
+      }
+    } catch (e) {
+      console.error('Error loading central products:', e);
+      if (showToast) toast.error('Erro ao atualizar lista.');
+    } finally {
+      setIsSyncingProducts(false);
+    }
+  };
+
+  const handleSaveProduct = async () => {
+    const cleanHotmartId = productForm.hotmart_product_id.trim();
+    if (!productForm.name.trim()) {
+      toast.error('Informe o Nome do Produto.');
+      return;
+    }
+
+    // Uniqueness validation
+    if (cleanHotmartId) {
+      const duplicate = mappedProducts.find(
+        p => String(p.hotmart_product_id).trim() === cleanHotmartId && p.id !== productForm.id
+      );
+      if (duplicate) {
+        toast.error(`Este ID Hotmart '${cleanHotmartId}' já está cadastrado no produto "${duplicate.name}".`);
+        return;
+      }
+    }
+
+    const previousMappedProducts = [...mappedProducts];
+    const isEditing = Boolean(productForm.id);
+    const tempId = productForm.id || ('prod_temp_' + Date.now());
+
+    const optimisticProduct = {
+      id: tempId,
+      hotmart_product_id: cleanHotmartId,
+      name: productForm.name.trim(),
+      product_type: productForm.product_type,
+      internal_target_id: productForm.internal_target_id || null,
+      checkout_url: productForm.checkout_url || null,
+      is_active: productForm.is_active !== false,
+      description: productForm.description || null,
+      updated_at: new Date().toISOString()
+    };
+
+    // OPTIMISTIC UPDATE: Update local state immediately!
+    if (isEditing) {
+      setMappedProducts(prev => prev.map(p => p.id === productForm.id ? optimisticProduct : p));
+    } else {
+      setMappedProducts(prev => [optimisticProduct, ...prev]);
+    }
+
+    // Close modal instantly for seamless UX
+    setShowProductModal(false);
+    setEditingProduct(null);
+    const formToSend = { ...productForm };
+    setProductForm({
+      id: '',
+      hotmart_product_id: '',
+      name: '',
+      product_type: 'main_product',
+      internal_target_id: '',
+      checkout_url: '',
+      is_active: true,
+      description: ''
+    });
+
+    toast.success(isEditing ? 'Produto atualizado com sucesso!' : 'Novo produto mapeado com sucesso!');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await safeFetch('/api/v1/admin?action=product-save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify(formToSend)
+      });
+
+      if (!res || res.error) throw new Error(res?.error || 'Erro ao salvar produto');
+      
+      // Reconcile saved product if backend returned real ID
+      if (res.product && res.product.id) {
+        setMappedProducts(prev => prev.map(p => p.id === tempId ? res.product : p));
+      }
+    } catch (err: any) {
+      // Rollback optimistic update on error
+      setMappedProducts(previousMappedProducts);
+      toast.error('Erro ao sincronizar produto: ' + err.message);
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    const previousMappedProducts = [...mappedProducts];
+
+    // OPTIMISTIC UPDATE: Remove locally immediately
+    setMappedProducts(prev => prev.filter(p => p.id !== productId));
+    setDeletingProduct(null);
+    toast.success('Produto removido com sucesso!');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await safeFetch('/api/v1/admin?action=product-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ id: productId })
+      });
+
+      if (!res || res.error) throw new Error(res?.error || 'Erro ao excluir produto');
+    } catch (err: any) {
+      // Rollback on error
+      setMappedProducts(previousMappedProducts);
+      toast.error('Erro ao excluir: ' + err.message);
+    }
+  };
+
+  const handleSyncProductsMigration = async () => {
+    setIsSyncingProducts(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await safeFetch('/api/v1/admin?action=product-sync-migration', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+      });
+
+      if (!res || res.error) throw new Error(res?.error || 'Erro na sincronização');
+      if (Array.isArray(res.catalog)) {
+        setMappedProducts(res.catalog);
+      }
+      toast.success(`Sincronização concluída! Catalog atualizado com ${res.catalog?.length || res.migratedCount || 0} produto(s).`);
+      fetchCentralProducts();
+    } catch (err: any) {
+      toast.error('Erro ao sincronizar: ' + err.message);
+    } finally {
+      setIsSyncingProducts(false);
+    }
+  };
+
+  const handleSimulateWebhook = async () => {
+    if (!simTestEmail.trim()) {
+      toast.error('Informe o e-mail para simulação.');
+      return;
+    }
+    setSimulatingWebhook(true);
+    setSimResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await safeFetch('/api/v1/admin?action=webhook-simulate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          buyer_email: simTestEmail.trim(),
+          hotmart_product_id: simTestProductId.trim(),
+          event_type: simTestEvent
+        })
+      });
+
+      if (!res) throw new Error('Erro na simulação');
+      setSimResult(res);
+
+      if (res.http_status === 401) {
+        toast.error('Aviso de Autenticação Hottok (HTTP 401): O token configurado na Edge Function difere do enviado.');
+      } else if (res.success) {
+        toast.success('Simulação de webhook executada com sucesso!');
+      } else {
+        toast.error('Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".');
+      }
+      fetchCentralProducts();
+    } catch (err: any) {
+      toast.error('Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".');
+    } finally {
+      setSimulatingWebhook(false);
+    }
+  };
+
+  const handleSaveWebhookUrl = async () => {
+    setIsSavingWebhookUrl(true);
+    try {
+      const cleanUrl = customWebhookInput.trim();
+      const cleanToken = customWebhookTokenInput.trim();
+      const newCustomTexts = {
+        ...(settings?.custom_texts || {}),
+        'hotmart.webhook_url': cleanUrl,
+        'hotmart.webhook_token': cleanToken
+      };
+      await updateSettings({ custom_texts: newCustomTexts });
+      toast.success('URL e Token do Webhook atualizados com sucesso!');
+    } catch (err: any) {
+      toast.error('Erro ao salvar configurações do Webhook: ' + err.message);
+    } finally {
+      setIsSavingWebhookUrl(false);
+    }
+  };
+
+  const handleResetWebhookUrl = async () => {
+    setIsSavingWebhookUrl(true);
+    try {
+      const defaultUrl = isSupabaseConfigured && supabase ? (supabase as any).supabaseUrl + '/functions/v1/hotmart-webhook' : '';
+      setCustomWebhookInput(defaultUrl);
+      setCustomWebhookTokenInput('');
+      const newCustomTexts = { ...(settings?.custom_texts || {}) };
+      delete newCustomTexts['hotmart.webhook_url'];
+      delete newCustomTexts['hotmart.webhook_token'];
+      await updateSettings({ custom_texts: newCustomTexts });
+      toast.success('Configurações do Webhook restauradas para o padrão!');
+    } catch (err: any) {
+      toast.error('Erro ao restaurar configurações do Webhook: ' + err.message);
+    } finally {
+      setIsSavingWebhookUrl(false);
+    }
+  };
+
+  const handleTestWebhookUrl = async () => {
+    const defaultUrl = isSupabaseConfigured && supabase ? (supabase as any).supabaseUrl + '/functions/v1/hotmart-webhook' : '';
+    const targetUrl = customWebhookInput.trim() || defaultUrl;
+    if (!targetUrl) {
+      toast.error('Nenhuma URL do Endpoint do Webhook configurada para testar. Por favor, verifique o campo de URL.');
+      return;
+    }
+    setIsTestingWebhookUrl(true);
+    try {
+      const res = await fetch(targetUrl, { method: 'GET' });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.success(`Endpoint de Webhook Online (HTTP ${res.status}): ${data.service || 'Conexão GET bem-sucedida'}`);
+      } else {
+        toast.error(`Falha no Endpoint (HTTP ${res.status}). Por favor, verifique se a "URL do Endpoint do Webhook (Hotmart)" está correta.`);
+      }
+    } catch (err: any) {
+      toast.error(`Falha ao conectar na URL: ${err.message}. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".`);
+    } finally {
+      setIsTestingWebhookUrl(false);
     }
   };
 
@@ -655,9 +1114,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
   const updateSettings = async (newSettings: Partial<any>) => {
     try {
+      const payload = { ...newSettings };
+      if ('support_type' in payload) {
+        if (!payload.custom_texts) payload.custom_texts = { ...settings?.custom_texts };
+        payload.custom_texts['config.support_type'] = payload.support_type;
+        delete payload.support_type;
+      }
+
       const { error } = await supabase
         .from('app_settings')
-        .upsert({ id: 1, ...newSettings });
+        .upsert({ id: 1, ...payload });
 
       if (error) {
         if (error.message?.includes('banner_config')) {
@@ -705,6 +1171,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     const executeToggle = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        const userEmail = selectedUserForCourses?.email;
         
         const response = await safeFetch('/api/v1/admin?action=user-access-toggle', {
           method: 'POST',
@@ -714,6 +1181,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           },
           body: JSON.stringify({
             userId,
+            userEmail,
             courseId,
             action: isUnlocked ? 'revoke' : 'grant'
           })
@@ -721,26 +1189,57 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
         if (!response || response.error) throw new Error(response?.error || 'Erro ao comunicar com o servidor');
 
-        if (isUnlocked) {
-          setUserPurchases(prev => prev.filter(id => id !== courseId));
-          toast.success('Acesso removido');
-        } else {
-          setUserPurchases(prev => [...new Set([...prev, courseId])]);
-          toast.success('Acesso liberado');
+        const isAi = ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(courseId);
+
+        if (isAi) {
+          const newAiStatus = !isUnlocked;
+          setSelectedUserForCourses((prev: any) => (prev ? { ...prev, has_unlimited_ai: newAiStatus } : null));
+          setAllUsers((prev: any[]) =>
+            prev.map(u => (
+              u.id === userId || (u.email && userEmail && u.email.toLowerCase() === userEmail.toLowerCase())
+                ? { ...u, has_unlimited_ai: newAiStatus }
+                : u
+            ))
+          );
+          try {
+            localStorage.removeItem(`unlimited_ai_user_${userId}`);
+            if (userEmail) {
+              localStorage.removeItem(`unlimited_ai_user_${userEmail}`);
+            }
+          } catch (e) {}
         }
-        // Refresh from DB after a small delay to be absolutely sure and sync expanded packages
-        setTimeout(() => fetchUserPurchases(userId), 1000);
+
+        if (isUnlocked) {
+          if (isAi) {
+            setUserPurchases(prev => prev.filter(id => !['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(id)));
+          } else {
+            setUserPurchases(prev => prev.filter(id => id !== courseId));
+          }
+          toast.success(isAi ? 'Acesso Ilimitado VIP revogado' : 'Acesso removido');
+        } else {
+          if (isAi) {
+            setUserPurchases(prev => [...new Set([...prev, courseId, 'ai_subscription'])]);
+          } else {
+            setUserPurchases(prev => [...new Set([...prev, courseId])]);
+          }
+          toast.success(isAi ? 'Acesso Ilimitado VIP liberado' : 'Acesso liberado');
+        }
+        setTimeout(() => fetchUserPurchases(userId), 800);
       } catch (err: any) {
         console.error('Toggle access error:', err);
         toast.error('Erro ao alterar acesso: ' + (err.message || 'Erro desconhecido'));
       }
     };
 
+    const isAi = ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(courseId);
+
     if (isUnlocked) {
       setConfirmationModal({
         isOpen: true,
-        title: 'Remover Acesso ao Curso',
-        message: 'Tem certeza que deseja remover o acesso do usuário a este curso?',
+        title: isAi ? 'Revogar Acesso Ilimitado VIP' : 'Remover Acesso ao Curso',
+        message: isAi 
+          ? 'Tem certeza que deseja revogar o Plano Ilimitado VIP deste usuário?' 
+          : 'Tem certeza que deseja remover o acesso do usuário a este curso?',
         type: 'danger',
         confirmText: 'Sim, Remover',
         onConfirm: () => {
@@ -1193,6 +1692,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
             onClick={() => { setActiveTab('vendas'); setIsMobileMenuOpen(false); }} 
           />
           <SidebarItem 
+            icon={<Store size={20} className="text-amber-400" />} 
+            label="Central de Produtos" 
+            active={activeTab === 'central_produtos'} 
+            onClick={() => { setActiveTab('central_produtos'); setIsMobileMenuOpen(false); }} 
+          />
+          <SidebarItem 
             icon={<Globe size={20} />} 
             label="Páginas" 
             active={activeTab === 'pages'} 
@@ -1272,6 +1777,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                activeTab === 'courses' ? 'Cursos' :
                activeTab === 'users' ? 'Usuários' :
                activeTab === 'vendas' ? 'Vendas' :
+               activeTab === 'central_produtos' ? 'Central de Produtos' :
                activeTab === 'pages' ? 'Páginas' :
                activeTab === 'community' ? 'Comunidade' :
                activeTab === 'notifications' ? 'Notificações' :
@@ -1557,7 +2063,16 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                       <div className="w-8 h-8 rounded-full bg-blue-600/20 text-blue-500 flex items-center justify-center text-[10px] font-black italic">
                                         {u.email?.[0].toUpperCase()}
                                       </div>
-                                      <span className="font-bold text-sm text-white">{u.user_metadata?.full_name || 'Sem nome'}</span>
+                                      <div className="flex flex-col">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-bold text-sm text-white">{u.user_metadata?.full_name || 'Sem nome'}</span>
+                                          {u.has_unlimited_ai && (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-amber-500/20 to-pink-500/20 text-amber-300 border border-amber-500/30">
+                                              <Sparkles size={10} className="text-amber-400" /> VIP
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
                                   </td>
                                   <td className="px-6 py-4">
@@ -1711,6 +2226,61 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               <p className="text-[9px] text-gray-600 font-bold uppercase italic">
                                 * Nota: Recomendamos informar ao usuário sua nova senha após a alteração.
                               </p>
+                            </div>
+
+                            {/* IA Expert VIP Management */}
+                            <div className="bg-black/40 rounded-3xl border border-white/10 p-6 space-y-4">
+                              <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2.5 bg-pink-600/20 rounded-xl text-pink-400 border border-pink-500/20">
+                                    <Sparkles size={20} />
+                                  </div>
+                                  <div>
+                                    {(() => {
+                                      const isVipUnlocked = Boolean(
+                                        selectedUserForCourses?.has_unlimited_ai || 
+                                        userPurchases.some(p => ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(String(p).toLowerCase()))
+                                      );
+                                      return (
+                                        <div className="flex items-center gap-2">
+                                          <h4 className="font-bold text-white text-sm">IA Expert VIP (Ilimitada)</h4>
+                                          {isVipUnlocked ? (
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-amber-500/20 to-pink-500/20 text-amber-300 border border-amber-500/30">
+                                              VIP ILIMITADO ATIVO ✨
+                                            </span>
+                                          ) : (
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-800 text-gray-400 border border-white/10">
+                                              Plano Padrão (Com Limite)
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                    <p className="text-[10px] text-gray-400 font-medium mt-0.5">Conceda ou revogue acesso ilimitado ao chat da especialista para este usuário.</p>
+                                  </div>
+                                </div>
+
+                                {(() => {
+                                  const isVipUnlocked = Boolean(
+                                    selectedUserForCourses?.has_unlimited_ai || 
+                                    userPurchases.some(p => ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited'].includes(String(p).toLowerCase()))
+                                  );
+                                  return (
+                                    <button
+                                      onClick={() => handleToggleUserUnlimitedAi(selectedUserForCourses)}
+                                      disabled={isUpdatingUserAi}
+                                      className={`px-5 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2 shadow-lg ${
+                                        isVipUnlocked
+                                          ? 'bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/20'
+                                          : 'bg-gradient-to-r from-amber-500 to-pink-600 hover:from-amber-600 hover:to-pink-700 text-white shadow-pink-500/20'
+                                      }`}
+                                    >
+                                      {isUpdatingUserAi ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                      {isVipUnlocked ? 'Revogar Acesso Ilimitado VIP' : 'Liberar Acesso Ilimitado VIP'}
+                                    </button>
+                                  );
+                                })()}
+                              </div>
                             </div>
 
                             {/* Pacotes / Produtos */}
@@ -1907,36 +2477,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                     <div className="space-y-12">
                       {/* Produtos Principais (Free) */}
                       <div className="space-y-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-start gap-4 bg-white/5 border border-white/5 p-4 rounded-2xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/5 border border-white/5 p-4 rounded-2xl">
                           <h4 className="text-[10px] sm:text-xs font-black text-emerald-800 uppercase tracking-[0.2em] flex items-center gap-2 shrink-0">
                             <Star size={12} className="text-emerald-500" />
                             Produtos Principais 💎
                           </h4>
-                          <button
-                            onClick={() => {
-                              setMainProductIdInput(settings.main_course_hotmart_id || settings.custom_texts['main_product_id'] || '');
-                              
-                              const priceStr = settings.custom_texts['main_price'] || '';
-                              let parsedCents = '';
-                              if (priceStr.includes(',') || priceStr.includes('.')) {
-                                const normalized = priceStr.replace(',', '.');
-                                const floatVal = parseFloat(normalized);
-                                if (!isNaN(floatVal)) {
-                                  parsedCents = Math.round(floatVal * 100).toString();
-                                }
-                              } else {
-                                parsedCents = priceStr.replace(/\D/g, '');
-                              }
-                              setMainPriceInput(parsedCents);
-                              
-                              setMainCheckoutUrlInput(settings.custom_texts['main_checkout_url'] || '');
-                              setShowMainProductModal(true);
-                            }}
-                            className="text-[9px] font-black uppercase tracking-widest bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/10 transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
-                          >
-                            <Sparkles size={11} className="text-emerald-400 animate-pulse" />
-                            CONFIGURAR VENDA DO PRODUTO PRINCIPAL (VENDA ÚNICA)
-                          </button>
+                          <span className="text-[10px] font-bold text-gray-400">
+                            Configuração do Produto Principal gerenciada via Central de Produtos
+                          </span>
                         </div>
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
                           {courses
@@ -2477,6 +3025,518 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   </div>
                 )}
 
+                {activeTab === 'central_produtos' && (
+                  <div className="max-w-6xl space-y-8 pb-20">
+                    {/* Header Banner */}
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-zinc-900/80 border border-amber-500/20 p-8 rounded-3xl backdrop-blur-xl relative overflow-hidden">
+                      <div className="space-y-2 z-10 max-w-2xl">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-xs font-black uppercase tracking-widest">
+                          <Store size={14} /> Arquitetura Centralizada de Vendas
+                        </div>
+                        <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Central de Produtos & Webhook</h3>
+                        <p className="text-sm text-gray-400 leading-relaxed">
+                          Cadastre e gerencie todos os IDs de produtos da Hotmart em um único local. A automação via Webhook Edge Function consulta exclusivamente este catálogo para criar/liberar/pausar acessos de forma dinâmica.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 z-10">
+                        <button
+                          onClick={handleSyncProductsMigration}
+                          disabled={isSyncingProducts}
+                          className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 px-5 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg"
+                        >
+                          {isSyncingProducts ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                          Sincronizar Existentes
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingProduct(null);
+                            setProductForm({
+                              id: '',
+                              hotmart_product_id: '',
+                              name: '',
+                              product_type: 'main_product',
+                              internal_target_id: '',
+                              checkout_url: '',
+                              is_active: true,
+                              description: ''
+                            });
+                            setShowProductModal(true);
+                          }}
+                          className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-black px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-xl hover:scale-105"
+                        >
+                          <Plus size={18} /> Novo Produto Mapeado
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mapped Products Grid */}
+                    <div className="bg-zinc-900/50 rounded-3xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-black text-white text-lg uppercase tracking-tight">Catálogo de Produtos Mapeados ({mappedProducts.length})</h4>
+                          <p className="text-xs text-gray-400">Produtos que a Hotmart pode enviar via webhook para liberação.</p>
+                        </div>
+                        <button
+                          onClick={() => fetchCentralProducts(true)}
+                          disabled={isSyncingProducts}
+                          className="p-2.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-amber-400 rounded-xl transition-all border border-white/10 flex items-center gap-2 text-xs font-bold"
+                          title="Atualizar lista"
+                        >
+                          <RefreshCw size={16} className={isSyncingProducts ? "animate-spin text-amber-400" : ""} />
+                          <span>Atualizar</span>
+                        </button>
+                      </div>
+
+                      {mappedProducts.length === 0 ? (
+                        <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl bg-black/20 space-y-4">
+                          <Store size={40} className="mx-auto text-amber-400/50" />
+                          <div className="space-y-1">
+                            <p className="text-white font-bold text-sm">Nenhum produto cadastrado na Central</p>
+                            <p className="text-xs text-gray-500 max-w-md mx-auto">
+                              Clique em "Sincronizar Existentes" para migrar automaticamente os IDs de cursos e pacotes ou cadastre manualmente.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {mappedProducts.map((prod) => {
+                            const isMissingId = !prod.hotmart_product_id || 
+                                                prod.hotmart_product_id.trim() === '' || 
+                                                prod.hotmart_product_id.trim() === 'HOTMART_PRODUTO_PRINCIPAL';
+                            return (
+                              <div
+                                key={prod.id}
+                                className={`rounded-2xl p-6 space-y-4 transition-all flex flex-col justify-between ${
+                                  isMissingId
+                                    ? 'bg-red-950/20 border-2 border-red-500/80 shadow-lg shadow-red-500/25 hover:border-red-400'
+                                    : 'bg-black/60 border border-white/10 hover:border-amber-500/40'
+                                }`}
+                              >
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border ${
+                                      prod.product_type === 'main_product' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                                      prod.product_type === 'ai_subscription' ? 'bg-pink-500/10 text-pink-400 border-pink-500/30' :
+                                      prod.product_type === 'package' ? 'bg-purple-500/10 text-purple-400 border-purple-500/30' :
+                                      'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                                    }`}>
+                                      {prod.product_type === 'main_product' ? 'PRODUTO PRINCIPAL' :
+                                       prod.product_type === 'ai_subscription' ? 'ASSINATURA IA EXPERT' :
+                                       prod.product_type === 'package' ? 'PACOTE' : 'CURSO'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <h5 className="font-black text-white text-base leading-snug">{prod.name}</h5>
+                                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                                    {prod.hotmart_product_id && prod.hotmart_product_id.trim() !== '' && prod.hotmart_product_id.trim() !== 'HOTMART_PRODUTO_PRINCIPAL' ? (
+                                      <span className="text-xs font-mono text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                        ID Hotmart: {prod.hotmart_product_id}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs font-bold text-red-300 bg-red-500/20 px-2.5 py-1 rounded-lg border border-red-500/50 flex items-center gap-1.5 animate-pulse shadow-sm shadow-red-500/20">
+                                        <AlertTriangle size={13} className="text-red-400" />
+                                        Cadastrar ID Hotmart (Pendente)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {prod.description && (
+                                  <p className="text-xs text-gray-400 line-clamp-2">{prod.description}</p>
+                                )}
+
+                              <div className="pt-4 border-t border-white/5 flex items-center justify-between gap-3">
+                                <button
+                                  onClick={() => {
+                                    setEditingProduct(prod);
+                                    setProductForm({
+                                      id: prod.id,
+                                      hotmart_product_id: prod.hotmart_product_id || '',
+                                      name: prod.name || '',
+                                      product_type: prod.product_type || 'main_product',
+                                      internal_target_id: prod.internal_target_id || '',
+                                      checkout_url: prod.checkout_url || '',
+                                      is_active: prod.is_active !== false,
+                                      description: prod.description || ''
+                                    });
+                                    setShowProductModal(true);
+                                  }}
+                                  className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-white font-bold text-xs rounded-xl transition-all border border-white/10 flex items-center justify-center gap-1.5"
+                                >
+                                  <Edit3 size={14} /> Editar
+                                </button>
+                                {prod.product_type !== 'main_product' && (
+                                  <button
+                                    onClick={() => setDeletingProduct({ id: prod.id, name: prod.name })}
+                                    className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all border border-red-500/20"
+                                    title="Remover produto"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Webhook Info & Custom URL Box (Abaixo do Catálogo de Produtos) */}
+                    <div className="bg-black/40 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-amber-500/10 rounded-2xl text-amber-400 border border-amber-500/20">
+                            <Zap size={22} />
+                          </div>
+                          <div>
+                            <h4 className="font-black text-white text-base uppercase tracking-wider">URL do Webhook da Hotmart (Supabase Edge Function)</h4>
+                            <p className="text-xs text-gray-400">Configure e edite a URL do endpoint que recebe as notificações de vendas e cancelamentos da Hotmart.</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full self-start sm:self-center">
+                          {settings?.custom_texts?.['hotmart.webhook_url'] ? 'URL Personalizada' : 'URL Padrão'}
+                        </span>
+                      </div>
+
+                      <div className="space-y-5">
+                        {/* URL Campo */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-gray-300">
+                              URL do Endpoint do Webhook (Hotmart)
+                            </label>
+                            {settings?.custom_texts?.['hotmart.webhook_url'] && (
+                              <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                                URL Personalizada
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={customWebhookInput}
+                              onChange={(e) => setCustomWebhookInput(e.target.value)}
+                              placeholder="Ex: https://fhnmpltilhongdofnzbj.supabase.co/functions/v1/hotmart-webhook"
+                              className="w-full bg-black/90 border border-white/15 rounded-2xl px-4 py-3.5 text-xs text-amber-300 font-mono focus:border-amber-500 outline-none pr-10 shadow-inner"
+                            />
+                            {customWebhookInput && (
+                              <button
+                                onClick={() => setCustomWebhookInput('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white p-1"
+                                title="Limpar campo"
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Token Hottok Campo */}
+                        <div className="space-y-2 pt-3 border-t border-white/10">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-gray-300 flex items-center gap-2">
+                              <Lock size={14} className="text-amber-400" />
+                              <span>Token Hottok de Segurança da Hotmart</span>
+                              <span className="text-[10px] text-gray-400 font-normal hidden sm:inline">(Hotmart -&gt; Ferramentas -&gt; Webhook)</span>
+                            </label>
+                            {settings?.custom_texts?.['hotmart.webhook_token'] && (
+                              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                                <ShieldCheck size={12} /> Token Salvo
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="relative">
+                            <input
+                              type={showWebhookToken ? 'text' : 'password'}
+                              value={customWebhookTokenInput}
+                              onChange={(e) => setCustomWebhookTokenInput(e.target.value)}
+                              placeholder="Ex: QH9u3LRfb0nqliIJmAtPfHiNB0ftku560d3b84-5836-4f25-bf1c-acf98f6d1b8a"
+                              className="w-full bg-black/90 border border-white/15 rounded-2xl px-4 py-3 text-xs text-amber-300 font-mono focus:border-amber-500 outline-none pr-12 shadow-inner"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowWebhookToken(!showWebhookToken)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-amber-400 transition-colors p-1"
+                              title={showWebhookToken ? "Ocultar Token" : "Mostrar Token"}
+                            >
+                              {showWebhookToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          </div>
+
+                          <div className="bg-black/50 border border-amber-500/20 rounded-xl p-3 text-[11px] text-gray-300 space-y-1">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                              <ShieldCheck size={14} />
+                              <span>Segurança & Melhores Práticas (Zero Trust):</span>
+                            </div>
+                            <p className="text-gray-400 leading-relaxed">
+                              • Este token é o segredo compartilhado que impede requisições não autorizadas à sua Edge Function.<br />
+                              • Em produção, mantenha a chave no Supabase em <b>Edge Functions -&gt; Secrets -&gt; HOTMART_WEBHOOK_TOKEN</b>.<br />
+                              • Ao simular aqui no painel, a requisição é autenticada com segurança via servidor Node.js backend.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Botões de Ação posicionados ABAIXO da linha do Token */}
+                        <div className="flex flex-wrap items-center gap-3 pt-2">
+                          <button
+                            onClick={handleSaveWebhookUrl}
+                            disabled={isSavingWebhookUrl}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider px-6 py-3.5 rounded-2xl transition-all shadow-lg disabled:opacity-50"
+                            title="Salvar URL e Token no banco de dados"
+                          >
+                            {isSavingWebhookUrl ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                            <span>Salvar URL e Token</span>
+                          </button>
+
+                          <button
+                            onClick={handleTestWebhookUrl}
+                            disabled={isTestingWebhookUrl}
+                            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 font-bold text-xs uppercase tracking-wider px-5 py-3.5 rounded-2xl transition-all shadow-md disabled:opacity-50"
+                            title="Testar requisição GET nesta URL"
+                          >
+                            {isTestingWebhookUrl ? <Loader2 className="animate-spin text-amber-400" size={16} /> : <Globe size={16} />}
+                            <span>Testar Conexão</span>
+                          </button>
+                        </div>
+
+                        {/* Rodapé Informativo: Exemplos */}
+                        <div className="space-y-3 border-t border-white/10 pt-4 text-[11px] text-gray-400">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-emerald-400/90 font-medium">
+                              ✓ Compatível com Sandbox e Produção v2.0.0 da Hotmart
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            <div className="bg-black/50 p-3 rounded-xl border border-white/10 text-gray-400 space-y-1">
+                              <span className="text-amber-400 font-bold block text-xs">Exemplo do Formato da URL:</span>
+                              <code className="text-gray-300 font-mono text-[10px] break-all block bg-black/60 p-1.5 rounded border border-white/5">
+                                https://fhnmpltilhongdofnzbj.supabase.co/functions/v1/hotmart-webhook
+                              </code>
+                            </div>
+                            <div className="bg-black/50 p-3 rounded-xl border border-white/10 text-gray-400 space-y-1">
+                              <span className="text-amber-400 font-bold block text-xs">Exemplo do Token Hottok:</span>
+                              <code className="text-gray-300 font-mono text-[10px] break-all block bg-black/60 p-1.5 rounded border border-white/5">
+                                QH9u3LRfb0nqliIJmAtPfHiNB0ftku560d3b84-5836-4f25-bf1c-acf98f6d1b8a
+                              </code>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Live Webhook Tester Section */}
+                    <div className="bg-zinc-900/50 rounded-3xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400 border border-emerald-500/20">
+                          <Bot size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-white text-lg uppercase tracking-tight">Simulador de Webhook Live</h4>
+                          <p className="text-xs text-gray-400">Teste o envio de compras ou cancelamentos em tempo real sem afetar a Hotmart.</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-400">E-mail do Aluno / Comprador</label>
+                          <input
+                            type="email"
+                            value={simTestEmail}
+                            onChange={(e) => setSimTestEmail(e.target.value)}
+                            placeholder="aluno.teste@email.com"
+                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-400">Produto a Simular</label>
+                          <select
+                            value={simTestProductId}
+                            onChange={(e) => setSimTestProductId(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="">-- Produto Principal --</option>
+                            {mappedProducts.map(p => (
+                              <option key={p.id} value={p.hotmart_product_id}>
+                                {p.name} (ID: {p.hotmart_product_id})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-gray-400">Tipo de Evento</label>
+                          <select
+                            value={simTestEvent}
+                            onChange={(e) => setSimTestEvent(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="PURCHASE_APPROVED">Compra completa</option>
+                            <option value="PURCHASE_REFUNDED">Reembolso/Cancelamento</option>
+                            <option value="SUBSCRIPTION_INACTIVE">Assinatura inativa</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleSimulateWebhook}
+                          disabled={simulatingWebhook}
+                          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                        >
+                          {simulatingWebhook ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                          Executar Simulação
+                        </button>
+                      </div>
+
+                      {simResult && (
+                        <div className="bg-black/90 border border-white/10 rounded-2xl p-5 space-y-4 font-mono text-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-bold uppercase tracking-widest text-xs">Resultado do Disparo HTTP:</span>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${
+                                simResult.success || simResult.http_status === 200
+                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                  : simResult.http_status === 401
+                                  ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                  : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                              }`}>
+                                HTTP {simResult.http_status || (simResult.success ? 200 : 500)} {simResult.success ? 'OK' : 'ERRO'}
+                              </span>
+                            </div>
+
+                            {simResult.simulated_via && (
+                              <span className="text-[10px] bg-zinc-800 text-gray-300 px-2.5 py-1 rounded-lg border border-white/10 font-bold">
+                                Endpoint: {simResult.simulated_via === 'edge_function_url' ? simResult.target_url : 'Handler Interno de Fallback'}
+                              </span>
+                            )}
+                          </div>
+
+                          {simResult.http_status === 401 && (
+                            <div className="bg-red-950/50 border border-red-500/40 rounded-xl p-4 space-y-2 text-xs text-red-200">
+                              <div className="flex items-center gap-2 font-bold text-red-400">
+                                <AlertTriangle size={16} />
+                                <span>Aviso de Autenticação Hottok (HTTP 401)</span>
+                              </div>
+                              <p className="text-[11px] leading-relaxed text-red-300">
+                                A Edge Function do Supabase recusou a requisição porque o token <code className="bg-black/60 px-1 py-0.5 rounded text-amber-300">hottok</code> enviado na simulação ({simResult.sent_hottok || 'SIMULATION_TOKEN'}) não confere com o segredo <code className="bg-black/60 px-1 py-0.5 rounded text-amber-300">HOTMART_WEBHOOK_TOKEN</code> configurado na Edge Function do Supabase.
+                              </p>
+                              <div className="text-[11px] font-sans bg-black/40 p-2.5 rounded-lg border border-red-500/20 space-y-1">
+                                <span className="font-bold text-white">Como resolver em 1 passo:</span>
+                                <p>1. Copie o token Hottok exato da Hotmart e cole no campo <b>"Token Hottok de Segurança da Hotmart"</b> acima e clique em <b>"Salvar URL e Token"</b>.</p>
+                                <p>2. No painel do Supabase -&gt; Edge Functions -&gt; Secrets, adicione a variável <code className="text-amber-300 font-mono">HOTMART_WEBHOOK_TOKEN</code> com esse mesmo valor.</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {(!simResult.success || (simResult.http_status && simResult.http_status >= 400)) && simResult.http_status !== 401 && (
+                            <div className="bg-red-950/50 border border-red-500/40 rounded-xl p-4 space-y-2 text-xs text-red-200">
+                              <div className="flex items-center gap-2 font-bold text-red-400">
+                                <AlertTriangle size={16} />
+                                <span>Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".</span>
+                              </div>
+                              <p className="text-[11px] leading-relaxed text-red-300 font-mono">
+                                Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".
+                              </p>
+                              <div className="text-[11px] font-sans bg-black/40 p-2.5 rounded-lg border border-red-500/20 space-y-1">
+                                <span className="font-bold text-amber-300">Ação Recomendada:</span>
+                                <p>• <b>Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)"</b> configurada no painel abaixo do Catálogo de Produtos Mapeados.</p>
+                                <p>• Certifique-se de que a URL esteja correta e funcional.</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {simResult.sent_payload && (
+                            <div className="space-y-1">
+                              <span className="text-amber-400 font-bold text-[10px] uppercase tracking-wider">Payload POST Enviado (Formato Hotmart v2.0.0):</span>
+                              <pre className="text-gray-300 bg-black/60 p-3 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 custom-scrollbar">
+                                {JSON.stringify(simResult.sent_payload, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+
+                          <div className="space-y-1">
+                            <span className="text-emerald-400 font-bold text-[10px] uppercase tracking-wider">Resposta do Servidor (Body):</span>
+                            <pre className="text-gray-300 bg-black/60 p-3 rounded-xl border border-white/5 overflow-x-auto whitespace-pre-wrap max-h-48 custom-scrollbar">
+                              {JSON.stringify(simResult.result || simResult, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Webhook Events Audit Log */}
+                    <div className="bg-zinc-900/50 rounded-3xl border border-white/10 p-8 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-black text-white text-lg uppercase tracking-tight">Logs de Eventos Recebidos ({webhookLogs.length})</h4>
+                          <p className="text-xs text-gray-400">Histórico detalhado para auditoria e controle de idempotência.</p>
+                        </div>
+                        <button
+                          onClick={() => fetchCentralProducts(true)}
+                          disabled={isSyncingProducts}
+                          className="p-2.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-amber-400 rounded-xl transition-all border border-white/10 flex items-center gap-2 text-xs font-bold"
+                          title="Atualizar logs"
+                        >
+                          <RefreshCw size={16} className={isSyncingProducts ? "animate-spin text-amber-400" : ""} />
+                          <span>Atualizar</span>
+                        </button>
+                      </div>
+
+                      {webhookLogs.length === 0 ? (
+                        <p className="text-xs text-gray-500 text-center py-8 border border-white/5 rounded-2xl">
+                          Nenhum log de webhook registrado até o momento.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-gray-300">
+                            <thead className="bg-black/60 text-gray-500 uppercase font-black text-[10px] tracking-widest">
+                              <tr>
+                                <th className="p-4">Data/Hora</th>
+                                <th className="p-4">Comprador</th>
+                                <th className="p-4">Evento</th>
+                                <th className="p-4">ID Produto</th>
+                                <th className="p-4">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                              {webhookLogs.map((log) => (
+                                <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                                  <td className="p-4 font-mono text-gray-400">
+                                    {new Date(log.processed_at || log.created_at).toLocaleString('pt-BR')}
+                                  </td>
+                                  <td className="p-4 font-bold text-white">{log.buyer_email}</td>
+                                  <td className="p-4">
+                                    <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                                      log.event.includes('APPROVED') || log.event.includes('COMPLETE') ? 'bg-emerald-500/20 text-emerald-300' :
+                                      log.event.includes('REFUND') || log.event.includes('CANCEL') ? 'bg-red-500/20 text-red-300' : 'bg-blue-500/20 text-blue-300'
+                                    }`}>
+                                      {log.event}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 font-mono text-amber-300">{log.hotmart_product_id || 'N/A'}</td>
+                                  <td className="p-4">
+                                    <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                      {log.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === 'ai_expert' && (
                   <div className="max-w-5xl space-y-8 pb-20">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2818,25 +3878,51 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Texto do Botão de Compra de Cotas</label>
                                 <input
                                   type="text"
-                                  value={draftCustomTexts['ai_expert.buy_more_button_text'] ?? settings.custom_texts?.['ai_expert.buy_more_button_text'] ?? 'Buy More Messages'}
+                                  value={draftCustomTexts['ai_expert.buy_more_button_text'] ?? settings.custom_texts?.['ai_expert.buy_more_button_text'] ?? 'Upgrade to Unlimited Monthly'}
                                   onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.buy_more_button_text': e.target.value })}
                                   className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
-                                  placeholder="Ex: Buy More Messages"
+                                  placeholder="Ex: Upgrade to Unlimited Monthly"
                                 />
                                 <p className="text-[11px] text-gray-500">Rótulo do botão para adquirir mais mensagens.</p>
                               </div>
                             </div>
 
                             <div className="space-y-2">
-                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Link para Comprar Mais Cotas (URL)</label>
+                              <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Link do Checkout do Plano Ilimitado VIP (URL)</label>
                               <input
                                 type="url"
                                 value={draftCustomTexts['ai_expert.buy_more_url'] ?? settings.custom_texts?.['ai_expert.buy_more_url'] ?? ''}
                                 onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.buy_more_url': e.target.value })}
                                 className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
-                                placeholder="Ex: https://suapagina.com/checkout-mensagens"
+                                placeholder="Ex: https://checkout.seu-gateway.com/mensalidade-victoria-ilimitada"
                               />
-                              <p className="text-[11px] text-gray-500">Link direcionando a aluna para a página de upgrade ou compra de mais mensagens.</p>
+                              <p className="text-[11px] text-gray-500">Cole aqui o link do checkout (Hotmart, Kiwify, Stripe, etc.) para venda da mensalidade ilimitada da IA.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Benefício 1 do Card VIP (Texto)</label>
+                                <input
+                                  type="text"
+                                  value={draftCustomTexts['ai_expert.benefit_1'] ?? settings.custom_texts?.['ai_expert.benefit_1'] ?? 'Unlimited messages 24 hours a day, 7 days a week'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.benefit_1': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                  placeholder="Ex: Unlimited messages 24 hours a day, 7 days a week"
+                                />
+                                <p className="text-[11px] text-gray-500">Primeiro item de benefício exibido no modal de upgrade.</p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Benefício 2 do Card VIP (Texto)</label>
+                                <input
+                                  type="text"
+                                  value={draftCustomTexts['ai_expert.benefit_2'] ?? settings.custom_texts?.['ai_expert.benefit_2'] ?? 'Instant access with zero commitments'}
+                                  onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'ai_expert.benefit_2': e.target.value })}
+                                  className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3.5 text-white text-sm focus:border-rose-500 outline-none"
+                                  placeholder="Ex: Instant access with zero commitments"
+                                />
+                                <p className="text-[11px] text-gray-500">Segundo item de benefício exibido no modal de upgrade.</p>
+                              </div>
                             </div>
 
                             <div className="space-y-2">
@@ -3179,7 +4265,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             }
 
                             if (activePageTab === 'support') {
-                              updates.support_type = localSettings.support_type;
+                              updates.custom_texts['config.support_type'] = localSettings.support_type || 'floating';
                               updates.support_whatsapp_home_enabled = localSettings.support_whatsapp_home_enabled;
                               updates.support_email_home_enabled = localSettings.support_email_home_enabled;
                               updates.support_whatsapp_floating_enabled = localSettings.support_whatsapp_home_floating;
@@ -5324,128 +6410,498 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                 )}
 
                 {activeTab === 'vendas' && (
-                  <div className="space-y-6">
-                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                  <div className="space-y-8 pb-20">
+                    {/* Header */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-zinc-900/60 border border-white/10 p-6 rounded-3xl">
                       <div>
-                        <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Gerenciar Vendas</h3>
-                        <p className="text-sm text-gray-500">Acompanhe as compras realizadas pelos usuários.</p>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-2xl">
+                            <DollarSign size={24} />
+                          </div>
+                          <div>
+                            <h3 className="text-2xl font-black text-white uppercase tracking-tight">Gestão Oficial de Vendas</h3>
+                            <p className="text-xs text-gray-400">Fonte oficial de todas as vendas e transações em tempo real via Webhook da Hotmart.</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
-                        <div className="flex-1 lg:flex-none px-4 py-2 bg-green-600/10 border border-green-500/20 rounded-xl text-green-500 font-bold text-xs text-center">
-                          Total: R$ {(allPurchases.reduce((acc, sale) => {
-                            if (sale.is_manual || sale.transaction_id?.startsWith('manual')) return acc;
-                            const price = courses.find(c => c.id === sale.product_id)?.price || sale.courses?.price || 0;
-                            return acc + price;
-                          }, 0) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+
+                      <button
+                        onClick={fetchSalesData}
+                        disabled={loadingSales}
+                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-600/20"
+                      >
+                        <RefreshCw size={16} className={loadingSales ? 'animate-spin' : ''} />
+                        Atualizar Vendas
+                      </button>
+                    </div>
+
+                    {/* Metrics Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Metric 1 */}
+                      <div className="bg-zinc-900/50 border border-emerald-500/20 rounded-2xl p-5 space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">Total Vendido</span>
+                          <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                            <TrendingUp size={18} />
+                          </div>
                         </div>
-                        <div className="flex-1 lg:flex-none px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-xl text-blue-500 font-bold text-xs text-center">
-                          {allPurchases.length} Vendas
+                        <div className="text-2xl font-black text-emerald-400">
+                          R$ {(salesMetrics.totalRevenue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
+                        <p className="text-[10px] text-gray-500 font-semibold">Receita líquida total aprovada</p>
+                      </div>
+
+                      {/* Metric 2 */}
+                      <div className="bg-zinc-900/50 border border-blue-500/20 rounded-2xl p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">Qtd. de Vendas</span>
+                          <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                            <ShoppingBag size={18} />
+                          </div>
+                        </div>
+                        <div className="text-2xl font-black text-blue-400">
+                          {salesMetrics.totalCount || 0}
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-semibold">Transações aprovadas registradas</p>
+                      </div>
+
+                      {/* Metric 3 */}
+                      <div className="bg-zinc-900/50 border border-purple-500/20 rounded-2xl p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">Ticket Médio</span>
+                          <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                            <CreditCard size={18} />
+                          </div>
+                        </div>
+                        <div className="text-2xl font-black text-purple-400">
+                          R$ {(salesMetrics.averageTicket || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-semibold">Média por compra aprovada</p>
+                      </div>
+
+                      {/* Metric 4 */}
+                      <div className="bg-zinc-900/50 border border-red-500/20 rounded-2xl p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">Estornos / Canc.</span>
+                          <div className="p-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20">
+                            <XCircle size={18} />
+                          </div>
+                        </div>
+                        <div className="text-2xl font-black text-red-400">
+                          {(salesMetrics.refundCount || 0) + (salesMetrics.cancelCount || 0)}
+                        </div>
+                        <p className="text-[10px] text-gray-500 font-semibold">
+                          {salesMetrics.refundCount || 0} reembolsadas / {salesMetrics.cancelCount || 0} canceladas
+                        </p>
                       </div>
                     </div>
 
-                    <div className="bg-zinc-900/50 rounded-2xl border border-white/10 overflow-hidden">
+                    {/* Filter Bar */}
+                    <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-6 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+                        <div className="flex items-center gap-2 text-white font-bold text-sm uppercase tracking-wider">
+                          <Filter size={16} className="text-amber-500" />
+                          <span>Filtros Avançados de Vendas</span>
+                        </div>
+
+                        {/* Date Presets */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {[
+                            { id: 'all', label: 'Todo o Período' },
+                            { id: 'today', label: 'Hoje' },
+                            { id: '7days', label: 'Últimos 7 Dias' },
+                            { id: '30days', label: 'Últimos 30 Dias' },
+                            { id: 'month', label: 'Este Mês' },
+                          ].map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => applySalesDatePreset(p.id)}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                salesDatePreset === p.id
+                                  ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20 font-black'
+                                  : 'bg-zinc-800 text-gray-400 hover:text-white border border-white/5'
+                              }`}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                        {/* Start Date */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                            <Calendar size={12} /> Data Início
+                          </label>
+                          <input
+                            type="date"
+                            value={salesStartDate ? salesStartDate.split('T')[0] : ''}
+                            onChange={(e) => {
+                              setSalesDatePreset('custom');
+                              setSalesStartDate(e.target.value ? new Date(e.target.value).toISOString() : '');
+                            }}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          />
+                        </div>
+
+                        {/* End Date */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                            <Calendar size={12} /> Data Fim
+                          </label>
+                          <input
+                            type="date"
+                            value={salesEndDate ? salesEndDate.split('T')[0] : ''}
+                            onChange={(e) => {
+                              setSalesDatePreset('custom');
+                              setSalesEndDate(e.target.value ? new Date(e.target.value + 'T23:59:59').toISOString() : '');
+                            }}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          />
+                        </div>
+
+                        {/* Product Filter */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                            <Tag size={12} /> Produto
+                          </label>
+                          <select
+                            value={salesProductId}
+                            onChange={(e) => setSalesProductId(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="all">Todos os Produtos</option>
+                            {mappedProducts.map(p => (
+                              <option key={p.id} value={p.hotmart_product_id}>
+                                {p.name} ({p.hotmart_product_id})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Product Type */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Tipo de Produto</label>
+                          <select
+                            value={salesProductType}
+                            onChange={(e) => setSalesProductType(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="all">Todos os Tipos</option>
+                            <option value="main_product">Produto Principal</option>
+                            <option value="ai_subscription">Assinatura IA</option>
+                            <option value="course">Curso Individual</option>
+                            <option value="package">Pacote de Cursos</option>
+                          </select>
+                        </div>
+
+                        {/* Status */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Status</label>
+                          <select
+                            value={salesStatus}
+                            onChange={(e) => setSalesStatus(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="all">Todos os Status</option>
+                            <option value="approved">Aprovada</option>
+                            <option value="refunded">Reembolsada</option>
+                            <option value="canceled">Cancelada</option>
+                            <option value="chargeback">Chargeback</option>
+                          </select>
+                        </div>
+
+                        {/* Payment Type */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Pagamento</label>
+                          <select
+                            value={salesPaymentType}
+                            onChange={(e) => setSalesPaymentType(e.target.value)}
+                            className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 outline-none"
+                          >
+                            <option value="all">Todos os Métodos</option>
+                            <option value="PIX">PIX</option>
+                            <option value="CREDIT_CARD">Cartão de Crédito</option>
+                            <option value="BANK_SLIP">Boleto Bancário</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Search Bar & Clear Button */}
+                      <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                        <div className="flex-1 relative">
+                          <Search size={16} className="absolute left-3 top-3 text-gray-500" />
+                          <input
+                            type="text"
+                            value={salesSearch}
+                            onChange={(e) => setSalesSearch(e.target.value)}
+                            placeholder="Buscar por nome do aluno, e-mail ou código HP..."
+                            className="w-full bg-black border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:border-amber-500 outline-none"
+                          />
+                        </div>
+
+                        {(salesStartDate || salesEndDate || salesProductId !== 'all' || salesProductType !== 'all' || salesStatus !== 'all' || salesPaymentType !== 'all' || salesSearch || salesDatePreset !== 'all') && (
+                          <button
+                            onClick={() => {
+                              setSalesStartDate('');
+                              setSalesEndDate('');
+                              setSalesProductId('all');
+                              setSalesProductType('all');
+                              setSalesStatus('all');
+                              setSalesPaymentType('all');
+                              setSalesSearch('');
+                              setSalesDatePreset('all');
+                            }}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-gray-300 border border-white/10 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
+                          >
+                            Limpar Filtros
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Analytics Row */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Top Products */}
+                      <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                          <BarChart3 size={18} className="text-emerald-400" />
+                          <h4 className="font-bold text-white text-sm uppercase tracking-wider">Produtos Mais Vendidos (Faturamento)</h4>
+                        </div>
+
+                        {salesMetrics.topProducts && salesMetrics.topProducts.length > 0 ? (
+                          <div className="space-y-3">
+                            {salesMetrics.topProducts.map((p: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between bg-black/40 p-3 rounded-xl border border-white/5">
+                                <div className="flex items-center gap-3">
+                                  <span className={`w-6 h-6 flex items-center justify-center rounded-lg font-black text-xs ${
+                                    idx === 0 ? 'bg-amber-500 text-black' : idx === 1 ? 'bg-gray-300 text-black' : idx === 2 ? 'bg-amber-700 text-white' : 'bg-zinc-800 text-gray-400'
+                                  }`}>
+                                    #{idx + 1}
+                                  </span>
+                                  <div>
+                                    <span className="text-xs font-bold text-white block">{p.name}</span>
+                                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">{p.count} venda(s) realizada(s)</span>
+                                  </div>
+                                </div>
+                                <span className="text-sm font-black text-emerald-400">
+                                  R$ {p.total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500 py-4 text-center">Nenhum dado de vendas aprovadas no período.</p>
+                        )}
+                      </div>
+
+                      {/* Payment Method Distribution */}
+                      <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                          <CreditCard size={18} className="text-purple-400" />
+                          <h4 className="font-bold text-white text-sm uppercase tracking-wider">Métodos de Pagamento Utilizados</h4>
+                        </div>
+
+                        {salesMetrics.paymentTypeDistribution && Object.keys(salesMetrics.paymentTypeDistribution).length > 0 ? (
+                          <div className="space-y-4">
+                            {Object.entries(salesMetrics.paymentTypeDistribution).map(([method, data]: [string, any]) => {
+                              const pct = salesMetrics.totalCount ? Math.round((data.count / salesMetrics.totalCount) * 100) : 0;
+                              return (
+                                <div key={method} className="space-y-1.5">
+                                  <div className="flex justify-between items-center text-xs">
+                                    <span className="font-bold text-white uppercase">{method === 'CREDIT_CARD' ? 'Cartão de Crédito' : method === 'BANK_SLIP' ? 'Boleto Bancário' : method}</span>
+                                    <span className="text-gray-400 font-mono">{data.count} vendas ({pct}%) - R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                  </div>
+                                  <div className="w-full bg-black rounded-full h-2 overflow-hidden border border-white/5">
+                                    <div
+                                      className="bg-purple-500 h-full rounded-full transition-all duration-500"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500 py-4 text-center">Nenhum método registrado no período.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sales Table */}
+                    <div className="bg-zinc-900/50 rounded-2xl border border-white/10 overflow-hidden space-y-2">
+                      <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
+                          Listagem de Transações ({salesList.length})
+                        </span>
+                        {loadingSales && <Loader2 className="animate-spin text-emerald-400" size={16} />}
+                      </div>
+
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left min-w-[700px]">
+                        <table className="w-full text-left min-w-[900px]">
                           <thead>
                             <tr className="border-b border-white/10 bg-white/5">
-                              <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-widest">Data</th>
-                              <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-widest">Aluno</th>
-                              <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-widest">Curso / Produto</th>
-                              <th className="px-6 py-4 text-xs font-black text-gray-500 uppercase tracking-widest">Valor</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Data / Hora</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Transação (HP)</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Aluno / Comprador</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Produto</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Método</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Valor</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                              <th className="px-5 py-3.5 text-[11px] font-black text-gray-400 uppercase tracking-widest text-center">Ações</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-white/5">
-                            {allPurchases.length === 0 ? (
+                            {salesList.length === 0 ? (
                               <tr>
-                                <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                                  Nenhuma venda encontrada.
+                                <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                                  Nenhuma venda encontrada com os filtros selecionados.
                                 </td>
                               </tr>
                             ) : (
-                              allPurchases.map((sale) => (
-                                <tr key={sale.id} className="hover:bg-white/5 transition-colors group">
-                                  <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center gap-2">
-                                      <Clock size={14} className="text-gray-600" />
-                                      <span className="text-xs text-gray-400 font-medium">
-                                        {new Date(sale.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-bold text-white uppercase tracking-tighter">{sale.profiles?.full_name || 'Usuário'}</span>
-                                      <span className="text-[10px] text-gray-500 font-medium lowercase italic">({sale.profiles?.email || 'N/A'})</span>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                    <div className="flex items-center gap-2">
-                                      <BookOpen size={14} className="text-blue-500" />
-                                      <span className="text-sm font-bold text-gray-300 uppercase tracking-tight">
-                                        {(() => {
-                                          const cObj = courses.find(c => c.id === sale.product_id);
-                                          const isMain = cObj ? (cObj.is_free && !cObj.is_bonus) : (sale.product_id === settings?.main_course_hotmart_id || sale.product_id === settings?.custom_texts?.['main_product_id']);
-                                          
-                                          if (isMain) {
-                                            return (
-                                              <span className="flex flex-col">
-                                                <span>Produtos Principais</span>
-                                                {(sale.is_manual || sale.transaction_id?.startsWith('manual')) && (
-                                                  <span className="text-[10px] text-blue-400 font-normal normal-case mt-0.5">
-                                                    (curso atribuído pelo admin)
-                                                  </span>
-                                                )}
-                                              </span>
-                                            );
-                                          }
+                              salesList.map((sale) => {
+                                const isAppr = sale.status === 'approved';
+                                const isRef = sale.status === 'refunded';
+                                const isCanc = sale.status === 'canceled';
 
-                                          const courseTitle = cObj?.title;
-                                          const pkgTitle = coursePackages.find(p => p.id === sale.product_id || p.hotmart_product_id === sale.product_id)?.title;
-                                          return (
-                                            <span className="flex flex-col">
-                                              <span>{courseTitle || pkgTitle || sale.courses?.title || (sale as any).course_packages?.title || 'Produto Removido'}</span>
-                                              {(sale.is_manual || sale.transaction_id?.startsWith('manual')) && (
-                                                <span className="text-[10px] text-blue-400 font-normal normal-case mt-0.5">
-                                                  (curso atribuído pelo admin)
-                                                </span>
-                                              )}
-                                            </span>
-                                          );
-                                        })()}
+                                return (
+                                  <tr key={sale.id || sale.transaction_id} className="hover:bg-white/5 transition-colors">
+                                    <td className="px-5 py-4 whitespace-nowrap text-xs text-gray-300 font-medium">
+                                      {new Date(sale.purchase_date || sale.created_at).toLocaleDateString('pt-BR', {
+                                        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                                      })}
+                                    </td>
+                                    <td className="px-5 py-4 whitespace-nowrap">
+                                      <span className="font-mono text-[11px] bg-black/60 px-2.5 py-1 rounded-lg border border-white/10 text-amber-300 font-bold">
+                                        {sale.transaction_id || 'N/A'}
                                       </span>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                    <span className={`text-sm font-black ${(sale.is_manual || sale.transaction_id?.startsWith('manual')) ? 'text-gray-500' : 'text-green-500'}`}>
-                                      {(() => {
-                                        if (sale.is_manual || sale.transaction_id?.startsWith('manual')) return 'R$ 0,00';
-                                        
-                                        const cObj = courses.find(c => c.id === sale.product_id);
-                                        const isMain = cObj ? (cObj.is_free && !cObj.is_bonus) : (sale.product_id === settings?.main_course_hotmart_id || sale.product_id === settings?.custom_texts?.['main_product_id']);
-                                        
-                                        if (isMain) {
-                                          const priceStr = settings?.custom_texts?.['main_price'] || '';
-                                          const priceInt = parseInt(priceStr.replace(/\D/g, '')) || 0;
-                                          if (priceInt > 0) {
-                                            return `R$ ${(priceInt / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-                                          }
-                                        }
-                                        
-                                        const price = cObj?.price || sale.courses?.price;
-                                        return price 
-                                          ? `R$ ${(price / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                                          : 'R$ 0,00';
-                                      })()}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))
+                                    </td>
+                                    <td className="px-5 py-4">
+                                      <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-white">{sale.buyer_name || 'Aluno'}</span>
+                                        <span className="text-[10px] text-gray-400 font-mono">{sale.buyer_email}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                      <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-gray-200">{sale.product_name}</span>
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          <span className="text-[10px] bg-zinc-800 text-gray-400 px-2 py-0.5 rounded border border-white/5 font-semibold">
+                                            ID: {sale.product_id}
+                                          </span>
+                                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                                            sale.product_type === 'main_product' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                            sale.product_type === 'ai_subscription' ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30' :
+                                            'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                          }`}>
+                                            {sale.product_type === 'main_product' ? 'Principal' : sale.product_type === 'ai_subscription' ? 'IA VIP' : 'Curso'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-4 whitespace-nowrap">
+                                      <span className="text-[11px] font-bold text-gray-300 uppercase bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                                        {sale.payment_type === 'CREDIT_CARD' ? 'Cartão' : sale.payment_type === 'BANK_SLIP' ? 'Boleto' : sale.payment_type || 'PIX'}
+                                      </span>
+                                    </td>
+                                    <td className="px-5 py-4 whitespace-nowrap">
+                                      <span className={`text-sm font-black ${isAppr ? 'text-emerald-400' : 'text-gray-500 line-through'}`}>
+                                        R$ {Number(sale.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </td>
+                                    <td className="px-5 py-4 whitespace-nowrap">
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider ${
+                                        isAppr ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                        isRef ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                        isCanc ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                                        'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                      }`}>
+                                        {isAppr ? 'Aprovada' : isRef ? 'Reembolsada' : isCanc ? 'Cancelada' : sale.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-5 py-4 whitespace-nowrap text-center">
+                                      <button
+                                        onClick={() => setSelectedSaleDetail(sale)}
+                                        className="p-2 bg-zinc-800 hover:bg-zinc-700 text-gray-300 hover:text-white rounded-xl border border-white/10 transition-all"
+                                        title="Ver Payload e Detalhes do Webhook"
+                                      >
+                                        <Eye size={16} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>
                       </div>
                     </div>
+
+                    {/* Payload Audit Modal */}
+                    {selectedSaleDetail && (
+                      <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+                        <div className="bg-zinc-900 border border-white/10 rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+                          <div className="p-6 border-b border-white/10 flex items-center justify-between bg-black/40">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
+                                <DollarSign size={20} />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-white text-base">Detalhes da Venda & Webhook Payload</h4>
+                                <p className="text-xs text-gray-400 font-mono">Transação: {selectedSaleDetail.transaction_id}</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setSelectedSaleDetail(null)}
+                              className="p-2 text-gray-400 hover:text-white rounded-xl hover:bg-white/10"
+                            >
+                              <X size={20} />
+                            </button>
+                          </div>
+
+                          <div className="p-6 overflow-y-auto space-y-6">
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                              <div className="bg-black/50 p-3 rounded-xl border border-white/5">
+                                <span className="text-gray-500 text-[10px] block font-bold uppercase">Aluno</span>
+                                <span className="text-white font-bold block">{selectedSaleDetail.buyer_name}</span>
+                                <span className="text-gray-400 text-[11px] font-mono">{selectedSaleDetail.buyer_email}</span>
+                              </div>
+                              <div className="bg-black/50 p-3 rounded-xl border border-white/5">
+                                <span className="text-gray-500 text-[10px] block font-bold uppercase">Produto</span>
+                                <span className="text-white font-bold block">{selectedSaleDetail.product_name}</span>
+                                <span className="text-amber-400 text-[11px] font-mono">ID Hotmart: {selectedSaleDetail.product_id}</span>
+                              </div>
+                              <div className="bg-black/50 p-3 rounded-xl border border-white/5 col-span-2 sm:col-span-1">
+                                <span className="text-gray-500 text-[10px] block font-bold uppercase">Valor & Status</span>
+                                <span className="text-emerald-400 font-black text-sm block">R$ {Number(selectedSaleDetail.amount || 0).toFixed(2)}</span>
+                                <span className="text-gray-400 text-[10px] uppercase font-bold">{selectedSaleDetail.status} ({selectedSaleDetail.payment_type})</span>
+                              </div>
+                            </div>
+
+                            {/* Raw Payload JSON */}
+                            <div className="space-y-2">
+                              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
+                                Payload Original do Webhook Hotmart (JSON Audit)
+                              </span>
+                              <pre className="bg-black p-4 rounded-2xl border border-white/10 font-mono text-[11px] text-amber-200/90 overflow-x-auto max-h-72">
+                                {JSON.stringify(selectedSaleDetail.raw_payload || selectedSaleDetail, null, 2)}
+                              </pre>
+                            </div>
+                          </div>
+
+                          <div className="p-4 border-t border-white/10 bg-black/40 flex justify-end">
+                            <button
+                              onClick={() => setSelectedSaleDetail(null)}
+                              className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-wider"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {activeTab === 'security' && (
@@ -6021,6 +7477,186 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Product Mapping Modal */}
+      {showProductModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-zinc-900 border border-white/10 rounded-3xl max-w-xl w-full p-8 space-y-6 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <Store className="text-amber-400" size={24} />
+                <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                  {editingProduct ? 'Editar Produto Hotmart' : 'Mapear Novo Produto Hotmart'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowProductModal(false)}
+                className="p-2 text-gray-500 hover:text-white rounded-xl bg-white/5 hover:bg-white/10 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">ID do Produto Hotmart</label>
+                <input
+                  type="text"
+                  value={productForm.hotmart_product_id}
+                  onChange={(e) => setProductForm({ ...productForm, hotmart_product_id: e.target.value })}
+                  placeholder="Ex: 3892019 (Deixe em branco se for cadastrar depois)"
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none font-mono"
+                />
+                <p className="text-[10px] text-gray-500">ID numérico da Hotmart. Se deixado em branco, o produto será marcado com o aviso "Cadastrar ID Hotmart (Pendente)".</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Nome Comercial do Produto *</label>
+                <input
+                  type="text"
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  placeholder="Ex: Acesso Geral Plataforma ou Curso Completo"
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Tipo do Produto *</label>
+                  <select
+                    value={productForm.product_type}
+                    onChange={(e) => setProductForm({ ...productForm, product_type: e.target.value, internal_target_id: '' })}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                  >
+                    <option value="main_product">PRODUTO PRINCIPAL (Acesso Geral à Plataforma)</option>
+                    <option value="course">CURSO INDIVIDUAL PAGO</option>
+                    <option value="package">PACOTE DE CURSOS / OFERTA ESPECIAL</option>
+                    <option value="ai_subscription">ASSINATURA IA EXPERT (Ilimitada)</option>
+                  </select>
+                </div>
+
+                {productForm.product_type === 'course' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Selecione o Curso Destino *</label>
+                    <select
+                      value={productForm.internal_target_id}
+                      onChange={(e) => setProductForm({ ...productForm, internal_target_id: e.target.value })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                    >
+                      <option value="">-- Selecione o Curso --</option>
+                      {courses
+                        .filter(c => c.is_free !== true && c.is_bonus !== true && c.is_package_exclusive_bonus !== true)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>{c.title}</option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+
+                {productForm.product_type === 'package' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Selecione o Pacote Destino *</label>
+                    <select
+                      value={productForm.internal_target_id}
+                      onChange={(e) => setProductForm({ ...productForm, internal_target_id: e.target.value })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                    >
+                      <option value="">-- Selecione o Pacote --</option>
+                      {coursePackages.map(p => (
+                        <option key={p.id} value={p.id}>{p.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Link de Checkout Hotmart (Opcional)</label>
+                <input
+                  type="url"
+                  value={productForm.checkout_url}
+                  onChange={(e) => setProductForm({ ...productForm, checkout_url: e.target.value })}
+                  placeholder="https://pay.hotmart.com/..."
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Descrição Interna (Opcional)</label>
+                <textarea
+                  value={productForm.description}
+                  onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                  placeholder="Anotações para equipe técnica..."
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none h-20"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowProductModal(false)}
+                className="px-5 py-3 rounded-xl text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveProduct}
+                className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider text-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg"
+              >
+                Salvar Produto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Exclusão Elegante */}
+      {deletingProduct && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-red-500/30 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-red-500/10 rounded-2xl text-red-500 border border-red-500/20 shrink-0">
+                <AlertTriangle size={28} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">Confirmar Exclusão</h3>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Tem certeza que deseja remover o produto <strong className="text-white">"{deletingProduct.name}"</strong> do catálogo?
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-xs text-gray-400 space-y-1.5">
+              <p>• Este produto deixará de ser reconhecido via Webhook.</p>
+              <p>• Compras já liberadas aos alunos não serão canceladas.</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingProduct(null)}
+                className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs rounded-xl transition-all border border-white/10"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const id = deletingProduct.id;
+                  setDeletingProduct(null);
+                  await handleDeleteProduct(id);
+                }}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-red-600/20 flex items-center gap-2"
+              >
+                <Trash2 size={14} /> Sim, Excluir Produto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
     </div>
   </div>

@@ -27,6 +27,7 @@ import { cn } from '../lib/utils';
 import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 import AiAssistantModal from '../components/AiAssistantModal';
+import AccessDeniedModal from '../components/AccessDeniedModal';
 
 // Lazy load heavy components
 const Profile = lazyWithRetry(() => import('../components/Profile'));
@@ -53,6 +54,7 @@ export default function Dashboard({ user }: DashboardProps) {
   const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
   const [purchases, setPurchases] = useState<{product_id: string, created_at: any}[]>([]);
   const [userProgress, setUserProgress] = useState<any[]>([]);
+  const [userProfile, setUserProfile] = useState<{ has_access?: boolean; has_unlimited_ai?: boolean; is_admin?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -60,6 +62,40 @@ export default function Dashboard({ user }: DashboardProps) {
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (isAiModalOpen && user?.id) {
+      const fetchProfile = async () => {
+        const isUUID = (str?: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
+
+        let profileData = null;
+        if (isUUID(user.id)) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('has_access, has_unlimited_ai, is_admin')
+            .eq('id', user.id)
+            .maybeSingle();
+          profileData = data;
+        }
+
+        if (!profileData && user.email) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('has_access, has_unlimited_ai, is_admin')
+            .eq('email', user.email.toLowerCase())
+            .maybeSingle();
+          profileData = data;
+        }
+
+        if (profileData) {
+          setUserProfile(profileData);
+        }
+      };
+
+      fetchProfile().catch(e => console.warn('Error fetching profile in AI modal:', e));
+    }
+  }, [isAiModalOpen, user?.id, user?.email]);
   const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
     try {
       const hash = window.location.hash.replace('#', '');
@@ -226,20 +262,63 @@ export default function Dashboard({ user }: DashboardProps) {
     }
 
     try {
-      const [coursesRes, purchasesRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
+      const isUUID = (str?: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
+
+      // Execute primary queries safely
+      const [coursesRes, purchasesByIdRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
         supabase.from('courses').select('*').eq('is_active', true),
         supabase.from('purchases').select('product_id, created_at').eq('user_id', user.id),
         supabase.from('user_progress').select('*').eq('user_id', user.id),
         supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)'),
-        supabase.from('chapters').select('id, content_type, modules!inner(course_id)')
+        supabase.from('chapters').select('id, content_type, modules!inner(course_id)'),
       ]);
 
       if (coursesRes.error) throw coursesRes.error;
-      if (purchasesRes.error) throw purchasesRes.error;
+      if (purchasesByIdRes.error) throw purchasesByIdRes.error;
       if (progressRes.error) throw progressRes.error;
       if (chaptersRes.error) throw chaptersRes.error;
 
-      const basePurchases = purchasesRes.data || [];
+      // Handle purchases by email if applicable
+      let basePurchases = purchasesByIdRes.data || [];
+      if (user.email && user.email.toLowerCase() !== user.id) {
+        const { data: emailPurchases } = await supabase
+          .from('purchases')
+          .select('product_id, created_at')
+          .eq('user_id', user.email.toLowerCase());
+        if (emailPurchases && emailPurchases.length > 0) {
+          const existingProductIds = new Set(basePurchases.map(p => p.product_id));
+          emailPurchases.forEach(ep => {
+            if (!existingProductIds.has(ep.product_id)) {
+              basePurchases.push(ep);
+              existingProductIds.add(ep.product_id);
+            }
+          });
+        }
+      }
+
+      // Handle profile safely
+      let profileData = null;
+      if (isUUID(user.id)) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('has_access, has_unlimited_ai, is_admin')
+          .eq('id', user.id)
+          .maybeSingle();
+        profileData = data;
+      }
+      if (!profileData && user.email) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('has_access, has_unlimited_ai, is_admin')
+          .eq('email', user.email.toLowerCase())
+          .maybeSingle();
+        profileData = data;
+      }
+
+      if (profileData) {
+        setUserProfile(profileData);
+      }
       const purchasedIds = basePurchases.map(p => p.product_id);
       
       const unlockedByPackages = new Set<string>();
@@ -852,10 +931,20 @@ export default function Dashboard({ user }: DashboardProps) {
       <FloatingWhatsApp page={activeTab as any} />
       <AiAssistantModal 
         userId={user?.id}
+        userEmail={user?.email}
         userName={user?.user_metadata?.full_name || user?.email?.split('@')[0]} 
         userAvatar={user?.user_metadata?.avatar_url}
         isOpen={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
+        hasUnlimitedAi={
+          (userProfile?.has_unlimited_ai === false || user?.user_metadata?.has_unlimited_ai === false)
+            ? false
+            : Boolean(
+                userProfile?.has_unlimited_ai === true || 
+                userProfile?.is_admin === true ||
+                user?.user_metadata?.has_unlimited_ai === true
+              )
+        }
       />
       
       <PWAInstallModal 
@@ -874,6 +963,11 @@ export default function Dashboard({ user }: DashboardProps) {
           return false;
         }}
       />
+
+      {/* Access Denied / Inactive Subscription Overlay */}
+      {userProfile && userProfile.has_access === false && !isAdmin && (
+        <AccessDeniedModal userEmail={user.email || ''} />
+      )}
     </div>
   );
 }

@@ -195,6 +195,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           )) {
             delete data.custom_texts['course.admin_answer'];
           }
+          if (data.custom_texts['config.support_type']) {
+            data.support_type = data.custom_texts['config.support_type'];
+          }
         }
         setSettings(data);
         applyTheme(data);

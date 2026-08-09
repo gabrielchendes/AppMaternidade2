@@ -29,7 +29,8 @@ import {
   Award,
   MessageSquare,
   Link,
-  Lock
+  Lock,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Course, Module, Chapter } from '../types/lms';
@@ -112,6 +113,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
   const [showLivePreview, setShowLivePreview] = useState(false);
   const [showModuleEditor, setShowModuleEditor] = useState(false);
   const [editingModule, setEditingModule] = useState<Partial<Module>>({ title: '' });
+  const [showMissingHotmartModal, setShowMissingHotmartModal] = useState(false);
 
   // Course State
   const [course, setCourse] = useState<Partial<Course>>({
@@ -280,23 +282,32 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     }
   };
 
-  const handleSaveCourse = async () => {
+  const handleSaveCourse = async (confirmed: boolean = false) => {
     if (!course.title) {
       toast.error('O título do curso é obrigatório');
       return;
     }
 
+    const isIndividualPaid = !course.is_free && !course.is_bonus && !course.is_package_exclusive_bonus;
+    const finalHotmartId = isIndividualPaid ? (course.hotmart_product_id?.trim() || null) : null;
+    const finalCheckoutUrl = isIndividualPaid ? (course.checkout_url?.trim() || null) : null;
+
+    if (isIndividualPaid && !finalHotmartId && !confirmed) {
+      setShowMissingHotmartModal(true);
+      return;
+    }
+
     try {
       setSaving(true);
-      const isFree = course.is_free;
+
       const courseData = {
         title: course.title,
         description: course.description || '',
         cover_url: course.cover_url,
         is_active: course.is_active,
-        is_free: isFree,
+        is_free: course.is_free,
         is_bonus: course.is_bonus,
-        price: (isFree && course.is_bonus) ? 0 : course.price,
+        price: (course.is_free || course.is_bonus) ? 0 : course.price,
         old_price: course.old_price || 0,
         subtitle: course.subtitle || '',
         benefits: (course.benefits || []).filter(b => b.trim() !== ''),
@@ -339,19 +350,31 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         preview_show_social_proof: course.preview_show_social_proof !== undefined ? course.preview_show_social_proof : true,
         preview_show_bonus: course.preview_show_bonus !== undefined ? course.preview_show_bonus : true,
         preview_show_trust: course.preview_show_trust !== undefined ? course.preview_show_trust : true,
-        checkout_url: (isFree && course.is_bonus) ? null : course.checkout_url,
-        hotmart_product_id: (isFree && course.is_bonus) ? null : course.hotmart_product_id,
+        checkout_url: finalCheckoutUrl,
+        hotmart_product_id: finalHotmartId,
         linked_package_id: course.linked_package_id || null,
         is_package_exclusive_bonus: course.is_package_exclusive_bonus || false
       };
 
       if (courseId) {
         const { error } = await supabase.from('courses').update(courseData).eq('id', courseId);
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505' || error.message?.includes('unique') || error.message?.includes('duplicate key')) {
+            toast.error('Erro ao salvar: O ID do Produto Hotmart informado já está sendo utilizado por outro curso!');
+            return;
+          }
+          throw error;
+        }
         toast.success('Informações salvas!');
       } else {
         const { data, error } = await supabase.from('courses').insert([courseData]).select().single();
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505' || error.message?.includes('unique') || error.message?.includes('duplicate key')) {
+            toast.error('Erro ao salvar: O ID do Produto Hotmart informado já está sendo utilizado por outro curso!');
+            return;
+          }
+          throw error;
+        }
         setCourseId(data.id);
         setCourse(data);
         toast.success('Curso criado!');
@@ -382,15 +405,18 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           return;
         }
 
-        const isFree = course.is_free;
+        const isIndividualPaid = !course.is_free && !course.is_bonus && !course.is_package_exclusive_bonus;
+        const finalHotmartId = isIndividualPaid ? (course.hotmart_product_id?.trim() || null) : null;
+        const finalCheckoutUrl = isIndividualPaid ? (course.checkout_url?.trim() || null) : null;
+
         const courseData = {
           title: course.title,
           description: course.description || '',
           cover_url: course.cover_url,
           is_active: course.is_active,
-          is_free: isFree,
+          is_free: course.is_free,
           is_bonus: course.is_bonus,
-          price: (isFree && course.is_bonus) ? 0 : course.price,
+          price: (course.is_free || course.is_bonus) ? 0 : course.price,
           old_price: course.old_price || 0,
           subtitle: course.subtitle || '',
           benefits: (course.benefits || []).filter(b => b.trim() !== ''),
@@ -433,14 +459,21 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           preview_show_social_proof: course.preview_show_social_proof !== undefined ? course.preview_show_social_proof : true,
           preview_show_bonus: course.preview_show_bonus !== undefined ? course.preview_show_bonus : true,
           preview_show_trust: course.preview_show_trust !== undefined ? course.preview_show_trust : true,
-          checkout_url: (isFree && course.is_bonus) ? null : course.checkout_url,
-          hotmart_product_id: (isFree && course.is_bonus) ? null : course.hotmart_product_id,
+          checkout_url: finalCheckoutUrl,
+          hotmart_product_id: finalHotmartId,
           linked_package_id: course.linked_package_id || null,
           is_package_exclusive_bonus: course.is_package_exclusive_bonus || false
         };
 
         const { data: newCourse, error: courseError } = await supabase.from('courses').insert([courseData]).select().single();
-        if (courseError) throw courseError;
+        if (courseError) {
+          if (courseError.code === '23505' || courseError.message?.includes('unique') || courseError.message?.includes('duplicate key')) {
+            toast.error('Erro ao salvar: O ID do Produto Hotmart informado já está sendo utilizado por outro curso!');
+            setSaving(false);
+            return;
+          }
+          throw courseError;
+        }
         
         currentCourseId = newCourse.id;
         setCourseId(newCourse.id);
@@ -573,7 +606,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
 
         <div className="flex items-center gap-4">
           <button 
-            onClick={handleSaveCourse}
+            onClick={() => handleSaveCourse(false)}
             disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-lg shadow-blue-600/20"
           >
@@ -2387,6 +2420,57 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         }
       }}
     />
+
+    {/* Modal Warning Popup for Blank Hotmart ID */}
+    <AnimatePresence>
+      {showMissingHotmartModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 15 }}
+            className="bg-zinc-900 border border-amber-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px] pointer-events-none" />
+
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-6 mx-auto">
+              <AlertTriangle size={32} />
+            </div>
+
+            <h3 className="text-xl font-black text-white text-center uppercase tracking-tight italic mb-3">
+              ID Hotmart em Branco
+            </h3>
+
+            <p className="text-xs text-gray-300 text-center leading-relaxed mb-8">
+              Você está cadastrando um <strong className="text-amber-400 font-bold">Curso Pago Individual</strong>, porém o <strong className="text-white font-bold">ID do Produto Hotmart</strong> está em branco.
+              <br /><br />
+              O curso será salvo no catálogo, porém <strong className="text-red-400 font-bold">as liberações automáticas pós-compra via Webhook só funcionarão após você cadastrar o ID Hotmart</strong>.
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMissingHotmartModal(false);
+                  handleSaveCourse(true);
+                }}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-black font-black py-4 rounded-2xl transition-all text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+              >
+                <Check size={16} /> ENTENDIDO, SALVAR MESMO ASSIM
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowMissingHotmartModal(false)}
+                className="w-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white font-bold py-3 rounded-2xl transition-all text-[11px] uppercase tracking-wider text-center cursor-pointer"
+              >
+                VOLTAR E PREENCHER ID
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   </div>
 );
 }

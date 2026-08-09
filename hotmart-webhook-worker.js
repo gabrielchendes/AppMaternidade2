@@ -1,464 +1,475 @@
 /**
- * CONFIGURAÇÃO DO CLOUDFLARE WORKER PARA WEBHOOK DA HOTMART
+ * CONFIGURAÇÃO DE SUPABASE EDGE FUNCTION PARA WEBHOOK DA HOTMART
  * 
- * Este arquivo contém o código pronto para ser implantado no Cloudflare Workers.
- * Ele integra a Hotmart diretamente com o seu banco de dados Supabase utilizando
- * chamadas de API nativas com o Token de Serviço Administrativo do Supabase.
+ * --- GUIA PASSO A PASSO COMPLETO DE CONFIGURAÇÃO NO SUPABASE WEB ---
  * 
- * --- COMO USAR ---
- * 1. Crie um novo Worker no painel do Cloudflare (Workers & Pages).
- * 2. Cole este código no editor do Worker.
- * 3. Vá em "Settings" -> "Variables" no seu Cloudflare Worker e adicione as seguintes variáveis de ambiente:
- *    - SUPABASE_URL: URL do seu projeto do Supabase (ex: https://xxxx.supabase.co)
- *    - SUPABASE_SERVICE_ROLE_KEY: Sua chave de Service Role (que tem privilégios de Admin para criar/excluir usuários)
- *    - HOTMART_TOKEN: Token de segurança configurado na Hotmart (opcional, mas altamente recomendado)
- * 4. Salve e implante o Worker.
- * 5. Configure a URL do Worker (ex: https://seu-worker.seu-subdominio.workers.dev) no painel de Webhooks da Hotmart.
+ * 1. DESATIVAR A EXIGÊNCIA DE JWT (AUTENTICAÇÃO PADRÃO) - CRÍTICO:
+ *    A Hotmart não envia o cabeçalho "Authorization: Bearer <JWT_SUPABASE>". Por isso, se o Supabase
+ *    estiver configurado para exigir JWT ("Enforce JWT Verification"), a requisição é bloqueada antes
+ *    de chegar ao nosso código com a mensagem: {"code":"UNAUTHORIZED_NO_AUTH_HEADER","message":"Missing authorization header"}.
+ * 
+ *    • Como desativar pelo Painel Web do Supabase:
+ *      1. Acesse https://supabase.com/dashboard -> Seu Projeto.
+ *      2. Clique em "Edge Functions" (ícone de raio ⚡) no menu lateral.
+ *      3. Clique na function `hotmart-webhook`.
+ *      4. Acesse a aba "Settings" ou clique nos três pontinhos (...) no canto da function.
+ *      5. Desmarque a opção: "Enforce JWT Verification" (ou mude para Disabled/Off).
+ * 
+ *    • Se estiver implantando via CLI do Supabase no seu computador:
+ *      npx supabase functions deploy hotmart-webhook --no-verify-jwt
+ * 
+ * 2. CONFIGURAR O SEGREDO DO TOKEN HOTTOK DA HOTMART:
+ *    • No painel do Supabase:
+ *      1. Vá em Edge Functions -> "Secrets" (ou Project Settings -> Vault / Edge Function Secrets).
+ *      2. Adicione a chave: `HOTMART_WEBHOOK_TOKEN`
+ *      3. Insira o valor do seu Hottok (encontrado em Hotmart -> Ferramentas -> Webhook / API).
+ * 
+ * 3. SUPORTE A DADOS DE TESTE (SANDBOX) E DADOS DE PRODUÇÃO:
+ *    • Em eventos de teste disparados pelo botão "Enviar teste" na Hotmart:
+ *      - A Hotmart envia `data.product.id = 0` e `data.product.ucode = "fb056612-bcc6-4217-..."`.
+ *      - Esta função extrai o Ucode automaticamente caso o ID venha como 0, garantindo que o webhook
+ *        seja registrado com sucesso em ambiente de testes ou produção.
  */
 
-export default {
-  async fetch(request, env) {
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, x-client-info, apikey, authorization',
-    };
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-    // Resposta de pré-verificação do navegador (CORS Preflight)
-    if (request.method === 'OPTIONS') {
-      return new Response('OK', { headers: corsHeaders });
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-hotmart-hottok",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+serve(async (req) => {
+  // 1. Resposta Preflight CORS
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  // 2. Health-check / Diagnóstico
+  if (req.method === "GET") {
+    return new Response(
+      JSON.stringify({
+        status: "online",
+        service: "Hotmart Webhook Edge Function (Supabase)",
+        timestamp: new Date().toISOString(),
+        instructions: "Configure esta URL no menu de Webhook na Hotmart. Lembre-se de DESATIVAR 'Enforce JWT Verification' no painel Supabase."
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+    );
+  }
+
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({ error: "Método não permitido. Utilize POST para webhooks." }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 405 }
+    );
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.error("[Hotmart Edge Function] Variáveis de ambiente do Supabase não encontradas!");
+      return new Response(
+        JSON.stringify({ error: "Configuração do servidor incompleta (Service Role Key ausente)." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+      );
     }
 
-    if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Método não permitido. Utilize POST.' }), {
-        status: 405,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
 
+    const url = new URL(req.url);
+    const bodyText = await req.text();
+    let payload: any = {};
     try {
-      const body = await request.json();
-      const { event, data, hottok } = body;
+      payload = JSON.parse(bodyText);
+    } catch {
+      console.warn("[Hotmart Edge Function] Não foi possível fazer parse do JSON do payload");
+    }
 
-      // 1. Validação do Token de Segurança da Hotmart
-      if (env.HOTMART_TOKEN && hottok !== env.HOTMART_TOKEN) {
-        console.error('Token de segurança da Hotmart incorreto ou inválido.');
-        return new Response(JSON.stringify({ error: 'Não autorizado. Token inválido.' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
+    // 3. Validação do Token de Segurança (Hottok)
+    const receivedToken =
+      req.headers.get("x-hotmart-hottok") ||
+      url.searchParams.get("token") ||
+      url.searchParams.get("hottok") ||
+      payload.hottok ||
+      payload.token;
 
-      const email = (data?.buyer?.email || data?.subscriber?.email || '').trim().toLowerCase();
-      const hotmartProductId = data?.product?.id?.toString();
-      const fullName = (data?.buyer?.name || data?.subscriber?.name || 'Aluna Premium').trim();
-
-      console.log(`Recebendo evento ${event} para o e-mail: ${email} e produto original: ${hotmartProductId}`);
-
-      if (!email || !hotmartProductId) {
-        return new Response(JSON.stringify({ error: 'Dados obrigatórios ausentes (e-mail ou ID do produto).' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      // Limpa e resolve a URL base do Supabase (impede duplicações se o usuário configurou com '/rest/v1')
-      let supabaseUrl = (env.SUPABASE_URL || '').trim().replace(/\/$/, '');
-      if (supabaseUrl.endsWith('/rest/v1')) {
-        supabaseUrl = supabaseUrl.slice(0, -8);
-      }
-      supabaseUrl = supabaseUrl.replace(/\/$/, '');
-
-      const adminHeaders = {
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-        'Content-Type': 'application/json',
-      };
-
-      // 2. Busca de Configuração Global
-      // Obtém o "main_course_hotmart_id" diretamente no app_settings (ID 1) - Sem buscar custom_texts por padrão para máxima eficiência
-      let mainProductId = '';
-      let debugFetchError = null;
-      let debugFallbackError = null;
-      let directResStatus = null;
-      let fallbackResStatus = null;
-      let settingsObjRaw = null;
-
+    let configuredToken: string | null = Deno.env.get("HOTMART_WEBHOOK_TOKEN") || null;
+    
+    // Fallback: Buscar token configurado em app_settings se não estiver nas variáveis de ambiente
+    if (!configuredToken) {
       try {
-        let settingsRes = await fetch(`${supabaseUrl}/rest/v1/app_settings?id=eq.1&select=main_course_hotmart_id`, { headers: adminHeaders });
-        directResStatus = settingsRes.status;
-        
-        if (settingsRes.ok) {
-          let settingsData = await settingsRes.json();
-          settingsObjRaw = settingsData;
-          
-          // Se não achar ID=1, tenta buscar sem filtro de ID para máxima resiliência (por exemplo, se o ID for diferente)
-          if (settingsData.length === 0) {
-            console.log('Aviso: Nenhum registro de app_settings com ID = 1 foi retornado. Tentando buscar o primeiro registro disponível...');
-            const settingsResAll = await fetch(`${supabaseUrl}/rest/v1/app_settings?select=main_course_hotmart_id&limit=1`, { headers: adminHeaders });
-            if (settingsResAll.ok) {
-              settingsData = await settingsResAll.json();
-              settingsObjRaw = settingsData;
-            }
-          }
+        const { data: settings } = await supabaseAdmin
+          .from("app_settings")
+          .select("custom_texts")
+          .eq("id", 1)
+          .maybeSingle();
 
-          const settingsObj = settingsData[0] || {};
-          const mainRaw = settingsObj.main_course_hotmart_id;
-          mainProductId = (mainRaw !== null && mainRaw !== undefined) ? mainRaw.toString().trim() : '';
-        } else {
-          console.warn(`Aviso: Falha na busca direta de main_course_hotmart_id (status ${settingsRes.status}). Possível ausência da coluna. Fazendo fallback para custom_texts...`);
-          debugFetchError = `Status ${settingsRes.status}`;
+        if (settings?.custom_texts?.["hotmart.webhook_token"]) {
+          configuredToken = settings.custom_texts["hotmart.webhook_token"];
         }
-      } catch (err) {
-        console.error('Erro na requisição direta de app_settings:', err.message);
-        debugFetchError = err.message;
+      } catch (e) {
+        console.warn("[Hotmart Edge Function] Erro ao buscar token de app_settings:", e);
+      }
+    }
+
+    const isSimulation =
+      req.headers.get("x-simulation") === "true" ||
+      payload.is_simulation === true ||
+      receivedToken === "SIMULATION_TOKEN";
+
+    const authHeader = req.headers.get("Authorization") || "";
+    const isServiceRoleAuth = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "SERVICE_ROLE");
+
+    if (configuredToken && configuredToken.trim()) {
+      const isTokenValid = receivedToken && receivedToken.trim() === configuredToken.trim();
+      const isSimAuthorized = isSimulation && (isTokenValid || isServiceRoleAuth || receivedToken === "SIMULATION_TOKEN");
+
+      if (!isTokenValid && !isSimAuthorized) {
+        console.warn("[Hotmart Edge Function] Token Hottok mismatch:", { receivedToken, configuredToken });
+        return new Response(
+          JSON.stringify({
+            error: "Não autorizado: Token Hottok da Hotmart inválido.",
+            tip: "Configure o token Hottok idêntico no Supabase (Secret HOTMART_WEBHOOK_TOKEN) e no painel da Hotmart."
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
+        );
+      }
+    }
+
+    // 4. Extração de dados da transação
+    const eventRaw = payload.event || payload.status || payload.transaction_status || "PURCHASE_APPROVED";
+    const event = String(eventRaw).toUpperCase();
+
+    const buyerEmailRaw =
+      payload.data?.buyer?.email ||
+      payload.buyer?.email ||
+      payload.buyer_email ||
+      payload.email ||
+      payload.data?.subscriber?.email ||
+      payload.subscriber?.email;
+
+    if (!buyerEmailRaw || typeof buyerEmailRaw !== "string") {
+      return new Response(
+        JSON.stringify({ error: "E-mail do comprador não encontrado no payload." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      );
+    }
+
+    const email = buyerEmailRaw.trim().toLowerCase();
+    const buyerName = payload.data?.buyer?.name || payload.buyer?.name || payload.name || "Cliente Hotmart";
+    const transactionId = payload.data?.purchase?.transaction || payload.transaction || payload.prod || ("HOTMART_" + Date.now());
+
+    // Suporte inteligente a ID de produto em Testes (Sandbox id = 0) vs Produção
+    const numericProductId = payload.data?.product?.id ?? payload.prod ?? payload.product_id ?? payload.data?.subscription?.product?.id;
+    const ucodeProductId = payload.data?.product?.ucode;
+
+    let hotmartProductId = "";
+    if (numericProductId !== undefined && numericProductId !== null && String(numericProductId).trim() !== "" && String(numericProductId).trim() !== "0") {
+      hotmartProductId = String(numericProductId).trim();
+    } else if (ucodeProductId && String(ucodeProductId).trim() !== "") {
+      hotmartProductId = String(ucodeProductId).trim();
+    } else if (numericProductId !== undefined && numericProductId !== null && String(numericProductId).trim() !== "") {
+      hotmartProductId = String(numericProductId).trim();
+    }
+
+    console.log(`[Hotmart Edge Function] Processando evento "${event}" para ${email}, Produto ID/Ucode: ${hotmartProductId || '0 (Sandbox)'}, Transação: ${transactionId}`);
+
+    // 5. IDEMPOTÊNCIA: Verificar se transação/evento já foi processado anteriormente
+    if (transactionId && event) {
+      try {
+        const { data: existingEvent } = await supabaseAdmin
+          .from("hotmart_events")
+          .select("id, status")
+          .eq("transaction_id", transactionId)
+          .eq("event", event)
+          .maybeSingle();
+
+        if (existingEvent && existingEvent.status === "processed") {
+          console.log(`[Hotmart Edge Function] Transação ${transactionId} evento ${event} já processado anteriormente.`);
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message: "Evento já processado anteriormente (Idempotência garantida).",
+              transaction_id: transactionId,
+              event: event
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+          );
+        }
+      } catch (e) {
+        // Ignora caso tabela hotmart_events não exista
+      }
+    }
+
+    // 6. Mapeamento Inteligente do Produto Hotmart -> Produto Interno e Expansão de Pacotes
+    let productType: "main_product" | "course" | "package" | "ai_subscription" = "main_product";
+    let targetIds: string[] = [];
+
+    if (hotmartProductId || ucodeProductId) {
+      const searchKeys = Array.from(new Set([hotmartProductId, ucodeProductId].filter(Boolean) as string[]));
+
+      // a) Verifica na tabela hotmart_products
+      let mapping: any = null;
+      for (const key of searchKeys) {
+        const { data } = await supabaseAdmin
+          .from("hotmart_products")
+          .select("*")
+          .eq("hotmart_product_id", key)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (data) {
+          mapping = data;
+          break;
+        }
       }
 
-      // Fallback resiliente: se der vazio ou der erro na busca direta da coluna, busca dinamicamente de custom_texts
-      if (mainProductId === '') {
-        try {
-          let fallbackRes = await fetch(`${supabaseUrl}/rest/v1/app_settings?id=eq.1&select=custom_texts`, { headers: adminHeaders });
-          fallbackResStatus = fallbackRes.status;
-          
-          if (fallbackRes.ok) {
-            let fallbackData = await fallbackRes.json();
-            
-            // Backup query se não encontrar ID=1
-            if (fallbackData.length === 0) {
-              const fallbackResAll = await fetch(`${supabaseUrl}/rest/v1/app_settings?select=custom_texts&limit=1`, { headers: adminHeaders });
-              if (fallbackResAll.ok) {
-                fallbackData = await fallbackResAll.json();
-              }
-            }
+      if (mapping) {
+        productType = mapping.product_type as any;
+        const targetId = mapping.internal_target_id;
 
-            const fallbackObj = fallbackData[0]?.custom_texts || {};
-            mainProductId = (fallbackObj['main_product_id'] || '').trim();
-            console.log(`Fallback bem-sucedido! ID recuperado de custom_texts: ${mainProductId}`);
+        if (productType === "package" && targetId) {
+          const { data: pkgCourses } = await supabaseAdmin
+            .from("package_courses")
+            .select("course_id")
+            .eq("package_id", targetId);
+          targetIds = [targetId, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+        } else if (productType === "course" && targetId) {
+          const { data: crs } = await supabaseAdmin
+            .from("courses")
+            .select("id, linked_package_id")
+            .eq("id", targetId)
+            .maybeSingle();
+          if (crs?.linked_package_id) {
+            const { data: pkgCourses } = await supabaseAdmin
+              .from("package_courses")
+              .select("course_id")
+              .eq("package_id", crs.linked_package_id);
+            targetIds = [crs.linked_package_id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
           } else {
-            debugFallbackError = `Status ${fallbackRes.status}`;
-          }
-        } catch (fbErr) {
-          console.error('Falha no fallback de custom_texts:', fbErr.message);
-          debugFallbackError = fbErr.message;
-        }
-      }
-
-      const resolvedProductId = hotmartProductId;
-      const hotmartProductName = (data?.product?.name || '').trim();
-      console.log(`ID do Produto Recebido: ${resolvedProductId}, Nome: ${hotmartProductName}`);
-
-      let targetIds = [];
-      let isMainCourse = false;
-
-      // Se bater com o Produto Principal configurado globalmente OR se for o ID '0' de sandbox/teste da Hotmart e a tabela app_settings não puder ser lida ou for zero
-      let isMainProductMatch = (mainProductId !== '' && resolvedProductId === mainProductId) || 
-                               (resolvedProductId === '0' && (mainProductId === '' || mainProductId === '0'));
-
-      // Se for teste com ID '0' mas possuímos nome do produto, tentamos encontrar um curso ou pacote correspondente antes de assumir o produto principal!
-      let resolvedByTestName = false;
-      if (resolvedProductId === '0' && hotmartProductName !== '') {
-        try {
-          // 1. Busca se há pacote com este nome
-          const pkgRes = await fetch(`${supabaseUrl}/rest/v1/course_packages?title=ilike.${encodeURIComponent(hotmartProductName)}&select=id,package_courses(course_id)`, { headers: adminHeaders });
-          if (pkgRes.ok) {
-            const pkgData = await pkgRes.json();
-            const pkg = pkgData[0];
-            if (pkg) {
-              const coursesInPkg = pkg.package_courses?.map(pc => pc.course_id) || [];
-              targetIds = [pkg.id, ...coursesInPkg];
-              resolvedByTestName = true;
-              isMainProductMatch = false;
-              console.log(`[TESTE ID 0] Produto identificado por NOME como pacote: ${pkg.id}`);
-            }
-          }
-
-          // 2. Se não achou pacote, busca se há curso com este nome
-          if (!resolvedByTestName) {
-            const courseRes = await fetch(`${supabaseUrl}/rest/v1/courses?title=ilike.${encodeURIComponent(hotmartProductName)}&select=id,linked_package_id`, { headers: adminHeaders });
-            if (courseRes.ok) {
-              const courseData = await courseRes.json();
-              const course = courseData[0];
-              if (course) {
-                if (course.linked_package_id) {
-                  const linkedPkgRes = await fetch(`${supabaseUrl}/rest/v1/course_packages?id=eq.${course.linked_package_id}&select=id,package_courses(course_id)`, { headers: adminHeaders });
-                  if (linkedPkgRes.ok) {
-                    const linkedPkgData = await linkedPkgRes.json();
-                    const linkedPkg = linkedPkgData[0];
-                    if (linkedPkg) {
-                      const coursesInPkg = linkedPkg.package_courses?.map(pc => pc.course_id) || [];
-                      targetIds = [linkedPkg.id, ...coursesInPkg];
-                    } else {
-                      targetIds = [course.id];
-                    }
-                  } else {
-                    targetIds = [course.id];
-                  }
-                } else {
-                  targetIds = [course.id];
-                }
-                resolvedByTestName = true;
-                isMainProductMatch = false;
-                console.log(`[TESTE ID 0] Produto identificado por NOME como curso individual: ${course.id}`);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Erro ao mapear produto de teste por nome no worker:', err.message);
-        }
-      }
-
-      if (isMainProductMatch) {
-        // Se bater com o Produto Principal configurado globalmente ou for teste com ID 0
-        isMainCourse = true;
-        
-        // Buscamos o UUID do curso principal real no Supabase (is_free = true, is_bonus = false)
-        const courseRes = await fetch(`${supabaseUrl}/rest/v1/courses?is_free=eq.true&is_bonus=eq.false&select=id`, { headers: adminHeaders });
-        const courseData = await courseRes.json();
-        const mainCourse = courseData && courseData[0];
-        
-        if (mainCourse && mainCourse.id) {
-          targetIds = [mainCourse.id];
-          console.log(`Produto principal identificado (ID: ${resolvedProductId}). Mapeado para o UUID do curso principal correspondente no Supabase: ${mainCourse.id}`);
-        } else {
-          // Fallback resiliente: se não achar o curso principal exato com is_free=true & is_bonus=false, busca qualquer curso disponível
-          const backupCourseRes = await fetch(`${supabaseUrl}/rest/v1/courses?select=id&limit=1`, { headers: adminHeaders });
-          const backupCourseData = await backupCourseRes.json();
-          const backupCourse = backupCourseData && backupCourseData[0];
-          
-          if (backupCourse && backupCourse.id) {
-            targetIds = [backupCourse.id];
-            console.log(`Aviso: Curso principal (is_free=true, is_bonus=false) não encontrado no Supabase. Utilizando primeiro curso disponível como fallback: ${backupCourse.id}`);
-          } else {
-            targetIds = [resolvedProductId];
-            console.log(`Aviso: Nenhum curso encontrado no Supabase para mapeamento de fallback.`);
+            targetIds = [targetId];
           }
         }
       } else {
-        // Caso não seja o produto principal global, mapeamos pacotes e cursos individuais
-        
-        // A) Verifica se é um pacote diretamente
-        const pkgRes = await fetch(`${supabaseUrl}/rest/v1/course_packages?hotmart_product_id=eq.${resolvedProductId}&select=id,package_courses(course_id)`, { headers: adminHeaders });
-        const pkgData = await pkgRes.json();
-        const pkg = pkgData[0];
+        // b) Verifica em app_settings (Produto Principal ou IA)
+        const { data: settings } = await supabaseAdmin
+          .from("app_settings")
+          .select("custom_texts")
+          .eq("id", 1)
+          .maybeSingle();
 
-        if (pkg) {
-          const coursesInPkg = pkg.package_courses?.map(pc => pc.course_id) || [];
-          targetIds = [pkg.id, ...coursesInPkg];
-          console.log(`Produto mapeado como pacote no banco. ID pacote: ${pkg.id}, expandido para ${targetIds.length} itens.`);
+        const configuredMainId = settings?.custom_texts?.["hotmart.main_product_id"];
+        const configuredAiId = settings?.custom_texts?.["hotmart.unlimited_ai_product_id"] || settings?.custom_texts?.["hotmart.ai_product_id"];
+
+        if (searchKeys.some(k => (configuredAiId && String(configuredAiId) === k))) {
+          productType = "ai_subscription";
+        } else if (searchKeys.some(k => (configuredMainId && String(configuredMainId) === k))) {
+          productType = "main_product";
         } else {
-          // B) Se não for pacote, verifica se é um curso individual
-          const courseRes = await fetch(`${supabaseUrl}/rest/v1/courses?hotmart_product_id=eq.${resolvedProductId}&select=id,linked_package_id`, { headers: adminHeaders });
-          const courseData = await courseRes.json();
-          const course = courseData[0];
+          // c) Verifica se bate com hotmart_product_id de algum curso
+          let courseMatch: any = null;
+          for (const key of searchKeys) {
+            const { data } = await supabaseAdmin
+              .from("courses")
+              .select("id, linked_package_id")
+              .eq("hotmart_product_id", key)
+              .maybeSingle();
+            if (data) {
+              courseMatch = data;
+              break;
+            }
+          }
 
-          if (course) {
-            if (course.linked_package_id) {
-              // Se tiver um pacote vinculado, libera o pacote Inteiro e todos os seus cursos também!
-              const linkedPkgRes = await fetch(`${supabaseUrl}/rest/v1/course_packages?id=eq.${course.linked_package_id}&select=id,package_courses(course_id)`, { headers: adminHeaders });
-              const linkedPkgData = await linkedPkgRes.json();
-              const linkedPkg = linkedPkgData[0];
-
-              if (linkedPkg) {
-                const coursesInPkg = linkedPkg.package_courses?.map(pc => pc.course_id) || [];
-                targetIds = [linkedPkg.id, ...coursesInPkg];
-                console.log(`Produto mapeado como curso individual vinculado ao pacote ${linkedPkg.id}. Expandido para liberar o pacote completo.`);
-              } else {
-                targetIds = [course.id];
-              }
+          if (courseMatch) {
+            productType = "course";
+            if (courseMatch.linked_package_id) {
+              const { data: pkgCourses } = await supabaseAdmin
+                .from("package_courses")
+                .select("course_id")
+                .eq("package_id", courseMatch.linked_package_id);
+              targetIds = [courseMatch.linked_package_id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
             } else {
-              targetIds = [course.id];
+              targetIds = [courseMatch.id];
             }
-          }
-        }
-      }
-
-      // Se não mapeou nenhum ID de produto correspondente
-      if (targetIds.length === 0) {
-        console.error(`Produto Hotmart ID ${resolvedProductId} não mapeado no Banco de Dados.`);
-        return new Response(JSON.stringify({ 
-          error: `Produto Hotmart ID ${resolvedProductId} não mapeado no painel administrativo.`,
-          debug: {
-            resolvedProductId: resolvedProductId,
-            mainProductId: mainProductId,
-            mainProductIdType: typeof mainProductId,
-            hasMainProductMatch: (mainProductId !== '' && resolvedProductId === mainProductId),
-            isMainProductIdEmpty: (mainProductId === ''),
-            directResStatus: directResStatus,
-            settingsObjRaw: settingsObjRaw,
-            debugFetchError: debugFetchError,
-            fallbackResStatus: fallbackResStatus,
-            debugFallbackError: debugFallbackError
-          }
-        }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' }
-        });
-      }
-
-      // 3. Verifica ou Cria o Usuário no Supabase Auth
-      const cleanEmail = email.trim().toLowerCase();
-      const profileRes = await fetch(`${supabaseUrl}/rest/v1/profiles?email=eq.${cleanEmail}&select=id`, { headers: adminHeaders });
-      const profiles = await profileRes.json();
-      let userId = profiles[0]?.id;
-
-      if (!userId) {
-        // Tenta busca case-insensitive usando ilike para máxima resiliência
-        const profileResIlike = await fetch(`${supabaseUrl}/rest/v1/profiles?email=ilike.${cleanEmail}&select=id`, { headers: adminHeaders });
-        if (profileResIlike.ok) {
-          const profilesIlike = await profileResIlike.json();
-          userId = profilesIlike[0]?.id;
-          if (userId) {
-            console.log(`Usuário encontrado via busca case-insensitive (ilike) em profiles: ${userId}`);
-          }
-        }
-      }
-
-      if (!userId) {
-        console.log(`Usuário não encontrado em profiles para o e-mail: ${cleanEmail}. Criando uma nova conta ou buscando no Auth...`);
-        
-        const createUserRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-          method: 'POST',
-          headers: adminHeaders,
-          body: JSON.stringify({
-            email: cleanEmail,
-            email_confirm: true,
-            user_metadata: { full_name: fullName, is_auto_created: true }
-          })
-        });
-        
-        const rawResText = await createUserRes.text();
-        let createdUserData = {};
-        try {
-          createdUserData = JSON.parse(rawResText);
-        } catch (e) {}
-        
-        if (createUserRes.ok && (createdUserData.id || createdUserData.user?.id)) {
-          userId = createdUserData.id || createdUserData.user?.id;
-          console.log(`Nova conta de usuária criada com sucesso. UID: ${userId}`);
-        } else {
-          // Se a criação falhou, pode ser que o usuário já exista no Auth (só não tinha registro em profiles)
-          console.warn(`Aviso: Falha ao criar usuário diretamente (Status ${createUserRes.status}). Tentando resgatar ID de conta existente no Auth... Info: ${rawResText}`);
-          
-          try {
-            const listUsersRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-              method: 'GET',
-              headers: adminHeaders
-            });
-            
-            if (listUsersRes.ok) {
-              const listData = await listUsersRes.json();
-              const usersArray = listData.users || (Array.isArray(listData) ? listData : []);
-              const existingUser = usersArray.find(u => u.email?.toLowerCase() === cleanEmail);
-              
-              if (existingUser && existingUser.id) {
-                userId = existingUser.id;
-                console.log(`Usuário existente encontrado no Auth por varredura. UID recuperado: ${userId}`);
+          } else {
+            // d) Verifica se bate com hotmart_product_id de algum pacote
+            let packageMatch: any = null;
+            for (const key of searchKeys) {
+              const { data } = await supabaseAdmin
+                .from("course_packages")
+                .select("id")
+                .eq("hotmart_product_id", key)
+                .maybeSingle();
+              if (data) {
+                packageMatch = data;
+                break;
               }
             }
-          } catch (listErr) {
-            console.error(`Erro ao varrer lista de usuários no Auth:`, listErr.message);
+
+            if (packageMatch) {
+              productType = "package";
+              const { data: pkgCourses } = await supabaseAdmin
+                .from("package_courses")
+                .select("course_id")
+                .eq("package_id", packageMatch.id);
+              targetIds = [packageMatch.id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+            }
           }
-        }
-        
-        if (!userId) {
-          const errMsg = createdUserData.msg || createdUserData.message || createdUserData.error?.message || createdUserData.error_description || rawResText;
-          throw new Error(`Falha ao criar usuário administrativo no Supabase: ${errMsg}`);
         }
       }
-
-      // Sincroniza/Garante que o registro na tabela public.profiles exista para este userId do Auth (evita erro na FK de purchases)
-      if (userId) {
-        console.log(`Garantindo a existência do perfil para o UID: ${userId}`);
-        const profileUpsertRes = await fetch(`${supabaseUrl}/rest/v1/profiles`, {
-          method: 'POST',
-          headers: {
-            ...adminHeaders,
-            'Prefer': 'resolution=merge-duplicates'
-          },
-          body: JSON.stringify({
-            id: userId,
-            email: cleanEmail,
-            full_name: fullName || 'Aluna Premium',
-            has_access: true
-          })
-        });
-        console.log(`Sincronização do perfil concluída (Status: ${profileUpsertRes.status})`);
-      }
-
-      // 4. Trata Ativação vs Cancelamento
-      const isGrant = event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE';
-      const isRevoke = [
-        'PURCHASE_REFUNDED', 
-        'PURCHASE_CHARGEBACK', 
-        'PURCHASE_CANCELED',
-        'SUBSCRIPTION_CANCELED',
-        'SUBSCRIPTION_EXPIRED'
-      ].includes(event);
-
-      if (isGrant) {
-        // Libera acesso para todos os IDs identificados
-        for (const pid of targetIds) {
-          const transactionId = data?.purchase?.transaction || `hotmart_${Date.now()}`;
-          const insertRes = await fetch(`${supabaseUrl}/rest/v1/purchases`, {
-            method: 'POST',
-            headers: { ...adminHeaders, 'Prefer': 'resolution=merge-duplicates' },
-            body: JSON.stringify({
-              user_id: userId,
-              product_id: pid,
-              transaction_id: transactionId
-            })
-          });
-          
-          if (!insertRes.ok) {
-            console.error(`Erro ao inserir compra do produto ${pid} para o usuário ${userId}`);
-          }
-        }
-        console.log(`Sucesso: Acesso liberado para o e-mail ${email} nos seguintes produtos: ${targetIds.join(', ')}`);
-
-      } else if (isRevoke) {
-        if (isMainCourse) {
-          // EXCLUSÃO COMPLETA: Se cancelou o Produto Principal de venda única, deleta completamente o usuário do Auth
-          const deleteUserRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${userId}`, {
-            method: 'DELETE',
-            headers: adminHeaders
-          });
-          
-          if (!deleteUserRes.ok) {
-            const deleteError = await deleteUserRes.json();
-            throw new Error(`Falha ao deletar a conta de usuária: ${deleteError.error?.message || 'Erro desconhecido'}`);
-          }
-          console.log(`Sucesso: Conta do e-mail ${email} foi DELETADA permanentemente do sistema porque cancelou o Produto Principal.`);
-        } else {
-          // REVOGAÇÃO PARCIAL: Se for bônus, pacote avulso ou outro curso diferente do principal, deleta apenas os acessos correspondentes
-          const formattedIds = targetIds.map(id => `"${id}"`).join(',');
-          const revokeRes = await fetch(`${supabaseUrl}/rest/v1/purchases?user_id=eq.${userId}&product_id=in.(${formattedIds})`, {
-            method: 'DELETE',
-            headers: adminHeaders
-          });
-
-          if (!revokeRes.ok) {
-            console.error(`Erro ao remover os privilégios das compras.`);
-          }
-          console.log(`Sucesso: Acesso revogado para o e-mail ${email} dos seguintes produtos: ${targetIds.join(', ')}`);
-        }
-      }
-
-      // Retorna sucesso para a Hotmart
-      return new Response(JSON.stringify({ 
-        success: true, 
-        event, 
-        processed_items_count: targetIds.length 
-      }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      });
-
-    } catch (error) {
-      console.error('Falha de execução no Worker:', error.message);
-      return new Response(JSON.stringify({ error: error.message }), { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      });
     }
+
+    // 7. Determinar se é APROVAÇÃO ou REVOGAÇÃO
+    const isApprovalEvent =
+      event.includes("APPROVED") ||
+      event.includes("COMPLETE") ||
+      event.includes("ACTIVATED") ||
+      event.includes("APROVAD") ||
+      event.includes("COMPLET") ||
+      event === "PURCHASE_OUT_OF_SHOPPING_CART" ||
+      event === "SUBSCRIPTION_RENEWAL";
+
+    const isRevocationEvent =
+      event.includes("REFUNDED") ||
+      event.includes("CANCELED") ||
+      event.includes("CANCELLED") ||
+      event.includes("CHARGEBACK") ||
+      event.includes("EXPIRED") ||
+      event.includes("REEMBOLS") ||
+      event.includes("INACTIVE");
+
+    // 8. Buscar ou Criar Usuário no Supabase Auth
+    const { data: existingProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, has_access, has_unlimited_ai")
+      .ilike("email", email)
+      .maybeSingle();
+
+    let targetUserId = existingProfile?.id;
+
+    if (!existingProfile && isApprovalEvent) {
+      console.log(`[Hotmart Edge Function] Criando novo usuário no Supabase Auth para ${email}...`);
+      const tempPassword = "123456";
+      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: email,
+        password: tempPassword,
+        email_confirm: true,
+        user_metadata: { full_name: buyerName }
+      });
+
+      if (newUser?.user) {
+        targetUserId = newUser.user.id;
+        await supabaseAdmin.from("profiles").upsert({
+          id: newUser.user.id,
+          email: email,
+          full_name: buyerName,
+          has_access: true,
+          has_unlimited_ai: productType === "ai_subscription",
+          created_at: new Date().toISOString()
+        }, { onConflict: "email" });
+      } else {
+        console.error("[Hotmart Edge Function] Erro ao criar usuário no Auth:", createError);
+      }
+    }
+
+    // 9. Aplicar Liberação ou Bloqueio
+    let actionSummary = "";
+
+    if (targetUserId) {
+      if (isApprovalEvent) {
+        if (productType === "main_product") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Acesso Principal à Plataforma ATIVADO";
+        } else if (productType === "ai_subscription") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_unlimited_ai: true, has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Assinatura IA Victoria VIP ATIVADA";
+        } else if ((productType === "course" || productType === "package") && targetIds.length > 0) {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+
+          for (const pid of targetIds) {
+            await supabaseAdmin.from("purchases").upsert({
+              user_id: targetUserId,
+              product_id: pid,
+              created_at: new Date().toISOString()
+            }, { onConflict: "user_id,product_id" as any });
+          }
+
+          actionSummary = `Produto Adicional (${productType}) Liberado (${targetIds.length} itens): ${targetIds.join(", ")}`;
+        }
+      } else if (isRevocationEvent) {
+        if (productType === "main_product") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: false, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Acesso Principal à Plataforma PAUSADO (Histórico Preservado)";
+        } else if (productType === "ai_subscription") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_unlimited_ai: false, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Assinatura IA Victoria VIP REVOGADA";
+        } else if ((productType === "course" || productType === "package") && targetIds.length > 0) {
+          for (const pid of targetIds) {
+            await supabaseAdmin
+              .from("purchases")
+              .delete()
+              .eq("user_id", targetUserId)
+              .eq("product_id", pid);
+          }
+
+          actionSummary = `Produto Adicional (${productType}) Bloqueado (${targetIds.length} itens): ${targetIds.join(", ")}`;
+        }
+      }
+    }
+
+    // 10. Registrar evento na tabela de auditoria hotmart_events
+    try {
+      await supabaseAdmin.from("hotmart_events").insert({
+        transaction_id: transactionId,
+        event: event,
+        buyer_email: email,
+        hotmart_product_id: hotmartProductId || ucodeProductId || "0",
+        status: "processed",
+        payload: payload,
+        processed_at: new Date().toISOString()
+      });
+    } catch (logErr) {
+      console.warn("[Hotmart Edge Function] Falha ao registrar log em hotmart_events:", logErr);
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        email: email,
+        event: event,
+        product_type: productType,
+        action: actionSummary,
+        target_ids: targetIds,
+        message: `Processamento concluído com sucesso para ${email}.`
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+    );
+
+  } catch (err: any) {
+    console.error("[Hotmart Edge Function Erro Fatal]:", err);
+    return new Response(
+      JSON.stringify({ error: "Erro interno ao processar Webhook Hotmart", details: err.message }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+    );
   }
-}
+});

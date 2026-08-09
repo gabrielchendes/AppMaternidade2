@@ -58,6 +58,9 @@ async function startServer() {
         'v1/notify-admin': 'v1/notifications?action=notify-admin',
         'v1/sub-topic': 'v1/notifications?action=sub-topic',
         'v1/generate-permanent-link': 'v1/admin?action=generate-permanent-link',
+        'v1/hotmart-webhook': 'v1/hotmart-webhook',
+        'v1/webhooks/hotmart': 'v1/hotmart-webhook',
+        'v1/webhook-hotmart': 'v1/hotmart-webhook',
       };
 
       if (rewrites[apiPath]) {

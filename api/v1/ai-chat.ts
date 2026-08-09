@@ -1,5 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: { persistSession: false }
+});
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -30,9 +37,105 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages, userContext, customSystemPrompt, expertName } = req.body || {};
+    const { messages, userContext, customSystemPrompt, expertName, userId, messagesSentCount } = req.body || {};
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Message history is required.' });
+    }
+
+    // Server-side VIP / Unlimited access check against Supabase
+    const userIdentifier = (userId || userContext?.userId || '').trim();
+    let isUserUnlimited = false;
+
+    if (userIdentifier) {
+      try {
+        const isUUID = (str: string) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
+
+        let profile: { has_unlimited_ai?: boolean; is_admin?: boolean; email?: string } | null = null;
+
+        if (isUUID(userIdentifier)) {
+          const { data } = await supabaseAdmin
+            .from('profiles')
+            .select('has_unlimited_ai, is_admin, email')
+            .eq('id', userIdentifier)
+            .maybeSingle();
+          profile = data;
+        }
+
+        if (!profile && (userIdentifier.includes('@') || userContext?.email)) {
+          const emailToFind = (userContext?.email || userIdentifier).toLowerCase();
+          const { data } = await supabaseAdmin
+            .from('profiles')
+            .select('has_unlimited_ai, is_admin, email')
+            .eq('email', emailToFind)
+            .maybeSingle();
+          profile = data;
+        }
+
+        if (profile?.has_unlimited_ai === false) {
+          isUserUnlimited = false;
+        } else if (profile?.has_unlimited_ai === true) {
+          isUserUnlimited = true;
+        } else {
+          // Fallback check purchases table
+          const userEmail = profile?.email;
+          let pQuery = supabaseAdmin.from('purchases').select('id');
+          if (userEmail) {
+            pQuery = pQuery.or(`user_id.eq.${userIdentifier},user_id.ilike.${userEmail}`);
+          } else {
+            pQuery = pQuery.eq('user_id', userIdentifier);
+          }
+          const { data: pData } = await pQuery.in('product_id', ['ai_subscription', 'prod_ai_default', 'hotmart_ia_victoria', 'ia_vip', 'unlimited_ai', 'ai_unlimited']).maybeSingle();
+          isUserUnlimited = !!pData;
+        }
+      } catch (dbErr) {
+        console.warn('[AI Chat API] Error checking VIP status in DB:', dbErr);
+      }
+    }
+
+    // Check message limit if user is not VIP
+    if (!isUserUnlimited) {
+      try {
+        const { data: settingsRow } = await supabaseAdmin
+          .from('app_settings')
+          .select('custom_texts')
+          .eq('id', 1)
+          .maybeSingle();
+
+        const customTexts = settingsRow?.custom_texts || {};
+        const isLimitEnabled = customTexts['ai_expert.enable_message_limit'] === 'true';
+        const maxMessages = Math.max(1, parseInt(customTexts['ai_expert.max_messages_count'] || '3', 10));
+
+        if (isLimitEnabled) {
+          let currentSentCount = typeof messagesSentCount === 'number' ? messagesSentCount : 0;
+
+          if (userIdentifier) {
+            const startOfToday = new Date();
+            startOfToday.setHours(0, 0, 0, 0);
+
+            const { count } = await supabaseAdmin
+              .from('ai_message_logs')
+              .select('*', { count: 'exact', head: true })
+              .eq('user_id', userIdentifier)
+              .gte('created_at', startOfToday.toISOString());
+
+            if (typeof count === 'number' && count > 0) {
+              currentSentCount = Math.max(currentSentCount, count);
+            }
+          }
+
+          if (currentSentCount >= maxMessages) {
+            return res.status(403).json({
+              error: 'VIP_REQUIRED',
+              message: customTexts['ai_expert.limit_reached_toast'] || 'Você atingiu o limite de mensagens para este período. Atualize para o plano VIP Ilimitado para conversar sem limites!',
+              isLimitReached: true,
+              isUserUnlimited: false
+            });
+          }
+        }
+      } catch (limitErr) {
+        console.warn('[AI Chat API] Limit verification note:', limitErr);
+      }
     }
 
     const ai = getAiClient();

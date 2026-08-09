@@ -95,18 +95,23 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     avatar_url TEXT,
     is_admin BOOLEAN DEFAULT false,
     has_access BOOLEAN DEFAULT true,
+    has_unlimited_ai BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Se a tabela já existir, rode este comando:
+-- Se a tabela já existir, rode estes comandos para atualizar:
 -- ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_access BOOLEAN DEFAULT true;
+-- ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_unlimited_ai BOOLEAN DEFAULT false;
 
 -- Garantir que a coluna is_admin existe
 DO $$ 
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'profiles' AND COLUMN_NAME = 'is_admin') THEN 
         ALTER TABLE public.profiles ADD COLUMN is_admin BOOLEAN DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'profiles' AND COLUMN_NAME = 'has_unlimited_ai') THEN 
+        ALTER TABLE public.profiles ADD COLUMN has_unlimited_ai BOOLEAN DEFAULT false;
     END IF;
 END $$;
 
@@ -155,6 +160,7 @@ CREATE TABLE IF NOT EXISTS public.courses (
     tenant_id TEXT DEFAULT 'default',
     linked_package_id UUID REFERENCES public.course_packages(id) ON DELETE SET NULL,
     is_package_exclusive BOOLEAN DEFAULT FALSE,
+    is_package_exclusive_bonus BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -738,18 +744,138 @@ ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_support_vip_label TE
 ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_social_proof BOOLEAN DEFAULT true;
 ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_bonus BOOLEAN DEFAULT true;
 ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS preview_show_trust BOOLEAN DEFAULT true;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS is_package_exclusive_bonus BOOLEAN DEFAULT false;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS checkout_url TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS hotmart_product_id TEXT;
+ALTER TABLE public.courses ADD COLUMN IF NOT EXISTS linked_package_id UUID REFERENCES public.course_packages(id) ON DELETE SET NULL;
 
 -- ATUALIZAÇÃO DE CAPÍTULOS (Botões de Link)
 ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_text TEXT;
 ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_url TEXT;
 ALTER TABLE public.chapters ADD COLUMN IF NOT EXISTS button_link_color TEXT DEFAULT '#10b981';
 
--- Tabela para Links de Acesso Permanente (REMOVIDO)
--- CREATE TABLE IF NOT EXISTS public.permanent_access_tokens ( ... );
-
--- Tabela para Magic Login Permanente (REMOVIDO)
--- CREATE TABLE IF NOT EXISTS public.magic_login_tokens ( ... );
-
 ```
 
 **Nota Importante:** No painel do Admin, certifique-se de configurar a "URL do APP" com `https://app-maternidade2.vercel.app` para que os links redirecionem corretamente após o login.
+
+-- =========================================================================
+-- 15. INTEGRAÇÃO HOTMART AUTOMÁTICA (WEBHOOK + EDGE FUNCTION + TABELAS)
+-- =========================================================================
+
+-- Garantir colunas essenciais na tabela de perfis
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_access BOOLEAN DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_unlimited_ai BOOLEAN DEFAULT false;
+
+-- Tabela para Mapeamento Dinâmico de Produtos da Hotmart
+-- Associa um produto da Hotmart (pelo ID) a um comportamento interno:
+-- Tipos: 'main_product' (Acesso Geral), 'course' (Curso), 'package' (Pacote de Cursos), 'ai_subscription' (IA Victoria VIP)
+--
+-- REGRAS DO CATÁLOGO DE PRODUTOS MAPEADOS:
+-- 1. 'main_product': Produto Principal (libera acesso geral ao app)
+-- 2. 'ai_subscription': Assinatura da IA Victoria VIP (acesso ilimitado)
+-- 3. 'package': Pacotes de Cursos (libera todos os cursos do pacote)
+-- 4. 'course': Apenas Cursos Pagos na Modalidade de Liberação INDIVIDUAL.
+--    (Cursos marcados como Produto Principal, Bônus ou com liberação por Pacote NÃO aparecem no catálogo individual, pois já são liberados globalmente ou via pacote).
+CREATE TABLE IF NOT EXISTS public.hotmart_products (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  hotmart_product_id TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  product_type TEXT NOT NULL CHECK (product_type IN ('main_product', 'course', 'package', 'ai_subscription')),
+  internal_target_id TEXT,
+  checkout_url TEXT,
+  is_active BOOLEAN DEFAULT true,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index para busca rápida pelo ID da Hotmart
+CREATE INDEX IF NOT EXISTS idx_hotmart_products_prod_id ON public.hotmart_products(hotmart_product_id);
+
+-- Habilitar RLS (Row Level Security)
+ALTER TABLE public.hotmart_products ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de segurança
+CREATE POLICY "Permitir leitura pública de produtos ativos" 
+  ON public.hotmart_products FOR SELECT 
+  USING (true);
+
+CREATE POLICY "Permitir gestão total para a Service Role e Admins" 
+  ON public.hotmart_products FOR ALL 
+  USING (true)
+  WITH CHECK (true);
+
+-- 2. Tabela de Auditoria e Log de Eventos de Webhook (Idempotência)
+CREATE TABLE IF NOT EXISTS public.hotmart_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  transaction_id TEXT,
+  event TEXT NOT NULL,
+  buyer_email TEXT NOT NULL,
+  hotmart_product_id TEXT,
+  raw_payload JSONB,
+  status TEXT DEFAULT 'processed',
+  processed_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index para idempotência (evitar processar mesmo evento/transação duas vezes)
+CREATE INDEX IF NOT EXISTS idx_hotmart_events_tx_event ON public.hotmart_events(transaction_id, event);
+CREATE INDEX IF NOT EXISTS idx_hotmart_events_buyer ON public.hotmart_events(buyer_email);
+
+-- Habilitar RLS
+ALTER TABLE public.hotmart_events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir leitura para service role e admins" 
+  ON public.hotmart_events FOR ALL 
+  USING (true);
+
+-- Triggers para atualização automática de timestamps
+CREATE TRIGGER update_hotmart_products_updated_at
+    BEFORE UPDATE ON public.hotmart_products
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+```
+
+---
+
+### Como Subir a Supabase Edge Function (Hotmart Webhook)
+
+Para implantar a Edge Function direto no seu projeto Supabase via CLI:
+
+```bash
+# 1. Faça login na Supabase CLI
+supabase login
+
+# 2. Associe seu projeto (substitua pelo id do seu projeto)
+supabase link --project-ref SEU_PROJECT_REF
+
+# 3. Defina as variáveis de ambiente secretas
+supabase secrets set SUPABASE_URL=https://SEU_PROJECT_REF.supabase.co
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=SUA_SERVICE_ROLE_KEY
+supabase secrets set HOTMART_WEBHOOK_TOKEN=SEU_HOTTOK_HOTMART
+
+# 4. Faça o deploy da Edge Function
+supabase functions deploy hotmart-webhook --no-verify-jwt
+```
+
+**URL da Edge Function gerada:**  
+`https://SEU_PROJECT_REF.supabase.co/functions/v1/hotmart-webhook`
+
+---
+
+### Configuração no Painel da Hotmart:
+
+1. Acesse **Hotmart** > **Ferramentas** > **Webhook (Vendas)**.
+2. Clique em **Cadastrar Webhook**.
+3. **URL de Envio:** Cole a URL da Edge Function (`https://SEU_PROJECT_REF.supabase.co/functions/v1/hotmart-webhook`) ou a URL do seu servidor (`https://SEU_DOMINIO/api/v1/hotmart-webhook`).
+4. **Eventos Obrigatórios:**
+   - `Compra Aprovada`
+   - `Compra Completa`
+   - `Reembolso`
+   - `Cancelamento de Assinatura`
+   - `Troca de Plano`
+   - `Assinatura Inativa`
+   - `Chargeback`
+5. Salve a configuração. As liberações e bloqueios serão processados instantaneamente!
+
+

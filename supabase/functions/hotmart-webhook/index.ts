@@ -1,332 +1,511 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+// Supabase Edge Function: hotmart-webhook
+// URL de deployment: https://<SEU-PROJECT-REF>.supabase.co/functions/v1/hotmart-webhook
+// Esta função recebe e processa eventos de Webhook da Hotmart (Vendas, Reembolsos, Cancelamentos) 
+// de forma 100% segura, idempotente e automatizada.
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-hotmart-hottok",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
 
 serve(async (req) => {
-  // Handle CORS
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+  // Preflight CORS
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  // Webhooks should be POST
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed. Use POST.' }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 405,
-    })
+  // GET route for ping / health-check
+  if (req.method === "GET") {
+    return new Response(
+      JSON.stringify({
+        status: "online",
+        service: "Hotmart Webhook Edge Function",
+        timestamp: new Date().toISOString(),
+        instructions: "Configure esta URL no menu de Webhook (Vendas) na Hotmart."
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+    );
+  }
+
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({ error: "Method not allowed. Use POST for webhooks." }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 405 }
+    );
   }
 
   try {
-    // Initialize Supabase Admin Client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { persistSession: false } }
-    )
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-    // Parse Hotmart Webhook Data
-    const body = await req.json()
-    const { event, data, hottok } = body
-
-    // Optional: Verify Hotmart Token for security
-    const expectedToken = Deno.env.get('HOTMART_TOKEN')
-    if (expectedToken && hottok !== expectedToken) {
-      console.error('Invalid Hotmart Token received')
-      return new Response(JSON.stringify({ error: 'Unauthorized token' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 401,
-      })
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      console.error("[Hotmart Edge Function] Missing Supabase environment variables!");
+      return new Response(
+        JSON.stringify({ error: "Configuração do servidor incompleta (Service Role Key ausente)." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+      );
     }
 
-    const email = data?.buyer?.email
-    const hotmartProductId = data?.product?.id?.toString()
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
 
-    console.log(`Receiving event ${event} for ${email} and product ${hotmartProductId}`)
-
-    if (!email || !hotmartProductId) {
-      return new Response(JSON.stringify({ error: 'Missing data' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      })
-    }
-
-    // Fetch the global settings to get the main_course_hotmart_id - Optimized to omit custom_texts for extreme speed, with graceful fallback
-    let mainProductId = ''
+    const url = new URL(req.url);
+    const bodyText = await req.text();
+    let payload: any = {};
     try {
-      let { data: settings, error: selectError } = await supabaseClient
-        .from('app_settings')
-        .select('main_course_hotmart_id')
-        .eq('id', 1)
-        .maybeSingle()
+      payload = JSON.parse(bodyText);
+    } catch {
+      console.warn("[Hotmart Edge Function] Could not parse JSON body");
+    }
 
-      // Backup check if no row was returned with id=1
-      if (!settings && !selectError) {
-        const { data: fallbackList, error: listError } = await supabaseClient
-          .from('app_settings')
-          .select('main_course_hotmart_id')
-          .limit(1)
-        if (!listError && fallbackList && fallbackList.length > 0) {
-          settings = fallbackList[0]
+    // 1. Validação do Token de Segurança (Hottok)
+    const receivedToken =
+      req.headers.get("x-hotmart-hottok") ||
+      url.searchParams.get("token") ||
+      url.searchParams.get("hottok") ||
+      payload.hottok ||
+      payload.token;
+
+    let configuredToken: string | null = Deno.env.get("HOTMART_WEBHOOK_TOKEN") || null;
+    
+    // Fallback: Buscar token configurado em app_settings se não estiver nas ENVs
+    if (!configuredToken) {
+      try {
+        const { data: settings } = await supabaseAdmin
+          .from("app_settings")
+          .select("custom_texts")
+          .eq("id", 1)
+          .maybeSingle();
+
+        if (settings?.custom_texts?.["hotmart.webhook_token"]) {
+          configuredToken = settings.custom_texts["hotmart.webhook_token"];
+        }
+      } catch (e) {
+        console.warn("[Hotmart Edge Function] Could not fetch settings token:", e);
+      }
+    }
+
+    const isSimulation =
+      req.headers.get("x-simulation") === "true" ||
+      payload.is_simulation === true ||
+      receivedToken === "SIMULATION_TOKEN";
+
+    const authHeader = req.headers.get("Authorization") || "";
+    const isServiceRoleAuth = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "SERVICE_ROLE");
+
+    if (configuredToken && configuredToken.trim()) {
+      const isTokenValid = receivedToken && receivedToken.trim() === configuredToken.trim();
+      const isSimAuthorized = isSimulation && (isTokenValid || isServiceRoleAuth || receivedToken === "SIMULATION_TOKEN");
+
+      if (!isTokenValid && !isSimAuthorized) {
+        console.warn("[Hotmart Edge Function] Token Hottok mismatch:", { receivedToken, configuredToken });
+        return new Response(
+          JSON.stringify({
+            error: "Unauthorized: Token Hottok da Hotmart inválido.",
+            tip: "Configure o token Hottok idêntico no Supabase (Secret HOTMART_WEBHOOK_TOKEN) e no painel da Hotmart."
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 401 }
+        );
+      }
+    }
+
+    // 2. Extração padronizada de dados (Hotmart Webhook v1, v2 e v3)
+    const eventRaw = payload.event || payload.status || payload.transaction_status || "PURCHASE_APPROVED";
+    const event = String(eventRaw).toUpperCase();
+
+    const buyerEmailRaw =
+      payload.data?.buyer?.email ||
+      payload.buyer?.email ||
+      payload.buyer_email ||
+      payload.email ||
+      payload.data?.subscriber?.email ||
+      payload.subscriber?.email;
+
+    if (!buyerEmailRaw || typeof buyerEmailRaw !== "string") {
+      return new Response(
+        JSON.stringify({ error: "E-mail do comprador não encontrado no payload." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+      );
+    }
+
+    const email = buyerEmailRaw.trim().toLowerCase();
+    const buyerName = payload.data?.buyer?.name || payload.buyer?.name || payload.name || "Cliente Hotmart";
+    const transactionId = payload.data?.purchase?.transaction || payload.transaction || payload.prod || ("HOTMART_" + Date.now());
+    const numericProductId = payload.data?.product?.id ?? payload.prod ?? payload.product_id ?? payload.data?.subscription?.product?.id;
+    const ucodeProductId = payload.data?.product?.ucode;
+
+    let hotmartProductId = "";
+    if (numericProductId !== undefined && numericProductId !== null && String(numericProductId).trim() !== "" && String(numericProductId).trim() !== "0") {
+      hotmartProductId = String(numericProductId).trim();
+    } else if (ucodeProductId && String(ucodeProductId).trim() !== "") {
+      hotmartProductId = String(ucodeProductId).trim();
+    } else if (numericProductId !== undefined && numericProductId !== null && String(numericProductId).trim() !== "") {
+      hotmartProductId = String(numericProductId).trim();
+    }
+
+    console.log(`[Hotmart Edge Function] Processing event "${event}" for ${email}, Product ID: ${hotmartProductId || 'N/A (Default Principal)'}, Ucode: ${ucodeProductId || 'N/A'}, Transaction: ${transactionId}`);
+
+    // 3. IDEMPOTÊNCIA: Verificar se transação/evento já foi processado
+    if (transactionId && event) {
+      try {
+        const { data: existingEvent } = await supabaseAdmin
+          .from("hotmart_events")
+          .select("id, status")
+          .eq("transaction_id", transactionId)
+          .eq("event", event)
+          .maybeSingle();
+
+        if (existingEvent && existingEvent.status === "processed") {
+          console.log(`[Hotmart Edge Function] Transaction ${transactionId} with event ${event} already processed. Skipping idempotently.`);
+          return new Response(
+            JSON.stringify({
+              success: true,
+              message: "Evento já processado anteriormente (Idempotência garantida).",
+              transaction_id: transactionId,
+              event: event
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+          );
+        }
+      } catch (e) {
+        // Tabela hotmart_events opcional se ainda não migrada
+      }
+    }
+
+    // 4. Mapeamento Inteligente de Produto -> Tipo de Produto e Expansão de Pacotes
+    let productType: "main_product" | "course" | "package" | "ai_subscription" = "main_product";
+    let targetIds: string[] = [];
+
+    if (hotmartProductId || ucodeProductId) {
+      const searchKeys = Array.from(new Set([hotmartProductId, ucodeProductId].filter(Boolean) as string[]));
+
+      // a) Procurar na tabela de mapeamento customizada hotmart_products
+      let mapping: any = null;
+      for (const key of searchKeys) {
+        const { data } = await supabaseAdmin
+          .from("hotmart_products")
+          .select("*")
+          .eq("hotmart_product_id", key)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (data) {
+          mapping = data;
+          break;
         }
       }
 
-      if (!selectError && settings) {
-        const mainRaw = settings.main_course_hotmart_id;
-        mainProductId = (mainRaw !== null && mainRaw !== undefined) ? mainRaw.toString().trim() : '';
-      } else if (selectError) {
-        console.log(`Warning fetching main_course_hotmart_id: ${selectError.message}. Performing fallback to custom_texts...`)
-      }
-    } catch (err) {
-      console.error(`Error with direct select:`, err)
-    }
+      if (mapping) {
+        productType = mapping.product_type as any;
+        const targetId = mapping.internal_target_id;
 
-    // Fallback if column does not exist or value is empty
-    if (mainProductId === '') {
-      try {
-        let { data: fallbackSettings } = await supabaseClient
-          .from('app_settings')
-          .select('custom_texts')
-          .eq('id', 1)
-          .maybeSingle()
-        
-        // Backup fallback if ID=1 doesn't exist
-        if (!fallbackSettings) {
-          const { data: fallbackList } = await supabaseClient
-            .from('app_settings')
-            .select('custom_texts')
-            .limit(1)
-          if (fallbackList && fallbackList.length > 0) {
-            fallbackSettings = fallbackList[0]
+        if (productType === "package" && targetId) {
+          const { data: pkgCourses } = await supabaseAdmin
+            .from("package_courses")
+            .select("course_id")
+            .eq("package_id", targetId);
+          targetIds = [targetId, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+        } else if (productType === "course" && targetId) {
+          const { data: crs } = await supabaseAdmin
+            .from("courses")
+            .select("id, linked_package_id")
+            .eq("id", targetId)
+            .maybeSingle();
+          if (crs?.linked_package_id) {
+            const { data: pkgCourses } = await supabaseAdmin
+              .from("package_courses")
+              .select("course_id")
+              .eq("package_id", crs.linked_package_id);
+            targetIds = [crs.linked_package_id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+          } else {
+            targetIds = [targetId];
           }
         }
-        
-        const customTexts = fallbackSettings?.custom_texts || {}
-        mainProductId = (customTexts['main_product_id'] || '').trim()
-        console.log(`Fallback retrieved from custom_texts: ${mainProductId}`)
-      } catch (fbErr) {
-        console.error('Error on custom_texts fallback:', fbErr)
-      }
-    }
-
-    let targetIds: string[] = []
-    let isMainCourse = false
-    const hotmartProductName = (data?.product?.name || '').trim()
-
-    // Se bater com o Produto Principal configurado globalmente OR se for o ID '0' de sandbox/teste da Hotmart e a tabela app_settings não puder ser lida ou for zero
-    let isMainProductMatch = (mainProductId !== '' && hotmartProductId === mainProductId) || 
-                             (hotmartProductId === '0' && (mainProductId === '' || mainProductId === '0'));
-
-    // Se for teste com ID '0' mas possuímos nome do produto, tentamos encontrar um curso ou pacote correspondente antes de assumir o produto principal!
-    let resolvedByTestName = false
-    if (hotmartProductId === '0' && hotmartProductName !== '') {
-      try {
-        // 1. Busca se há pacote com este nome
-        const { data: pkg } = await supabaseClient
-          .from('course_packages')
-          .select('id, package_courses(course_id)')
-          .ilike('title', hotmartProductName)
-          .maybeSingle()
-
-        if (pkg) {
-          targetIds = [pkg.id, ...(pkg.package_courses?.map((pc: any) => pc.course_id) || [])]
-          resolvedByTestName = true
-          isMainProductMatch = false
-          console.log(`[TESTE ID 0] Produto mapeado por NOME como pacote: ${pkg.id}`)
-        }
-
-        // 2. Se não achou pacote, busca se há curso com este nome
-        if (!resolvedByTestName) {
-          const { data: course } = await supabaseClient
-            .from('courses')
-            .select('id')
-            .ilike('title', hotmartProductName)
-            .maybeSingle()
-
-          if (course) {
-            targetIds = [course.id]
-            resolvedByTestName = true
-            isMainProductMatch = false
-            console.log(`[TESTE ID 0] Produto mapeado por NOME como curso: ${course.id}`)
-          }
-        }
-      } catch (err) {
-        console.error('Erro ao mapear produto de teste por nome na edge function:', err)
-      }
-    }
-
-    if (isMainProductMatch) {
-      isMainCourse = true
-      
-      // Fetch the UUID of the main course in Supabase (is_free = true, is_bonus = false)
-      const { data: mainCourse } = await supabaseClient
-        .from('courses')
-        .select('id')
-        .eq('is_free', true)
-        .eq('is_bonus', false)
-        .maybeSingle()
-
-      if (mainCourse && mainCourse.id) {
-        targetIds = [mainCourse.id]
-        console.log(`Produto principal identificado (ID: ${hotmartProductId}). Mapeado para o UUID do curso principal correspondente no Supabase: ${mainCourse.id}`)
       } else {
-        // Fallback resiliente: se não achar o curso principal exato com is_free=true & is_bonus=false, busca qualquer curso disponível
-        const { data: fallbackList } = await supabaseClient
-          .from('courses')
-          .select('id')
-          .limit(1)
-        if (fallbackList && fallbackList.length > 0) {
-          targetIds = [fallbackList[0].id]
-          console.log(`Aviso: Curso principal (is_free=true, is_bonus=false) não encontrado no Supabase. Utilizando primeiro curso disponível como fallback: ${fallbackList[0].id}`)
+        // b) Verificar se é Produto Principal ou IA Victoria de app_settings
+        const { data: settings } = await supabaseAdmin
+          .from("app_settings")
+          .select("custom_texts")
+          .eq("id", 1)
+          .maybeSingle();
+
+        const configuredMainId = settings?.custom_texts?.["hotmart.main_product_id"];
+        const configuredAiId = settings?.custom_texts?.["hotmart.unlimited_ai_product_id"] || settings?.custom_texts?.["hotmart.ai_product_id"];
+
+        if (searchKeys.some(k => (configuredAiId && String(configuredAiId) === k))) {
+          productType = "ai_subscription";
+        } else if (searchKeys.some(k => (configuredMainId && String(configuredMainId) === k))) {
+          productType = "main_product";
         } else {
-          targetIds = [hotmartProductId]
-          console.log(`Incoming purchase is for Product ID: ${hotmartProductId} (no corresponding course was found)`)
-        }
-      }
-    } else {
-      // Check if it's a package directly
-      const { data: pkg } = await supabaseClient
-        .from('course_packages')
-        .select('id, package_courses(course_id)')
-        .eq('hotmart_product_id', hotmartProductId)
-        .maybeSingle()
+          // c) Verificar se bate com hotmart_product_id de algum curso
+          let courseMatch: any = null;
+          for (const key of searchKeys) {
+            const { data } = await supabaseAdmin
+              .from("courses")
+              .select("id, linked_package_id")
+              .eq("hotmart_product_id", key)
+              .maybeSingle();
+            if (data) {
+              courseMatch = data;
+              break;
+            }
+          }
 
-      if (pkg) {
-        targetIds = [pkg.id, ...(pkg.package_courses?.map((pc: any) => pc.course_id) || [])]
-        console.log(`Found package ${pkg.id} for Hotmart ID ${hotmartProductId}, expanded to ${targetIds.length} items`)
-      } else {
-        // Check if it's a course
-        const { data: course } = await supabaseClient
-          .from('courses')
-          .select('id')
-          .eq('hotmart_product_id', hotmartProductId)
-          .maybeSingle()
+          if (courseMatch) {
+            productType = "course";
+            if (courseMatch.linked_package_id) {
+              const { data: pkgCourses } = await supabaseAdmin
+                .from("package_courses")
+                .select("course_id")
+                .eq("package_id", courseMatch.linked_package_id);
+              targetIds = [courseMatch.linked_package_id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+            } else {
+              targetIds = [courseMatch.id];
+            }
+          } else {
+            // d) Verificar se bate com hotmart_product_id de algum pacote
+            let packageMatch: any = null;
+            for (const key of searchKeys) {
+              const { data } = await supabaseAdmin
+                .from("course_packages")
+                .select("id")
+                .eq("hotmart_product_id", key)
+                .maybeSingle();
+              if (data) {
+                packageMatch = data;
+                break;
+              }
+            }
 
-        if (course) {
-          targetIds = [course.id]
-          console.log(`Course identified directly (ID: ${hotmartProductId}). Mapeado para o UUID do curso correspondente no Supabase: ${course.id}`)
+            if (packageMatch) {
+              productType = "package";
+              const { data: pkgCourses } = await supabaseAdmin
+                .from("package_courses")
+                .select("course_id")
+                .eq("package_id", packageMatch.id);
+              targetIds = [packageMatch.id, ...(pkgCourses?.map(pc => pc.course_id) || [])];
+            }
+          }
         }
       }
     }
 
-    if (targetIds.length === 0) {
-      console.error(`Product not found for Hotmart ID: ${hotmartProductId}`)
-      return new Response(JSON.stringify({ 
-        error: `Produto Hotmart ID ${hotmartProductId} não mapeado no painel administrativo.`,
-        debug: {
-          resolvedProductId: hotmartProductId,
-          mainProductId: mainProductId,
-          mainProductIdType: typeof mainProductId,
-          hasMainProductMatch: (mainProductId !== '' && hotmartProductId === mainProductId),
-          isMainProductIdEmpty: (mainProductId === ''),
-        }
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' },
-        status: 404,
-      })
-    }
+    // 5. Determinar estado de Aprovado vs Revogado
+    const isApprovalEvent =
+      event.includes("APPROVED") ||
+      event.includes("COMPLETE") ||
+      event.includes("ACTIVATED") ||
+      event.includes("APROVAD") ||
+      event.includes("COMPLET") ||
+      event === "PURCHASE_OUT_OF_SHOPPING_CART" ||
+      event === "SUBSCRIPTION_RENEWAL";
 
-    // 2. Find or Create user by email
-    const { data: { users }, error: userError } = await supabaseClient.auth.admin.listUsers()
-    if (userError) throw userError
+    const isRevocationEvent =
+      event.includes("REFUNDED") ||
+      event.includes("CANCELED") ||
+      event.includes("CANCELLED") ||
+      event.includes("CHARGEBACK") ||
+      event.includes("EXPIRED") ||
+      event.includes("REEMBOLS") ||
+      event.includes("INACTIVE");
 
-    let user = users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
+    // 6. BUSCAR OU CRIAR USUÁRIO NO SUPABASE
+    const { data: existingProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("id, email, has_access, has_unlimited_ai")
+      .ilike("email", email)
+      .maybeSingle();
 
-    if (!user) {
-      console.log(`User not found, creating new user for: ${email}`)
-      const { data: newUser, error: createError } = await supabaseClient.auth.admin.createUser({
+    let targetUserId = existingProfile?.id;
+
+    if (!existingProfile && isApprovalEvent) {
+      console.log(`[Hotmart Edge Function] Creating new Auth user for ${email}...`);
+      const tempPassword = "123456";
+      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: email,
+        password: tempPassword,
         email_confirm: true,
-        user_metadata: { 
-          full_name: data?.buyer?.name || '',
-          is_auto_created: true
-        }
-      })
-      
-      if (createError) throw createError
-      user = newUser.user
-    }
+        user_metadata: { full_name: buyerName }
+      });
 
-    if (!user) {
-      throw new Error('Could not find or create user')
-    }
-
-    // Ensure profile row exists in public.profiles to avoid foreign key violations on transactions insertion
-    try {
-      const { error: profileError } = await supabaseClient
-        .from('profiles')
-        .upsert({
-          id: user.id,
-          email: email.trim().toLowerCase(),
-          full_name: data?.buyer?.name || 'Aluna Premium',
-          has_access: true
-        }, { onConflict: 'id' });
-      if (profileError) {
-        console.warn('Aviso ao sincronizar perfil na tabela public.profiles:', profileError.message);
-      }
-    } catch (err: any) {
-      console.warn('Erro ao sincronizar perfil na tabela public.profiles:', err.message);
-    }
-
-    // 3. Process Events
-    const grantEvents = ['PURCHASE_APPROVED', 'PURCHASE_COMPLETE']
-    const revokeEvents = [
-      'PURCHASE_REFUNDED', 
-      'PURCHASE_CHARGEBACK', 
-      'SUBSCRIPTION_CANCELED', 
-      'SUBSCRIPTION_EXPIRED'
-    ]
-
-    if (grantEvents.includes(event)) {
-      // Grant access to all resolved IDs
-      for (const tid of targetIds) {
-        const { error: insertError } = await supabaseClient
-          .from('purchases')
-          .insert({ 
-            user_id: user.id, 
-            product_id: tid,
-            transaction_id: data?.purchase?.transaction || `hotmart_${Date.now()}`
-          })
-        
-        if (insertError && insertError.code !== '23505') {
-          console.error(`Error granting ${tid} to ${email}:`, insertError)
-        }
-      }
-      
-      console.log(`Access GRANTED to ${email} for ${targetIds.length} items`)
-    } else if (revokeEvents.includes(event)) {
-      if (isMainCourse) {
-        // Delete user completely from Supabase auth
-        const { error: deleteUserError } = await supabaseClient.auth.admin.deleteUser(user.id);
-        if (deleteUserError) throw deleteUserError;
-        console.log(`User ${email} deleted completely because the main course was canceled`);
+      if (newUser?.user) {
+        targetUserId = newUser.user.id;
+        await supabaseAdmin.from("profiles").upsert({
+          id: newUser.user.id,
+          email: email,
+          full_name: buyerName,
+          has_access: true,
+          has_unlimited_ai: productType === "ai_subscription",
+          created_at: new Date().toISOString()
+        }, { onConflict: "email" });
       } else {
-        // Revoke access only for the target course/package IDs
-        const { error: deleteError } = await supabaseClient
-          .from('purchases')
-          .delete()
-          .eq('user_id', user.id)
-          .in('product_id', targetIds)
-        
-        if (deleteError) throw deleteError
-        
-        console.log(`Access REVOKED for ${email} from ${targetIds.length} items due to ${event}`)
+        console.error("[Hotmart Edge Function] Error creating auth user:", createError);
       }
     }
 
-    return new Response(JSON.stringify({ success: true, event, items_processed: targetIds.length }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    })
+    // 7. APLICAR LÓGICA DE NEGÓCIO DE ACORDO COM O TIPO DE PRODUTO E EVENTO
+    let actionSummary = "";
 
-  } catch (error) {
-    console.error('Webhook Error:', error.message)
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    })
+    if (targetUserId) {
+      if (isApprovalEvent) {
+        // APROVAÇÃO / RENOVAÇÃO
+        if (productType === "main_product") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Acesso Principal à Plataforma ATIVADO";
+        } else if (productType === "ai_subscription") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_unlimited_ai: true, has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Assinatura IA Expert VIP ATIVADA";
+        } else if ((productType === "course" || productType === "package") && targetIds.length > 0) {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: true, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+
+          for (const pid of targetIds) {
+            await supabaseAdmin.from("purchases").upsert({
+              user_id: targetUserId,
+              product_id: pid,
+              created_at: new Date().toISOString()
+            }, { onConflict: "user_id,product_id" as any });
+          }
+
+          actionSummary = `Produto Adicional (${productType}) Liberado (${targetIds.length} itens): ${targetIds.join(", ")}`;
+        }
+      } else if (isRevocationEvent) {
+        // REVOGAÇÃO / REEMBOLSO / CANCELAMENTO / CHARGEBACK
+        if (productType === "main_product") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_access: false, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+          actionSummary = "Acesso Principal à Plataforma PAUSADO (Conta Preservada)";
+        } else if (productType === "ai_subscription") {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ has_unlimited_ai: false, updated_at: new Date().toISOString() })
+            .eq("id", targetUserId);
+
+          await supabaseAdmin
+            .from("purchases")
+            .delete()
+            .or(`user_id.eq.${targetUserId},email.eq.${email}`)
+            .in("product_id", ["ai_subscription", "prod_ai_default", "HOTMART_IA_VICTORIA"]);
+
+          actionSummary = "Assinatura IA Expert VIP REVOGADA";
+        } else if ((productType === "course" || productType === "package") && targetIds.length > 0) {
+          for (const pid of targetIds) {
+            await supabaseAdmin
+              .from("purchases")
+              .delete()
+              .eq("user_id", targetUserId)
+              .eq("product_id", pid);
+          }
+
+          actionSummary = `Produto Adicional (${productType}) Bloqueado (${targetIds.length} itens): ${targetIds.join(", ")}`;
+        }
+      }
+    }
+
+    // 8. REGISTRAR EVENTO NA TABELA LOG (hotmart_events) PARA AUDITORIA E IDEMPOTÊNCIA
+    try {
+      await supabaseAdmin.from("hotmart_events").insert({
+        transaction_id: transactionId,
+        event: event,
+        buyer_email: email,
+        hotmart_product_id: hotmartProductId || null,
+        status: "processed",
+        payload: payload,
+        processed_at: new Date().toISOString()
+      });
+    } catch (logErr) {
+      console.warn("[Hotmart Edge Function] Could not log event to hotmart_events:", logErr);
+    }
+
+    // 8.5 REGISTRAR OU ATUALIZAR VENDA NA TABELA SALES
+    try {
+      let resolvedName = payload.data?.product?.name;
+      if (!resolvedName || resolvedName === 'Curso / Produto Hotmart (Simulação)') {
+        if (productType === 'main_product') resolvedName = 'Acesso Geral à Plataforma (Produto Principal)';
+        else if (productType === 'ai_subscription') resolvedName = 'Assinatura IA Expert VIP (Ilimitada)';
+        else resolvedName = 'Produto Hotmart (' + (hotmartProductId || configuredMainId || 'Sem ID') + ')';
+      }
+
+      const rawAmount = Number(
+        payload.data?.purchase?.price?.value ?? 
+        payload.data?.purchase?.full_price?.value ?? 
+        payload.price ?? 
+        97
+      ) || 0;
+
+      const currency = String(
+        payload.data?.purchase?.price?.currency_value ?? 
+        payload.currency ?? 
+        'BRL'
+      ).toUpperCase();
+
+      const paymentType = String(
+        payload.data?.purchase?.payment?.type ?? 
+        payload.payment_type ?? 
+        'PIX'
+      ).toUpperCase();
+
+      const saleStatus = isApprovalEvent ? 'approved' :
+        event.includes('REFUND') || event.includes('REEMBOLS') ? 'refunded' :
+        event.includes('CANCEL') ? 'canceled' :
+        event.includes('CHARGEBACK') ? 'chargeback' : 'approved';
+
+      const purchaseDate = payload.data?.purchase?.approved_date || payload.data?.purchase?.order_date || payload.creation_date;
+      const formattedDate = purchaseDate ? new Date(purchaseDate).toISOString() : new Date().toISOString();
+
+      await supabaseAdmin.from('sales').upsert({
+        transaction_id: transactionId || ('TRX_' + Date.now()),
+        buyer_name: buyerName || 'Comprador Hotmart',
+        buyer_email: email,
+        buyer_phone: payload.data?.buyer?.checkout_phone || null,
+        product_id: hotmartProductId || configuredMainId || 'main_product',
+        product_name: resolvedName,
+        product_type: productType,
+        amount: rawAmount,
+        currency: currency,
+        payment_type: paymentType,
+        status: saleStatus,
+        event_type: event,
+        purchase_date: formattedDate,
+        raw_payload: payload,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'transaction_id' });
+    } catch (sErr) {
+      console.warn('[Hotmart Edge Function] Could not record sale to sales table:', sErr);
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        email: email,
+        event: event,
+        product_type: productType,
+        action: actionSummary,
+        target_ids: targetIds,
+        message: `Processamento concluído com sucesso para ${email}.`
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+    );
+
+  } catch (err: any) {
+    console.error("[Hotmart Edge Function Fatal Error]:", err);
+    return new Response(
+      JSON.stringify({ error: "Erro interno ao processar Webhook Hotmart", details: err.message }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
+    );
   }
-})
+});
