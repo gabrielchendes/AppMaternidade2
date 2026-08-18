@@ -94,7 +94,7 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
   };
 
   return (
-    <div className="relative w-full h-[46vh] md:h-[60vh] overflow-hidden bg-bg-main">
+    <div className="relative w-full h-[44vh] md:h-[58vh] overflow-hidden bg-[#0b0c10] touch-pan-y">
       <div className="absolute inset-0">
         <AnimatePresence initial={false} custom={direction}>
           <motion.div
@@ -105,6 +105,7 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
             animate="center"
             exit="exit"
             drag="x"
+            dragDirectionLock={true}
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={1}
             onDragStart={() => setIsDragging(true)}
@@ -117,7 +118,6 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
                 prev();
               }
               
-              // Use a small timeout to unset isDragging so the click event is filtered out correctly
               setTimeout(() => setIsDragging(false), 50);
             }}
             className="absolute inset-0 w-full h-full"
@@ -154,10 +154,9 @@ const BannerCarousel = memo(({ images, interval = 5000, config = [] }: BannerCar
       </div>
 
       {/* Overlays */}
-      <div className="absolute inset-0 bg-gradient-to-t from-bg-main via-transparent to-transparent opacity-90 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-b from-bg-main/60 via-transparent to-transparent pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-r from-bg-main/40 via-transparent to-bg-main/40 pointer-events-none" />
-
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0b0c10] via-transparent to-transparent opacity-95 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0b0c10]/70 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0b0c10]/40 via-transparent to-[#0b0c10]/40 pointer-events-none" />
     </div>
   );
 });

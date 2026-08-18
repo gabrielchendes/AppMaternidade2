@@ -161,7 +161,7 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       ? `${customSystemPrompt.trim()}\n\nIMPORTANT FORMATTING RULE: Do NOT use markdown bold stars (**text**) or asterisks in output. Write in natural plain text.\n\n${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`
       : defaultSystemInstruction;
 
-    const candidateModels = ['gemini-3.6-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-pro-preview'];
     let responseText: string | undefined = undefined;
     let lastError: any = null;
 
@@ -181,7 +181,7 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
         }
       } catch (mErr: any) {
         lastError = mErr;
-        console.warn(`[AI Chat] Model ${modelName} failed, trying next candidate if available...`, mErr?.message || mErr);
+        console.log(`[AI Chat] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
       }
     }
 

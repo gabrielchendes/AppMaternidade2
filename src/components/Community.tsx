@@ -1556,80 +1556,95 @@ export default function Community({ user, isImportMode = false }: CommunityProps
       )}
 
       {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {(postToDelete || commentToDelete) && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[400] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          >
+      {createPortal(
+        <AnimatePresence>
+          {(postToDelete || commentToDelete) && (
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-zinc-900 border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => { setPostToDelete(null); setCommentToDelete(null); }}
             >
-              <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center text-red-500 mb-4 mx-auto">
-                <Trash2 size={24} />
-              </div>
-              <h3 className="text-xl font-bold text-center mb-2">
-                {postToDelete ? t('community.delete_post_confirm') || 'Excluir Publicação?' : t('community.delete_comment_confirm') || 'Excluir Comentário?'}
-              </h3>
-              <p className="text-gray-400 text-center text-sm mb-6">
-                {postToDelete ? (t('community.delete_post_desc') || 'Esta ação não pode ser desfeita. A publicação e sua imagem serão removidas permanentemente.') : (t('community.delete_comment_desc') || 'O comentário será removido permanentemente.')}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => { setPostToDelete(null); setCommentToDelete(null); }}
-                  className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold transition-all"
-                >
-                  {t('global.cancel') || 'Cancelar'}
-                </button>
-                <button
-                  onClick={postToDelete ? handleDeletePost : handleDeleteComment}
-                  className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-all"
-                >
-                  {t('global.delete') || 'Excluir'}
-                </button>
-              </div>
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-zinc-900 border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center text-red-500 mb-4 mx-auto">
+                  <Trash2 size={24} />
+                </div>
+                <h3 className="text-xl font-bold text-center mb-2">
+                  {postToDelete ? t('community.delete_post_confirm') || 'Excluir Publicação?' : t('community.delete_comment_confirm') || 'Excluir Comentário?'}
+                </h3>
+                <p className="text-gray-400 text-center text-sm mb-6">
+                  {postToDelete ? (t('community.delete_post_desc') || 'Esta ação não pode ser desfeita. A publicação e sua imagem serão removidas permanentemente.') : (t('community.delete_comment_desc') || 'O comentário será removido permanentemente.')}
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setPostToDelete(null); setCommentToDelete(null); }}
+                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold transition-all active:scale-95"
+                  >
+                    {t('global.cancel') || 'Cancelar'}
+                  </button>
+                  <button
+                    onClick={postToDelete ? handleDeletePost : handleDeleteComment}
+                    className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-all active:scale-95"
+                  >
+                    {t('global.delete') || 'Excluir'}
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Edit Post Modal */}
-      <AnimatePresence>
-        {editingPost && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+      {createPortal(
+        <AnimatePresence>
+          {editingPost && (
             <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setEditingPost(null)}
             >
-              <div className="p-6 border-b border-white/10 flex justify-between items-center">
-                <h3 className="font-bold text-white">{t('community.edit_post') || 'Editar Publicação'}</h3>
-                <button onClick={() => setEditingPost(null)} className="text-gray-500 hover:text-white"><X size={20} /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                <textarea 
-                  value={editContent}
-                  onChange={e => setEditContent(e.target.value)}
-                  className={`w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-${isImportMode ? 'blue-500' : 'primary'} outline-none min-h-[150px] text-sm`}
-                  placeholder={t('community.edit_placeholder') || "Conteúdo do post..."}
-                />
-                <button 
-                  onClick={handleUpdatePost}
-                  className={`w-full ${isImportMode ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-primary hover:bg-primary-hover shadow-primary/20'} text-white font-bold py-4 rounded-xl transition-all shadow-lg`}
-                >
-                  {t('profile.save_changes') || 'Salvar Alterações'}
-                </button>
-              </div>
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-zinc-900 border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-6 border-b border-white/10 flex justify-between items-center">
+                  <h3 className="font-bold text-white">{t('community.edit_post') || 'Editar Publicação'}</h3>
+                  <button onClick={() => setEditingPost(null)} className="text-gray-500 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"><X size={20} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <textarea 
+                    value={editContent}
+                    onChange={e => setEditContent(e.target.value)}
+                    className={`w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-white focus:border-${isImportMode ? 'blue-500' : 'primary'} outline-none min-h-[150px] text-sm`}
+                    placeholder={t('community.edit_placeholder') || "Conteúdo do post..."}
+                  />
+                  <button 
+                    onClick={handleUpdatePost}
+                    className={`w-full ${isImportMode ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-primary hover:bg-primary-hover shadow-primary/20'} text-white font-bold py-4 rounded-xl transition-all shadow-lg active:scale-98`}
+                  >
+                    {t('profile.save_changes') || 'Salvar Alterações'}
+                  </button>
+                </div>
+              </motion.div>
             </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

@@ -15,7 +15,7 @@ import WhatsAppIcon from '../components/WhatsAppIcon';
 import SmartHomeHeader from '../components/SmartHomeHeader';
 import { getDeviceType, isPWAInstalled } from '../lib/pwa';
 import { toast } from 'sonner';
-import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone } from 'lucide-react';
+import { X, ShoppingBag, Loader2, Play, BookOpen, Star, Sparkles, Mail as MailIcon, MessageCircle, Book, Bell, Smartphone, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { requestNotificationPermission, onForegroundMessage } from '../lib/pushNotifications';
 import { createNotification } from '../lib/notifications';
@@ -96,15 +96,7 @@ export default function Dashboard({ user }: DashboardProps) {
       fetchProfile().catch(e => console.warn('Error fetching profile in AI modal:', e));
     }
   }, [isAiModalOpen, user?.id, user?.email]);
-  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
-    try {
-      const hash = window.location.hash.replace('#', '');
-      if (['home', 'profile', 'community', 'admin'].includes(hash)) {
-        return hash as any;
-      }
-    } catch (e) {}
-    return 'home';
-  });
+  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>('home');
 
   const handleGlobalRefresh = async () => {
     if (activeTab === 'home') {
@@ -660,7 +652,7 @@ export default function Dashboard({ user }: DashboardProps) {
   }
 
   return (
-    <div className="min-h-screen pb-20 bg-bg-main">
+    <div className="min-h-screen pb-20 bg-[#0b0c10]">
       <AnimatePresence>
         {viewingCourseId && (
           <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[250]"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
@@ -737,11 +729,14 @@ export default function Dashboard({ user }: DashboardProps) {
       />
 
       {/* Tab Content and Transitions */}
-      <div className={cn(
-               "w-full pb-32",
-               activeTab !== 'home' ? "pt-20 min-h-screen" : "min-h-screen"
-             )}>
-            {activeTab === 'home' ? (
+      {isAiModalOpen ? (
+        <div className="fixed inset-0 bg-black z-10 w-full h-full" />
+      ) : (
+        <div className={cn(
+          "w-full pb-32",
+          activeTab !== 'home' ? "pt-20 min-h-screen" : "min-h-screen"
+        )}>
+          {activeTab === 'home' ? (
               <PullToRefresh onRefresh={handleGlobalRefresh}>
                 <div className="flex flex-col">
                   {/* Banner Section */}
@@ -771,7 +766,7 @@ export default function Dashboard({ user }: DashboardProps) {
                   />
 
                   {/* Content Sections */}
-                  <div className="relative z-10 space-y-4 mt-4">
+                  <div className="relative z-10 space-y-4 mt-2">
                     <Carousel 
                       title={settings.custom_texts?.['dashboard.courses_paid'] || t('dashboard.courses_paid') || 'Sua Jornada Principal  🔥'}
                     >
@@ -865,7 +860,8 @@ export default function Dashboard({ user }: DashboardProps) {
                   <SupportSection page="profile" settings={settings} t={t} />
                 </PullToRefresh>
               )}
-      </div>
+        </div>
+      )}
 
       <CoursePurchaseModal
         isOpen={!!selectedCourse}

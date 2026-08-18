@@ -18,9 +18,9 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
   };
 
   return (
-    <div className="relative group/carousel mb-4 sm:mb-8">
-      <div className="flex flex-col px-6 md:px-16 mb-4 sm:mb-6">
-        <h2 className="text-xl sm:text-3xl font-black text-white uppercase tracking-tighter leading-none drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]">
+    <div className="relative group/carousel mb-6 sm:mb-10">
+      <div className="flex items-center justify-between px-4 sm:px-8 md:px-16 mb-3 sm:mb-4">
+        <h2 className="text-base sm:text-xl font-bold text-zinc-100 tracking-tight flex items-center gap-2">
           {title}
         </h2>
       </div>
@@ -29,15 +29,15 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Left Arrow */}
         <button
           onClick={() => scroll('left')}
-          className="absolute left-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-black/60"
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-30 w-10 h-10 rounded-full glass border border-white/10 text-white opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-white/10 shadow-xl active:scale-95"
         >
-          <ChevronLeft size={32} />
+          <ChevronLeft size={22} />
         </button>
 
         {/* Scroll Container */}
         <div
           ref={scrollRef}
-          className="flex gap-3 sm:gap-4 overflow-x-auto scrollbar-hide px-6 md:px-16 pb-4 snap-x snap-mandatory scroll-pl-6 md:scroll-pl-16"
+          className="flex gap-3.5 sm:gap-5 overflow-x-auto scrollbar-hide px-4 sm:px-8 md:px-16 pb-3 snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 md:scroll-pl-16 touch-pan-x touch-pan-y overscroll-x-contain"
         >
           {children}
         </div>
@@ -45,9 +45,9 @@ const Carousel = memo(({ title, children }: CarouselProps) => {
         {/* Right Arrow */}
         <button
           onClick={() => scroll('right')}
-          className="absolute right-0 top-0 bottom-0 z-20 w-12 bg-black/40 opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-black/60"
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-30 w-10 h-10 rounded-full glass border border-white/10 text-white opacity-0 group-hover/carousel:opacity-100 transition-opacity hidden md:flex items-center justify-center hover:bg-white/10 shadow-xl active:scale-95"
         >
-          <ChevronRight size={32} />
+          <ChevronRight size={22} />
         </button>
       </div>
     </div>

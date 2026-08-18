@@ -28,7 +28,8 @@ async function startServer() {
     appType: 'spa',
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
+  app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
   // Serve static files from public directory
   app.use(express.static(path.join(__dirname, 'public')));

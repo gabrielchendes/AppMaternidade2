@@ -50,9 +50,11 @@ export interface AppSettings {
   app_url?: string;
   ga4_tag_id?: string;
   main_course_hotmart_id?: string;
+  show_course_titles_home?: boolean;
 }
 
 const defaultSettings: AppSettings = {
+  show_course_titles_home: false,
   main_course_hotmart_id: '',
   app_name: 'AppMaternidade',
   admin_email: 'atendimento@suporte.com',
@@ -197,6 +199,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           }
           if (data.custom_texts['config.support_type']) {
             data.support_type = data.custom_texts['config.support_type'];
+          }
+          if (data.custom_texts['config.show_course_titles_home'] !== undefined) {
+            data.show_course_titles_home = data.custom_texts['config.show_course_titles_home'] === 'true';
           }
         }
         setSettings(data);

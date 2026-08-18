@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, Product, CommunityPost } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -611,6 +612,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       initialLocal.support_email_profile_enabled = settings.support_email_profile_enabled ?? true;
       initialLocal.support_whatsapp_course_enabled = settings.support_whatsapp_course_enabled ?? true;
       initialLocal.support_email_course_enabled = settings.support_email_course_enabled ?? true;
+      initialLocal.show_course_titles_home = settings.show_course_titles_home ?? (settings.custom_texts?.['config.show_course_titles_home'] === 'true');
 
       setLocalSettings(initialLocal);
     }
@@ -1121,18 +1123,34 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         delete payload.support_type;
       }
 
+      if ('show_course_titles_home' in payload) {
+        if (!payload.custom_texts) payload.custom_texts = { ...(settings?.custom_texts || {}) };
+        payload.custom_texts['config.show_course_titles_home'] = String(!!payload.show_course_titles_home);
+      }
+
       const { error } = await supabase
         .from('app_settings')
         .upsert({ id: 1, ...payload });
 
       if (error) {
-        if (error.message?.includes('banner_config')) {
+        if (error.message?.includes('show_course_titles_home')) {
+          const fallbackPayload = { ...payload };
+          delete fallbackPayload.show_course_titles_home;
+          if (!fallbackPayload.custom_texts) fallbackPayload.custom_texts = { ...(settings?.custom_texts || {}) };
+          fallbackPayload.custom_texts['config.show_course_titles_home'] = String(!!newSettings.show_course_titles_home);
+
+          const { error: fallbackErr } = await supabase
+            .from('app_settings')
+            .upsert({ id: 1, ...fallbackPayload });
+
+          if (fallbackErr) throw fallbackErr;
+        } else if (error.message?.includes('banner_config')) {
           throw new Error('A coluna "banner_config" não foi encontrada no banco de dados. Por favor, execute o script SQL de atualização em SUPABASE_SETUP.md no seu painel Supabase.');
-        }
-        if (error.code === '22P02' && error.message?.includes('login_install_button_pulsing')) {
+        } else if (error.code === '22P02' && error.message?.includes('login_install_button_pulsing')) {
           throw new Error('Erro de tipo na coluna "login_install_button_pulsing". O banco espera um Booleano mas recebeu um Texto. Por favor, execute o script SQL de atualização em SUPABASE_SETUP.md para converter a coluna para TEXT.');
+        } else {
+          throw error;
         }
-        throw error;
       }
       toast.success('Configurações atualizadas!');
       refreshSettings();
@@ -1441,31 +1459,39 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     }
   };
 
-  const handleDeleteCourse = async (courseId: string, courseTitle: string = 'este curso', isPaid: boolean = false) => {
-    if (isPaid) {
-      const confirmed = window.confirm(`Você tem certeza que deseja excluir o curso pago "${courseTitle}"? Esta ação é irreversível.`);
-      if (!confirmed) return;
-    } else {
-      const confirmed = window.confirm(`Você tem certeza que deseja excluir o curso "${courseTitle}"?`);
-      if (!confirmed) return;
-    }
+  const handleDeleteCourse = (courseId: string, courseTitle: string = 'este curso', isPaid: boolean = false) => {
+    setConfirmationModal({
+      isOpen: true,
+      title: isPaid ? 'Excluir Curso Pago' : 'Excluir Curso',
+      message: isPaid 
+        ? `Você tem certeza que deseja excluir o curso pago "${courseTitle}"? Esta ação é irreversível e removerá o acesso ao conteúdo.`
+        : `Você tem certeza que deseja excluir o curso "${courseTitle}"? Esta ação é irreversível e removerá a publicação.`,
+      type: 'danger',
+      confirmText: 'Sim, Excluir Curso',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        // Remove immediately from UI for instant feedback
+        setCourses(prev => prev.filter(c => c.id !== courseId));
 
-    try {
-      const { error } = await supabase
-        .from('courses')
-        .delete()
-        .eq('id', courseId);
+        try {
+          const { error } = await supabase
+            .from('courses')
+            .delete()
+            .eq('id', courseId);
 
-      if (error) throw error;
-      
-      toast.success('Curso excluído com sucesso!');
-      fetchData();
-    } catch (err: any) {
-      toast.error('Erro ao excluir curso: ' + err.message);
-    }
+          if (error) throw error;
+          
+          toast.success('Curso excluído com sucesso!');
+        } catch (err: any) {
+          toast.error('Erro ao excluir curso: ' + err.message);
+          fetchData(); // Rollback if error
+        }
+      }
+    });
   };
 
   const handleDeletePackage = async (packageId: string) => {
+    setCoursePackages(prev => prev.filter(p => p.id !== packageId));
     try {
       const { error } = await supabase
         .from('course_packages')
@@ -1475,9 +1501,9 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       if (error) throw error;
       
       toast.success('Pacote excluído com sucesso!');
-      fetchData();
     } catch (err: any) {
       toast.error('Erro ao excluir pacote: ' + err.message);
+      fetchData();
     }
   };
 
@@ -4613,95 +4639,70 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                     {activePageTab === 'home' && (
                       <div className="space-y-8">
+                        {/* 1. Opção Exibir Nome dos Cursos no Início */}
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-primary/20 rounded-lg text-primary">
-                              <ShoppingBag size={20} />
-                            </div>
-                            <h4 className="font-bold text-white">Textos do Início</h4>
-                          </div>
-
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                            <div className="space-y-6">
-                              {[
-                                { key: 'dashboard.courses_paid', label: 'Título Cursos Pagos' },
-                                { key: 'dashboard.courses_free', label: 'Título Produto Principal' },
-                                { key: 'dashboard.courses_bonus', label: 'Título Cursos Bônus' },
-                                { key: 'badge.locked', label: 'Badge Curso Bloqueado' },
-                                { key: 'cta.unlock', label: 'Botão Curso Bloqueado' },
-                                { key: 'badge.new', label: 'Badge Começar (Não Iniciado)' },
-                                { key: 'cta.new', label: 'Botão Começar (Não Iniciado)' },
-                                { key: 'badge.in_progress', label: 'Badge Em Andamento' },
-                                { key: 'cta.in_progress', label: 'Botão Retomar Aula' },
-                                { key: 'badge.completed', label: 'Badge Concluído' },
-                                { key: 'cta.completed', label: 'Botão Assistir Novamente' },
-                                { key: 'course.progresso', label: 'Label de Progresso' },
-                                { key: 'course.exclusive_content', label: 'Texto Conteúdo Exclusivo' },
-                                { key: 'dashboard.resume_label', label: 'Texto Retomar Aula (Topo)' },
-                                { key: 'gamification.ranking_label', label: 'Texto Botão Ranking' },
-                                { key: 'gamification.level_up', label: 'Texto Level Up' },
-                                { key: 'gamification.level_short', label: 'Prefixo de Nível (Ex: Lvl, Nível)' },
-                                { key: 'gamification.modal_title', label: 'Título Modal Nível (variável {level})' },
-                                { key: 'gamification.progress_label', label: 'Texto Subtítulo Modal (variável {progress})' },
-                                { key: 'gamification.next_achievement', label: 'Texto Próxima Conquista' },
-                                { key: 'gamification.continue_journey', label: 'Texto Botão Continuar' },
-                                { key: 'gamification.level_0_label', label: 'Label Nível 0' },
-                                { key: 'gamification.level_1_label', label: 'Label Nível 1' },
-                                { key: 'gamification.level_2_label', label: 'Label Nível 2' },
-                                { key: 'gamification.level_3_label', label: 'Label Nível 3' },
-                                { key: 'gamification.level_4_label', label: 'Label Nível 4' },
-                                { key: 'gamification.level_5_label', label: 'Label Nível 5' },
-                                { key: 'gamification.level_0_req', label: 'Objetivo Nível 0' },
-                                { key: 'gamification.level_1_req', label: 'Objetivo Nível 1' },
-                                { key: 'gamification.level_2_req', label: 'Objetivo Nível 2' },
-                                { key: 'gamification.level_3_req', label: 'Objetivo Nível 3' },
-                                { key: 'gamification.level_4_req', label: 'Objetivo Nível 4' },
-                                { key: 'gamification.level_5_req', label: 'Objetivo Nível 5' },
-                                { key: 'dashboard.empty_locked', label: 'Mensagem Sem Cursos' },
-                                { key: 'dashboard.empty_all_unlocked', label: 'Mensagem Todos Liberados' },
-                                { key: 'dashboard.loading_error', label: 'Erro: Carregar Conteúdos' }
-                              ].map(field => (
-                                <div key={field.key} className="space-y-2">
-                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
-                                  <input 
-                                    type="text" 
-                                    value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
-                                    placeholder={languagePresets.pt[field.key] || field.label}
-                                    onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
-                                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
-                                  />
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="space-y-6">
-                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview das Vitrines</label>
-                              <div className="p-6 rounded-3xl border border-white/10 space-y-8 h-full overflow-hidden min-h-[400px]" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
-                                <div className="space-y-3">
-                                  <h5 className="text-xs font-black text-white uppercase italic tracking-tighter">
-                                    {draftCustomTexts['dashboard.courses_paid'] || 'Meus Cursos'}
-                                  </h5>
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
-                                  </div>
-                                </div>
-                                <div className="space-y-3 opacity-40">
-                                  <h5 className="text-[10px] font-black text-white uppercase italic tracking-tighter">
-                                    {draftCustomTexts['dashboard.courses_free'] || 'Produtos Principais'}
-                                  </h5>
-                                  <div className="grid grid-cols-3 gap-2">
-                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
-                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
-                                  </div>
-                                </div>
+                          <div className="flex items-center justify-between flex-wrap gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-blue-600/20 rounded-lg text-blue-500">
+                                <Type size={20} />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-white">Exibir Nome dos Cursos no Início</h4>
+                                <p className="text-xs text-gray-400">
+                                  Escolha se o nome dos cursos deve aparecer nos cards da tela inicial.
+                                </p>
                               </div>
                             </div>
+                            <button 
+                              type="button"
+                              onClick={async () => {
+                                setIsSavingSettings(true);
+                                await updateSettings({ 
+                                  show_course_titles_home: localSettings?.show_course_titles_home === true
+                                });
+                                setIsSavingSettings(false);
+                              }}
+                              disabled={isSavingSettings}
+                              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-600/20 cursor-pointer"
+                            >
+                              {isSavingSettings ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                              Salvar Configuração
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between p-6 bg-zinc-900/30 border border-white/5 rounded-2xl flex-wrap gap-4">
+                            <div className="space-y-1">
+                              <h6 className="text-sm font-bold text-white uppercase italic tracking-tighter">
+                                Exibir Nome do Curso
+                              </h6>
+                              <p className="text-[10px] text-gray-500 font-bold uppercase italic tracking-widest leading-relaxed">
+                                {localSettings?.show_course_titles_home 
+                                  ? 'Os nomes dos cursos estão VISÍVEIS na tela início.' 
+                                  : 'Os nomes dos cursos estão OCULTOS na tela início (Padrão).'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLocalSettings({ 
+                                  ...localSettings, 
+                                  show_course_titles_home: !localSettings?.show_course_titles_home
+                                });
+                              }}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                                localSettings?.show_course_titles_home ? 'bg-blue-600' : 'bg-zinc-700'
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  localSettings?.show_course_titles_home ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
                           </div>
                         </div>
 
-                        {/* Banner Rotativo Premium */}
+                        {/* 2. Banner Rotativo Premium */}
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -5349,6 +5350,95 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     <div className="w-1/2 h-1 bg-zinc-800/40 mx-auto rounded-full" />
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 3. Textos do Início */}
+                        <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-8">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-primary/20 rounded-lg text-primary">
+                              <ShoppingBag size={20} />
+                            </div>
+                            <h4 className="font-bold text-white">Textos do Início</h4>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                            <div className="space-y-6">
+                              {[
+                                { key: 'dashboard.courses_paid', label: 'Título Cursos Pagos' },
+                                { key: 'dashboard.courses_free', label: 'Título Produto Principal' },
+                                { key: 'dashboard.courses_bonus', label: 'Título Cursos Bônus' },
+                                { key: 'badge.locked', label: 'Badge Curso Bloqueado' },
+                                { key: 'cta.unlock', label: 'Botão Curso Bloqueado' },
+                                { key: 'badge.new', label: 'Badge Começar (Não Iniciado)' },
+                                { key: 'cta.new', label: 'Botão Começar (Não Iniciado)' },
+                                { key: 'badge.in_progress', label: 'Badge Em Andamento' },
+                                { key: 'cta.in_progress', label: 'Botão Retomar Aula' },
+                                { key: 'badge.completed', label: 'Badge Concluído' },
+                                { key: 'cta.completed', label: 'Botão Assistir Novamente' },
+                                { key: 'course.progresso', label: 'Label de Progresso' },
+                                { key: 'course.exclusive_content', label: 'Texto Conteúdo Exclusivo' },
+                                { key: 'dashboard.resume_label', label: 'Texto Retomar Aula (Topo)' },
+                                { key: 'gamification.ranking_label', label: 'Texto Botão Ranking' },
+                                { key: 'gamification.level_up', label: 'Texto Level Up' },
+                                { key: 'gamification.level_short', label: 'Prefixo de Nível (Ex: Lvl, Nível)' },
+                                { key: 'gamification.modal_title', label: 'Título Modal Nível (variável {level})' },
+                                { key: 'gamification.progress_label', label: 'Texto Subtítulo Modal (variável {progress})' },
+                                { key: 'gamification.next_achievement', label: 'Texto Próxima Conquista' },
+                                { key: 'gamification.continue_journey', label: 'Texto Botão Continuar' },
+                                { key: 'gamification.level_0_label', label: 'Label Nível 0' },
+                                { key: 'gamification.level_1_label', label: 'Label Nível 1' },
+                                { key: 'gamification.level_2_label', label: 'Label Nível 2' },
+                                { key: 'gamification.level_3_label', label: 'Label Nível 3' },
+                                { key: 'gamification.level_4_label', label: 'Label Nível 4' },
+                                { key: 'gamification.level_5_label', label: 'Label Nível 5' },
+                                { key: 'gamification.level_0_req', label: 'Objetivo Nível 0' },
+                                { key: 'gamification.level_1_req', label: 'Objetivo Nível 1' },
+                                { key: 'gamification.level_2_req', label: 'Objetivo Nível 2' },
+                                { key: 'gamification.level_3_req', label: 'Objetivo Nível 3' },
+                                { key: 'gamification.level_4_req', label: 'Objetivo Nível 4' },
+                                { key: 'gamification.level_5_req', label: 'Objetivo Nível 5' },
+                                { key: 'dashboard.empty_locked', label: 'Mensagem Sem Cursos' },
+                                { key: 'dashboard.empty_all_unlocked', label: 'Mensagem Todos Liberados' },
+                                { key: 'dashboard.loading_error', label: 'Erro: Carregar Conteúdos' }
+                              ].map(field => (
+                                <div key={field.key} className="space-y-2">
+                                  <label className="text-xs font-black text-gray-500 uppercase tracking-widest">{field.label}</label>
+                                  <input 
+                                    type="text" 
+                                    value={draftCustomTexts[field.key] !== undefined ? draftCustomTexts[field.key] : (settings.custom_texts?.[field.key] || languagePresets.pt[field.key] || '')}
+                                    placeholder={languagePresets.pt[field.key] || field.label}
+                                    onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, [field.key]: e.target.value })}
+                                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="space-y-6">
+                              <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Preview das Vitrines</label>
+                              <div className="p-6 rounded-3xl border border-white/10 space-y-8 h-full overflow-hidden min-h-[400px]" style={{ backgroundColor: localSettings?.background_color || settings.background_color || '#0f0f0f' }}>
+                                <div className="space-y-3">
+                                  <h5 className="text-xs font-black text-white uppercase italic tracking-tighter">
+                                    {draftCustomTexts['dashboard.courses_paid'] || 'Meus Cursos'}
+                                  </h5>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg" />
+                                  </div>
+                                </div>
+                                <div className="space-y-3 opacity-40">
+                                  <h5 className="text-[10px] font-black text-white uppercase italic tracking-tighter">
+                                    {draftCustomTexts['dashboard.courses_free'] || 'Produtos Principais'}
+                                  </h5>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
+                                    <div className="aspect-[2/3] bg-white/5 rounded-lg border border-white/5" />
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -7334,62 +7424,65 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       )}
 
       {/* Action Confirmation Modal */}
-      <AnimatePresence>
-        {confirmationModal.isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {confirmationModal.isOpen && (
             <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+              onClick={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
             >
-              {/* Background decorative elements */}
-              <div className={`absolute top-0 left-0 w-full h-1.5 ${confirmationModal.type === 'danger' ? 'bg-red-500' : 'bg-blue-500'}`} />
-              <div className={`absolute -top-24 -right-24 w-64 h-64 rounded-full blur-[100px] ${confirmationModal.type === 'danger' ? 'bg-red-500/10' : 'bg-blue-500/10'}`} />
-              
-              <div className="relative z-10 space-y-6">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${confirmationModal.type === 'danger' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
-                  {confirmationModal.type === 'danger' ? <Trash2 size={28} /> : <AlertCircle size={28} />}
-                </div>
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+              >
+                {/* Background decorative elements */}
+                <div className={`absolute top-0 left-0 w-full h-1.5 ${confirmationModal.type === 'danger' ? 'bg-red-500' : 'bg-blue-500'}`} />
+                <div className={`absolute -top-24 -right-24 w-64 h-64 rounded-full blur-[100px] ${confirmationModal.type === 'danger' ? 'bg-red-500/10' : 'bg-blue-500/10'}`} />
                 
-                <div className="space-y-3">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter leading-none">{confirmationModal.title}</h3>
-                  <p className="text-sm text-gray-400 font-medium leading-relaxed">{confirmationModal.message}</p>
-                </div>
+                <div className="relative z-10 space-y-6">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${confirmationModal.type === 'danger' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
+                    {confirmationModal.type === 'danger' ? <Trash2 size={28} /> : <AlertCircle size={28} />}
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter leading-none">{confirmationModal.title}</h3>
+                    <p className="text-sm text-gray-400 font-medium leading-relaxed">{confirmationModal.message}</p>
+                  </div>
 
-                <div className="flex gap-4 pt-4">
-                  <button
-                    onClick={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
-                    className="flex-1 py-4 px-6 bg-white/5 hover:bg-white/10 text-gray-400 font-bold rounded-2xl transition-all border border-white/5 active:scale-95"
-                  >
-                    {confirmationModal.cancelText || 'Cancelar'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      confirmationModal.onConfirm();
-                      setConfirmationModal(prev => ({ ...prev, isOpen: false }));
-                    }}
-                    className={`flex-1 py-4 px-6 text-white font-black rounded-2xl transition-all shadow-xl uppercase tracking-tighter active:scale-95 ${
-                      confirmationModal.type === 'danger' 
-                        ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20' 
-                        : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
-                    }`}
-                  >
-                    {confirmationModal.confirmText || 'Confirmar'}
-                  </button>
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      onClick={() => setConfirmationModal(prev => ({ ...prev, isOpen: false }))}
+                      className="flex-1 py-4 px-6 bg-white/5 hover:bg-white/10 text-gray-400 font-bold rounded-2xl transition-all border border-white/5 active:scale-95 text-xs uppercase tracking-wider"
+                    >
+                      {confirmationModal.cancelText || 'Cancelar'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        confirmationModal.onConfirm();
+                        setConfirmationModal(prev => ({ ...prev, isOpen: false }));
+                      }}
+                      className={`flex-1 py-4 px-6 text-white font-black rounded-2xl transition-all shadow-xl uppercase tracking-tighter active:scale-95 text-xs ${
+                        confirmationModal.type === 'danger' 
+                          ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20' 
+                          : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
+                      }`}
+                    >
+                      {confirmationModal.confirmText || 'Confirmar'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* Custom PWA URL Modal */}
       <AnimatePresence>

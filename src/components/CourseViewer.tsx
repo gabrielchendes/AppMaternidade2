@@ -18,7 +18,8 @@ import {
   Maximize2,
   Play,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  CheckSquare
 } from 'lucide-react';
 import WhatsAppIcon from './WhatsAppIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -32,6 +33,8 @@ import ChapterQuestions from './ChapterQuestions';
 import FloatingWhatsApp from './FloatingWhatsApp';
 import SupportSection from './SupportSection';
 import PullToRefresh from './PullToRefresh';
+import { InteractiveChecklist } from './InteractiveChecklist';
+import { BlockLessonViewer } from './BlockLessonViewer';
 
 interface CourseViewerProps {
   courseId: string;
@@ -759,8 +762,65 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               </div>
 
               {/* Media Player Section with Elegant Frame */}
-              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
-                {activeChapter?.content_type === 'link' ? (
+              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'checklist' || activeChapter?.content_type === 'interactive' ? 'max-w-4xl' : activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
+                {activeChapter?.content_type === 'interactive' ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="w-full"
+                  >
+                    {(() => {
+                      let parsedBlocks = [];
+                      try {
+                        if (activeChapter.rich_text) {
+                          const parsed = JSON.parse(activeChapter.rich_text);
+                          parsedBlocks = parsed.blocks || [];
+                        }
+                      } catch (e) {
+                        console.error('Failed to parse lesson blocks:', e);
+                      }
+
+                      return (
+                        <BlockLessonViewer
+                          chapterId={activeChapter.id}
+                          userId={userId}
+                          blocks={parsedBlocks}
+                          title={activeChapter.title}
+                          description={activeChapter.description}
+                          onLessonComplete={() => {
+                            if (activeChapter) {
+                              const currentProgress = progress.find(p => p.chapter_id === activeChapter.id);
+                              if (!currentProgress?.completed) {
+                                toggleCompletion(activeChapter.id);
+                              }
+                            }
+                          }}
+                        />
+                      );
+                    })()}
+                  </motion.div>
+                ) : activeChapter?.content_type === 'checklist' ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="w-full"
+                  >
+                    <InteractiveChecklist
+                      chapterId={activeChapter.id}
+                      userId={userId}
+                      onAllCompletedChange={(completed) => {
+                        if (completed && activeChapter) {
+                          const currentProgress = progress.find(p => p.chapter_id === activeChapter.id);
+                          if (!currentProgress?.completed) {
+                            toggleCompletion(activeChapter.id);
+                          }
+                        }
+                      }}
+                    />
+                  </motion.div>
+                ) : activeChapter?.content_type === 'link' ? (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}

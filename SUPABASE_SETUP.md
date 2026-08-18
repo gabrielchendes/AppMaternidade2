@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
     login_install_button_pulsing TEXT DEFAULT 'pulsing',
     logo_height INTEGER DEFAULT 64,
     course_pdf_auto_complete_fullscreen BOOLEAN DEFAULT false,
+    show_course_titles_home BOOLEAN DEFAULT false,
     app_url TEXT DEFAULT 'https://app-maternidade2.vercel.app',
     custom_texts JSONB DEFAULT '{
         "auth.welcome": "Bem-vinda de volta!",
@@ -180,7 +181,7 @@ CREATE TABLE IF NOT EXISTS public.chapters (
     module_id UUID REFERENCES public.modules(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     description TEXT,
-    content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text', 'link')),
+    content_type TEXT CHECK (content_type IN ('video', 'pdf', 'text', 'link', 'checklist')),
     video_url TEXT,
     pdf_url TEXT,
     button_link_text TEXT,
@@ -315,6 +316,45 @@ CREATE TABLE IF NOT EXISTS public.chapter_questions (
     answered_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 13. Tabela `checklists` (Estrutura de Checklists Interativas)
+CREATE TABLE IF NOT EXISTS public.checklists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chapter_id UUID UNIQUE REFERENCES public.chapters(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    instructions TEXT,
+    image_url TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. Tabela `checklist_items` (Itens/Tarefas de cada Checklist)
+CREATE TABLE IF NOT EXISTS public.checklist_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    checklist_id UUID REFERENCES public.checklists(id) ON DELETE CASCADE,
+    chapter_id UUID REFERENCES public.chapters(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    sort_order INTEGER DEFAULT 0,
+    required BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 15. Tabela `user_checklist_progress` (Progresso Individual de cada Aluna por Item)
+CREATE TABLE IF NOT EXISTS public.user_checklist_progress (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    chapter_id UUID REFERENCES public.chapters(id) ON DELETE CASCADE,
+    checklist_id UUID REFERENCES public.checklists(id) ON DELETE CASCADE,
+    item_id UUID REFERENCES public.checklist_items(id) ON DELETE CASCADE,
+    completed BOOLEAN DEFAULT false,
+    completed_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, item_id)
 );
 
 -- Habilitar RLS para chapter_questions
@@ -833,6 +873,9 @@ CREATE POLICY "Permitir leitura para service role e admins"
 CREATE TRIGGER update_hotmart_products_updated_at
     BEFORE UPDATE ON public.hotmart_products
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Script de Atualização para Projetos Existentes (Adicionar novas colunas em app_settings):
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS show_course_titles_home BOOLEAN DEFAULT false;
 
 ```
 

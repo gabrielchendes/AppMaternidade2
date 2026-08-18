@@ -31,6 +31,7 @@
     "react-i18next": "^17.0.2",
     "react-player": "^3.4.0",
     "react-quill-new": "^3.8.3",
+    "recharts": "^3.10.1",
     "sonner": "^2.0.7",
     "stripe": "^21.0.1",
     "tailwind-merge": "^3.5.0",

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus,
   Trash2,
@@ -30,13 +31,17 @@ import {
   MessageSquare,
   Link,
   Lock,
-  AlertTriangle
+  AlertTriangle,
+  CheckSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Course, Module, Chapter } from '../types/lms';
+import { Course, Module, Chapter, Checklist } from '../types/lms';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import CoursePreviewViewer from './CoursePreviewViewer';
+import { AdminChecklistEditor } from './AdminChecklistEditor';
+import { AiLessonGeneratorModal } from './AiLessonGeneratorModal';
+import { fetchChecklistByChapterId, saveChecklistToDatabase } from '../services/checklistService';
 import ImageCropperModal from './ImageCropperModal';
 
 const adjustColorBrightness = (hex: string, percent: number) => {
@@ -99,6 +104,21 @@ const getButtonStyle = (color: string, style: string): React.CSSProperties => {
   return {};
 };
 
+const isAiCreatedLesson = (ch: Chapter | null | undefined): boolean => {
+  if (!ch) return false;
+  if (ch.content_type === 'interactive' && ch.rich_text) {
+    try {
+      const parsed = typeof ch.rich_text === 'string' ? JSON.parse(ch.rich_text) : ch.rich_text;
+      if (parsed && (parsed.generated_by_ai === true || parsed.is_ai_created === true || (Array.isArray(parsed.blocks) && parsed.blocks.length > 0))) {
+        return true;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  return false;
+};
+
 interface CourseEditorProps {
   courseId?: string;
   onClose: () => void;
@@ -114,6 +134,13 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
   const [showModuleEditor, setShowModuleEditor] = useState(false);
   const [editingModule, setEditingModule] = useState<Partial<Module>>({ title: '' });
   const [showMissingHotmartModal, setShowMissingHotmartModal] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Course State
   const [course, setCourse] = useState<Partial<Course>>({
@@ -185,20 +212,67 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
 
   const [editingExistingChapter, setEditingExistingChapter] = useState<Chapter | null>(null);
 
+  // Checklist state
+  const [newChecklist, setNewChecklist] = useState<Checklist>({
+    chapter_id: 'new',
+    title: 'Checklist Interativa',
+    description: '',
+    instructions: 'Marque cada etapa à medida que concluir.',
+    items: []
+  });
+
+  const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
+
   // Custom premium dropdown states
   const [isModuleDropdownOpen, setIsModuleDropdownOpen] = useState(false);
   const [isStyleDropdownOpen, setIsStyleDropdownOpen] = useState(false);
   const [isEditModuleDropdownOpen, setIsEditModuleDropdownOpen] = useState(false);
   const [isEditStyleDropdownOpen, setIsEditStyleDropdownOpen] = useState(false);
 
+  // Unsaved changes & AI edit state
+  const [isDirty, setIsDirty] = useState(false);
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const [pendingNavAction, setPendingNavAction] = useState<(() => void) | null>(null);
+  const [aiEditChapter, setAiEditChapter] = useState<Chapter | null>(null);
+
+  const requestNavigation = (action: () => void) => {
+    if (isDirty) {
+      setPendingNavAction(() => action);
+      setShowUnsavedModal(true);
+    } else {
+      action();
+    }
+  };
+
+  const handleOpenAiEdit = (ch: Chapter) => {
+    setAiEditChapter(ch);
+    setIsAiModalOpen(true);
+  };
+
   useEffect(() => {
     if (selectedChapterId && selectedChapterId !== 'new') {
       const found = chapters.find(c => c.id === selectedChapterId);
       if (found) {
         setEditingExistingChapter({ ...found });
+
+        if (found.content_type === 'checklist') {
+          fetchChecklistByChapterId(found.id).then(cl => {
+            if (cl) {
+              setEditingChecklist(cl);
+            } else {
+              setEditingChecklist({
+                chapter_id: found.id,
+                title: found.title || 'Checklist',
+                description: found.description || '',
+                items: []
+              });
+            }
+          });
+        }
       }
     } else {
       setEditingExistingChapter(null);
+      setEditingChecklist(null);
     }
   }, [selectedChapterId, chapters]);
 
@@ -282,10 +356,84 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     }
   };
 
+  const handleLessonCreatedByAi = async (chapterData: any) => {
+    try {
+      let currentCourseId = courseId;
+      if (!currentCourseId) {
+        if (!course.title) {
+          toast.error('Informe o título do curso antes de adicionar aulas.');
+          return;
+        }
+        const { data: newCourse, error } = await supabase.from('courses').insert([{
+          title: course.title,
+          description: course.description || '',
+          is_active: course.is_active !== undefined ? course.is_active : true,
+          is_free: course.is_free !== undefined ? course.is_free : true,
+        }]).select().single();
+        if (error) throw error;
+        currentCourseId = newCourse.id;
+        setCourseId(newCourse.id);
+        setCourse(newCourse);
+      }
+
+      if (chapterData.id) {
+        const { error: updateError } = await supabase.from('chapters').update({
+          module_id: chapterData.module_id,
+          title: chapterData.title,
+          description: chapterData.description || '',
+          content_type: chapterData.content_type || 'interactive',
+          rich_text: chapterData.rich_text || '',
+          duration_minutes: chapterData.duration_minutes || 15
+        }).eq('id', chapterData.id);
+
+        if (updateError) throw updateError;
+        toast.success('Aula atualizada com IA!');
+        setIsDirty(false);
+        fetchCourseData();
+        return;
+      }
+
+      const { data: newChapter, error: chapterError } = await supabase.from('chapters').insert([{
+        module_id: chapterData.module_id,
+        title: chapterData.title,
+        description: chapterData.description || '',
+        content_type: chapterData.content_type || 'interactive',
+        rich_text: chapterData.rich_text || '',
+        duration_minutes: chapterData.duration_minutes || 15,
+        order_index: chapters.length,
+        is_preview: false
+      }]).select().single();
+
+      if (chapterError) throw chapterError;
+
+      toast.success('Aula criada com IA e adicionada!');
+      setIsDirty(false);
+      fetchCourseData();
+    } catch (err: any) {
+      console.error('Erro ao salvar aula gerada por IA:', err);
+      toast.error('Erro ao salvar aula da IA: ' + err.message);
+    }
+  };
+
   const handleSaveCourse = async (confirmed: boolean = false) => {
     if (!course.title) {
       toast.error('O título do curso é obrigatório');
       return;
+    }
+
+    // Auto-save active editing chapter draft if user is currently editing a lesson
+    if (selectedChapterId === 'new' && editingChapter.title) {
+      try {
+        await handleSaveChapter();
+      } catch (e) {
+        console.warn('Auto-save chapter draft failed:', e);
+      }
+    } else if (editingExistingChapter && editingExistingChapter.title) {
+      try {
+        await handleSaveExistingChapter();
+      } catch (e) {
+        console.warn('Auto-save existing chapter failed:', e);
+      }
     }
 
     const isIndividualPaid = !course.is_free && !course.is_bonus && !course.is_package_exclusive_bonus;
@@ -512,14 +660,21 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
       if (editingChapter.id) {
         const { error } = await supabase.from('chapters').update(lessonData).eq('id', editingChapter.id);
         if (error) throw error;
+        if (editingChapter.content_type === 'checklist' && newChecklist) {
+          await saveChecklistToDatabase(editingChapter.id, newChecklist);
+        }
         toast.success('Aula atualizada!');
       } else {
         const { data: newChapter, error } = await supabase.from('chapters').insert([lessonData]).select().single();
         if (error) throw error;
+        if (editingChapter.content_type === 'checklist' && newChapter) {
+          await saveChecklistToDatabase(newChapter.id, newChecklist);
+        }
         setChapters([...chapters, newChapter]);
         toast.success('Aula adicionada!');
       }
       
+      setIsDirty(false);
       fetchCourseData();
       setSelectedChapterId(null);
       setEditingChapter({
@@ -567,7 +722,11 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         .eq('id', editingExistingChapter.id);
 
       if (error) throw error;
+      if (editingExistingChapter.content_type === 'checklist' && editingChecklist) {
+        await saveChecklistToDatabase(editingExistingChapter.id, editingChecklist);
+      }
       toast.success('Aula atualizada com sucesso!');
+      setIsDirty(false);
       setSelectedChapterId(null);
       fetchCourseData();
     } catch (err: any) {
@@ -1375,6 +1534,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
 
                   <div className="flex flex-wrap items-center gap-3">
                     <button 
+                      type="button"
+                      onClick={() => setIsAiModalOpen(true)}
+                      className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black px-6 py-3 rounded-2xl font-black text-xs flex items-center gap-2 transition-all shadow-xl shadow-emerald-500/20 hover:scale-105 active:scale-95 border border-emerald-400/30"
+                    >
+                      <Sparkles size={18} /> ✨ CRIAR AULA COM IA
+                    </button>
+
+                    <button 
                       onClick={() => {
                         setEditingModule({ title: '' });
                         setShowModuleEditor(true);
@@ -1448,16 +1615,21 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                />
                             </div>
                             <button 
-                              onClick={async () => {
+                              onClick={() => {
                                 if (chapters.some(c => c.module_id === mod.id)) {
                                   toast.error('Não é possível excluir um módulo que contém aulas.');
                                   return;
                                 }
-                                if (window.confirm('Excluir este módulo?')) {
-                                  await supabase.from('modules').delete().eq('id', mod.id);
-                                  fetchCourseData();
-                                  toast.success('Módulo excluído');
-                                }
+                                setDeleteModal({
+                                  isOpen: true,
+                                  title: 'Excluir Módulo',
+                                  message: `Tem certeza que deseja excluir o módulo "${mod.title}"? Esta ação não pode ser desfeita.`,
+                                  onConfirm: async () => {
+                                    await supabase.from('modules').delete().eq('id', mod.id);
+                                    fetchCourseData();
+                                    toast.success('Módulo excluído');
+                                  }
+                                });
                               }}
                               className="p-3 text-gray-500 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                             >
@@ -1550,7 +1722,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                       <button onClick={() => setSelectedChapterId(null)} className="text-gray-500 hover:text-white transition-colors"><X size={24} /></button>
                     </div>
                     
-                    <div className="grid md:grid-cols-[1fr_300px] gap-10">
+                    <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto">
                       <div className="space-y-6">
                         <div className="grid sm:grid-cols-2 gap-6">
                           <div className="space-y-2">
@@ -1626,17 +1798,18 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo da Aula</label>
-                            <div className="flex p-1 bg-black/60 rounded-xl border border-white/5">
-                              {['video', 'pdf', 'link'].map((type) => (
+                            <div className="flex p-1 bg-black/60 rounded-xl border border-white/5 overflow-x-auto">
+                              {['video', 'pdf', 'link', 'checklist', 'interactive'].map((type) => (
                                 <button 
                                   key={type}
+                                  type="button"
                                   onClick={() => setEditingChapter({...editingChapter, content_type: type as any})}
-                                  className={`flex-1 py-3 rounded-lg text-[10px] font-black transition-all uppercase ${editingChapter.content_type === type ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-600 hover:text-gray-400'}`}
+                                  className={`flex-1 py-3 px-2 rounded-lg text-[9px] sm:text-[10px] font-black transition-all uppercase whitespace-nowrap ${editingChapter.content_type === type ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-600 hover:text-gray-400'}`}
                                 >
-                                  {type === 'link' ? 'BOTAO' : type}
+                                  {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type}
                                 </button>
                               ))}
                             </div>
@@ -1653,7 +1826,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                           </div>
                         </div>
 
-                        {editingChapter.content_type !== 'link' ? (
+                        {editingChapter.content_type === 'checklist' ? (
+                          <div className="pt-2 w-full">
+                            <AdminChecklistEditor
+                              checklist={newChecklist}
+                              onChange={setNewChecklist}
+                            />
+                          </div>
+                        ) : editingChapter.content_type !== 'link' ? (
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
                               {editingChapter.content_type === 'video' ? 'URL do Vídeo' : 'URL do PDF'}
@@ -1695,7 +1875,6 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 <span className="text-[11px] font-black text-emerald-500 uppercase tracking-widest ml-1">Aparência do Botão</span>
                               </div>
 
-                              {/* Linha de cima: Cor do Botão */}
                               <div className="space-y-2 col-span-2">
                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Cor do Botão</label>
                                 <div className="flex gap-2">
@@ -1715,7 +1894,6 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 </div>
                               </div>
 
-                              {/* Linha de baixo: Estilo do Botão */}
                               <div className="space-y-2 col-span-2">
                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Estilo do Botão</label>
                                 <div className="relative group z-20">
@@ -1776,7 +1954,6 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 </div>
                               </div>
 
-                              {/* Em baixo: Preview do Botão */}
                               <div className="space-y-2 col-span-2">
                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Visualização em Tempo Real</label>
                                 <div className="w-full bg-black/20 border border-dashed border-white/10 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[120px] relative overflow-hidden">
@@ -1814,85 +1991,84 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                         </div>
                       </div>
 
-                      <div className="space-y-6">
-                        <div className="space-y-3">
-                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa da Aula (Thumb)</label>
-                          
-                          {/* Canva Guide Card */}
-                          <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 rounded-2xl p-4 text-center space-y-1.5 shadow-md">
-                            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
-                              🎨 Resolução Ideal no Canva
-                            </p>
-                            <p className="text-xs text-gray-200 font-semibold">
-                              Tamanho de <span className="text-emerald-300 font-black">1080 x 1080 px</span> (Proporção 1:1 Quadrada)
-                            </p>
-
-                          </div>
-
-                          <div 
-                            onClick={() => {
-                              if (!editingChapter.cover_url) {
-                                toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
-                                return;
-                              }
-                              setCropperType('chapter');
-                              setCropperAspect(1);
-                              setCropperOpen(true);
-                            }}
-                            className="aspect-square max-w-[280px] mx-auto rounded-2xl border border-white/10 overflow-hidden relative bg-black group/lessonaura cursor-pointer hover:border-emerald-500/50 transition-all shadow-lg"
-                          >
-                            {editingChapter.cover_url ? (
-                              <img src={editingChapter.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 p-6 text-center">
-                                <ImageIcon className="mb-3 opacity-20" size={32} />
-                                <span className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Capa da Aula</span>
-                                <span className="text-[9px] font-medium opacity-30 leading-normal max-w-[200px]">Cole a URL da imagem abaixo para habilitar o ajuste e visualização</span>
-                              </div>
-                            )}
-                            {editingChapter.cover_url && (
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
-                                <span className="text-[9px] font-black text-white uppercase tracking-widest bg-emerald-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (1:1)</span>
-                              </div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!editingChapter.cover_url) {
-                                toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
-                                return;
-                              }
-                              setCropperType('chapter');
-                              setCropperAspect(1);
-                              setCropperOpen(true);
-                            }}
-                            className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
-                              editingChapter.cover_url 
-                                ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20' 
-                                : 'bg-white/[0.02] text-gray-600 border-white/5 cursor-not-allowed'
-                            }`}
-                          >
-                            <ImageIcon size={14} /> Recortar / Ajustar Thumbnail
-                          </button>
-                          <input 
-                            type="text" 
-                            value={editingChapter.cover_url || ''}
-                            onChange={e => setEditingChapter({...editingChapter, cover_url: e.target.value})}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-gray-400 focus:border-emerald-500 outline-none transition-all font-mono"
-                            placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
-                          />
+                      {/* Capa da Aula Card - Centered Below */}
+                      <div className="bg-black/30 border border-white/10 rounded-3xl p-6 space-y-4 max-w-xl mx-auto w-full">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center block">Capa da Aula (Thumb)</label>
+                        
+                        <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/20 rounded-2xl p-4 text-center space-y-1.5 shadow-md">
+                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center justify-center gap-1.5">
+                            🎨 Resolução Ideal no Canva
+                          </p>
+                          <p className="text-xs text-gray-200 font-semibold">
+                            Tamanho de <span className="text-emerald-300 font-black">1080 x 1080 px</span> (Proporção 1:1 Quadrada)
+                          </p>
                         </div>
 
-                        <button 
-                          onClick={handleSaveChapter}
-                          disabled={saving}
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-emerald-900/20 active:scale-95"
+                        <div 
+                          onClick={() => {
+                            if (!editingChapter.cover_url) {
+                              toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                              return;
+                            }
+                            setCropperType('chapter');
+                            setCropperAspect(1);
+                            setCropperOpen(true);
+                          }}
+                          className="aspect-square max-w-[240px] mx-auto rounded-2xl border border-white/10 overflow-hidden relative bg-black group/lessonaura cursor-pointer hover:border-emerald-500/50 transition-all shadow-lg"
                         >
-                          {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
-                          CRIAR ESTA AULA
+                          {editingChapter.cover_url ? (
+                            <img src={editingChapter.cover_url} className="w-full h-full object-cover transition-transform group-hover/lessonaura:scale-105" alt="Thumb" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 p-6 text-center">
+                              <ImageIcon className="mb-3 opacity-20" size={32} />
+                              <span className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">Capa da Aula</span>
+                              <span className="text-[9px] font-medium opacity-30 leading-normal max-w-[200px]">Cole a URL da imagem abaixo para habilitar o ajuste</span>
+                            </div>
+                          )}
+                          {editingChapter.cover_url && (
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/lessonaura:opacity-100 flex items-center justify-center transition-opacity">
+                              <span className="text-[9px] font-black text-white uppercase tracking-widest bg-emerald-600/80 px-3 py-1.5 rounded-lg">Ajustar Capa (1:1)</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!editingChapter.cover_url) {
+                              toast.error("Por favor, cole a URL da imagem no campo abaixo primeiro antes de ajustar.");
+                              return;
+                            }
+                            setCropperType('chapter');
+                            setCropperAspect(1);
+                            setCropperOpen(true);
+                          }}
+                          className={`w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
+                            editingChapter.cover_url 
+                              ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20' 
+                              : 'bg-white/[0.02] text-gray-600 border-white/5 cursor-not-allowed'
+                          }`}
+                        >
+                          <ImageIcon size={14} /> Recortar / Ajustar Thumbnail
                         </button>
+
+                        <input 
+                          type="text" 
+                          value={editingChapter.cover_url || ''}
+                          onChange={e => setEditingChapter({...editingChapter, cover_url: e.target.value})}
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-gray-400 focus:border-emerald-500 outline-none transition-all font-mono"
+                          placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
+                        />
                       </div>
+
+                      <button 
+                        onClick={handleSaveChapter}
+                        disabled={saving}
+                        className="w-full max-w-xl mx-auto bg-emerald-600 hover:bg-emerald-700 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-emerald-900/20 active:scale-95"
+                      >
+                        {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+                        CRIAR ESTA AULA
+                      </button>
                     </div>
                  </div>
               )}
@@ -1924,14 +2100,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                             >
                               {/* Header Row */}
                               <div 
-                                onClick={() => setSelectedChapterId(isExpanded ? null : ch.id)}
+                                onClick={() => requestNavigation(() => setSelectedChapterId(isExpanded ? null : ch.id))}
                                 className="p-6 flex items-center justify-between cursor-pointer group/item"
                               >
                                 <div className="flex items-center gap-6 flex-1 min-w-0">
                                   <div className="relative w-24 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden shrink-0">
                                     <img src={ch.cover_url || course.cover_url} className="w-full h-full object-cover opacity-60 group-hover/item:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
                                     <div className="absolute inset-0 flex items-center justify-center">
-                                      {ch.content_type === 'video' ? <Video size={16} className="text-white/40" /> : <FileText size={16} className="text-white/40" />}
+                                      {ch.content_type === 'video' ? <Video size={16} className="text-white/40" /> : ch.content_type === 'checklist' ? <CheckSquare size={16} className="text-emerald-400" /> : <FileText size={16} className="text-white/40" />}
                                     </div>
                                     <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 backdrop-blur-md rounded-md">
                                       <span className="text-[8px] font-black text-white">{idx + 1}</span>
@@ -1953,16 +2129,35 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                  {isAiCreatedLesson(ch) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenAiEdit(ch);
+                                      }}
+                                      className="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-[10px] uppercase tracking-wider rounded-xl flex items-center gap-1.5 shadow-lg shadow-purple-900/30 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                    >
+                                      <Sparkles size={13} className="text-amber-300 animate-pulse" />
+                                      <span>Editar com IA</span>
+                                    </button>
+                                  )}
+
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (window.confirm('Excluir esta aula permanentemente?')) {
-                                        supabase.from('chapters').delete().eq('id', ch.id).then(() => {
-                                          toast.success('Aula excluída');
-                                          fetchCourseData();
-                                        });
-                                      }
+                                      setDeleteModal({
+                                        isOpen: true,
+                                        title: 'Excluir Aula',
+                                        message: `Tem certeza que deseja excluir a aula "${ch.title}" permanentemente?`,
+                                        onConfirm: () => {
+                                          supabase.from('chapters').delete().eq('id', ch.id).then(() => {
+                                            toast.success('Aula excluída');
+                                            fetchCourseData();
+                                          });
+                                        }
+                                      });
                                     }}
                                     className="p-3 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all opacity-0 group-hover/item:opacity-100"
                                   >
@@ -1987,7 +2182,28 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                       className="border-t border-white/5"
                                     >
                                       <div className="p-10 space-y-8 animate-in fade-in slide-in-from-top-2 duration-500">
-                                        <div className="grid md:grid-cols-[1fr_300px] gap-10">
+                                        {/* AI Edit Banner - ONLY for AI Created Lessons */}
+                                        {isAiCreatedLesson(draft) && (
+                                          <div className="p-5 bg-gradient-to-r from-purple-950/80 via-zinc-900 to-indigo-950/80 border border-purple-500/30 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+                                            <div className="flex items-center gap-3">
+                                              <div className="p-3 bg-purple-500/20 text-purple-400 rounded-2xl border border-purple-500/30">
+                                                <Sparkles size={20} />
+                                              </div>
+                                              <div>
+                                                <p className="text-sm font-black text-white uppercase tracking-tight italic">Evoluir ou Ajustar esta Aula com IA</p>
+                                                <p className="text-xs text-gray-400">Adicione mini-apps, calculadoras, rastreadores ou aprimore o conteúdo mantendo o progresso.</p>
+                                              </div>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenAiEdit(draft)}
+                                              className="px-5 py-3 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl flex items-center gap-2 shadow-lg shadow-purple-900/40 transition-all shrink-0 active:scale-95 cursor-pointer"
+                                            >
+                                              <Sparkles size={16} className="text-amber-300" /> ✨ Editar com IA
+                                            </button>
+                                          </div>
+                                        )}
+                                        <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto">
                                           <div className="space-y-6">
                                             <div className="grid grid-cols-2 gap-6">
                                               <div className="space-y-2">
@@ -2074,21 +2290,33 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                               <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo de Conteúdo</label>
                                                 <div className="flex p-1 bg-black/60 rounded-xl border border-white/5">
-                                                  {['video', 'pdf', 'link'].map((type) => (
+                                                  {['video', 'pdf', 'link', 'checklist', 'interactive'].map((type) => (
                                                     <button 
                                                       key={type}
                                                       type="button"
                                                       onClick={() => setEditingExistingChapter(prev => prev ? ({ ...prev, content_type: type as any }) : null)}
                                                       className={`flex-1 py-2 text-[8px] font-black rounded-lg transition-all uppercase ${draft.content_type === type ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
                                                     >
-                                                      {type === 'link' ? 'BOTAO' : type}
+                                                      {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type}
                                                     </button>
                                                   ))}
                                                 </div>
                                               </div>
                                             </div>
 
-                                            {draft.content_type !== 'link' ? (
+                                            {draft.content_type === 'checklist' ? (
+                                              <div className="pt-2">
+                                                <AdminChecklistEditor
+                                                  checklist={editingChecklist || {
+                                                    chapter_id: draft.id,
+                                                    title: draft.title || 'Checklist',
+                                                    description: draft.description || '',
+                                                    items: []
+                                                  }}
+                                                  onChange={setEditingChecklist}
+                                                />
+                                              </div>
+                                            ) : draft.content_type !== 'link' ? (
                                               <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
                                                   {draft.content_type === 'video' ? 'URL do Vídeo' : 'URL do PDF'}
@@ -2251,7 +2479,8 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                             </div>
                                           </div>
 
-                                          <div className="space-y-8">
+                                          {/* Capa da Aula Card - Centered Below */}
+                                          <div className="bg-black/30 border border-white/10 rounded-3xl p-6 space-y-4 max-w-xl mx-auto w-full">
                                             <div className="space-y-3">
                                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">Capa desta Aula</label>
                                               
@@ -2321,31 +2550,26 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                 placeholder="Cole a URL direta da imagem aqui para visualizar e ajustar..."
                                               />
                                             </div>
+                                          </div>
 
-                                            <div className="flex flex-col gap-3">
-                                              <div className="flex items-center justify-between px-4 py-3 bg-white/5 rounded-2xl border border-white/5">
-                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Tipo: {draft.content_type.toUpperCase()}</span>
-                                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                                              </div>
-                                              
-                                              <button 
-                                                type="button"
-                                                onClick={handleSaveExistingChapter}
-                                                disabled={saving}
-                                                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-blue-900/20 active:scale-95 text-xs uppercase tracking-widest"
-                                              >
-                                                {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
-                                                SALVAR ALTERAÇÕES
-                                              </button>
-                                              
-                                              <button 
-                                                type="button"
-                                                onClick={() => setSelectedChapterId(null)}
-                                                className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-3 rounded-2xl flex items-center justify-center gap-2 transition-all text-[10px] uppercase tracking-widest"
-                                              >
-                                                CANCELAR
-                                              </button>
-                                            </div>
+                                          <div className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto w-full pt-4">
+                                            <button 
+                                              type="button"
+                                              onClick={handleSaveExistingChapter}
+                                              disabled={saving}
+                                              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-blue-900/20 active:scale-95 text-xs uppercase tracking-widest cursor-pointer"
+                                            >
+                                              {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+                                              SALVAR ALTERAÇÕES
+                                            </button>
+                                            
+                                            <button 
+                                              type="button"
+                                              onClick={() => setSelectedChapterId(null)}
+                                              className="px-8 bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-4 rounded-2xl flex items-center justify-center gap-2 transition-all text-xs uppercase tracking-widest cursor-pointer"
+                                            >
+                                              CANCELAR
+                                            </button>
                                           </div>
                                         </div>
                                       </div>
@@ -2471,6 +2695,172 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         </div>
       )}
     </AnimatePresence>
+
+    {/* Delete Confirmation Modal */}
+    {createPortal(
+      <AnimatePresence>
+        {deleteModal?.isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+            onClick={() => setDeleteModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-zinc-900 border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+            >
+              {/* Background decorative elements */}
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-red-500" />
+              <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full blur-[100px] bg-red-500/10" />
+              
+              <div className="relative z-10 space-y-6">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-red-500/20 text-red-500">
+                  <Trash2 size={28} />
+                </div>
+                
+                <div className="space-y-3">
+                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter leading-none">{deleteModal.title}</h3>
+                  <p className="text-sm text-gray-400 font-medium leading-relaxed">{deleteModal.message}</p>
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteModal(null)}
+                    className="flex-1 py-4 px-6 bg-white/5 hover:bg-white/10 text-gray-400 font-bold rounded-2xl transition-all border border-white/5 active:scale-95 text-xs uppercase tracking-wider cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deleteModal.onConfirm();
+                      setDeleteModal(null);
+                    }}
+                    className="flex-1 py-4 px-6 bg-red-500 hover:bg-red-600 text-white font-black rounded-2xl transition-all shadow-xl shadow-red-500/20 uppercase tracking-tighter active:scale-95 text-xs cursor-pointer"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>,
+      document.body
+    )}
+
+    {/* Unsaved Changes Guard Modal */}
+    {createPortal(
+      <AnimatePresence>
+        {showUnsavedModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            onClick={() => setShowUnsavedModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-zinc-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl relative overflow-hidden text-left"
+            >
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-amber-500" />
+              <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full blur-[100px] bg-amber-500/10" />
+
+              <div className="relative z-10 space-y-6">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <AlertTriangle size={28} />
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter leading-none">
+                    Alterações Não Salvas
+                  </h3>
+                  <p className="text-xs text-gray-300 font-medium leading-relaxed">
+                    Você possui alterações nesta aula ou módulo que ainda não foram salvas. Se você sair agora, essas modificações serão perdidas.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (editingExistingChapter && editingExistingChapter.title) {
+                        await handleSaveExistingChapter();
+                      } else if (selectedChapterId === 'new' && editingChapter.title) {
+                        await handleSaveChapter();
+                      }
+                      setShowUnsavedModal(false);
+                      setIsDirty(false);
+                      if (pendingNavAction) {
+                        const nav = pendingNavAction;
+                        setPendingNavAction(null);
+                        nav();
+                      }
+                    }}
+                    className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl transition-all shadow-xl shadow-blue-600/20 uppercase tracking-wider text-xs active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 size={16} /> Salvar e Continuar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUnsavedModal(false);
+                      setIsDirty(false);
+                      if (pendingNavAction) {
+                        const nav = pendingNavAction;
+                        setPendingNavAction(null);
+                        nav();
+                      }
+                    }}
+                    className="w-full py-3.5 px-6 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold rounded-2xl transition-all border border-red-500/20 text-xs uppercase tracking-wider cursor-pointer"
+                  >
+                    Descartar Alterações
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowUnsavedModal(false)}
+                    className="w-full py-3 px-6 bg-white/5 hover:bg-white/10 text-gray-400 font-medium rounded-2xl transition-all text-xs uppercase tracking-wider cursor-pointer text-center"
+                  >
+                    Continuar Editando
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>,
+      document.body
+    )}
+
+    {/* AI Lesson Generator Modal */}
+    <AiLessonGeneratorModal
+      isOpen={isAiModalOpen}
+      onClose={() => {
+        setIsAiModalOpen(false);
+        setAiEditChapter(null);
+      }}
+      courses={courseId && course.title ? [{ ...course, id: courseId } as Course] : []}
+      initialCourseId={courseId}
+      initialModuleId={aiEditChapter?.module_id || modules[0]?.id}
+      initialChapterId={aiEditChapter?.id}
+      initialLessonTitle={aiEditChapter?.title}
+      initialLessonGoal={aiEditChapter?.description}
+      initialBlocks={aiEditChapter ? (aiEditChapter.rich_text ? (JSON.parse(aiEditChapter.rich_text).blocks || []) : []) : []}
+      modulesMap={courseId ? { [courseId]: modules } : {}}
+      onLessonCreated={handleLessonCreatedByAi}
+    />
   </div>
 );
 }

@@ -14,6 +14,7 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
   const [isTriggered, setIsTriggered] = useState(false);
   const y = useMotionValue(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const startX = useRef(0);
   const startY = useRef(0);
   const isPulling = useRef(false);
   const hasVibrated = useRef(false);
@@ -50,6 +51,7 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
     const handleTouchStart = (e: TouchEvent) => {
       if (isRefreshing) return;
       if (isAtTop()) {
+        startX.current = e.touches[0].pageX;
         startY.current = e.touches[0].pageY;
         isPulling.current = true;
         hasVibrated.current = false;
@@ -62,19 +64,29 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
     const handleTouchMove = (e: TouchEvent) => {
       if (!isPulling.current || isRefreshing) return;
 
+      const currentX = e.touches[0].pageX;
       const currentY = e.touches[0].pageY;
-      const diff = currentY - startY.current;
+      const diffY = currentY - startY.current;
+      const diffX = Math.abs(currentX - startX.current);
 
-      if (diff > 0 && isAtTop()) {
-        // Prevent default browser rubber-banding/pull-to-refresh on mobile
+      // If user is swiping horizontally, cancel pull-to-refresh so card carousels scroll freely
+      if (diffX > Math.abs(diffY)) {
+        isPulling.current = false;
+        y.set(0);
+        setIsTriggered(false);
+        return;
+      }
+
+      if (diffY > 15 && isAtTop()) {
+        // Prevent default browser rubber-banding/pull-to-refresh on mobile when intentionally pulling down
         if (e.cancelable) {
           e.preventDefault();
         }
         
-        y.set(diff);
+        y.set(diffY);
         
         // Calculate the dampened position to see if we reached threshold
-        const currentPullY = PULL_THRESHOLD * Math.log1p(diff / PULL_THRESHOLD);
+        const currentPullY = PULL_THRESHOLD * Math.log1p(diffY / PULL_THRESHOLD);
         const triggered = currentPullY >= PULL_THRESHOLD * 0.9;
         
         setIsTriggered(triggered);
@@ -91,7 +103,7 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
         } else if (!triggered) {
           hasVibrated.current = false;
         }
-      } else if (diff < 0) {
+      } else if (diffY < 0) {
         y.set(0);
         setIsTriggered(false);
         isPulling.current = false;

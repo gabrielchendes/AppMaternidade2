@@ -55,10 +55,9 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
   }, [progress, isUnlocked, t]);
 
   return (
-    <motion.div
-      whileTap={{ scale: 0.98 }}
+    <div
       className={cn(
-        "relative flex-shrink-0 w-[140px] sm:w-[190px] cursor-pointer group rounded-2xl overflow-hidden shadow-2xl bg-zinc-950 transition-all duration-500 snap-start scroll-ml-6 md:scroll-ml-16 flex flex-col p-[1.5px] hover:p-[4px]",
+        "relative flex-shrink-0 w-[140px] sm:w-[190px] cursor-pointer group rounded-2xl overflow-hidden shadow-2xl bg-zinc-950 transition-all duration-300 snap-start flex flex-col p-[1.5px] touch-pan-x touch-pan-y",
         stateConfig.bgGlow
       )}
       onClick={() => onOpen(product)}
@@ -81,13 +80,13 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
                         stateConfig.color === 'amber' ? '#f59e0b' : '#a855f7'
           }}
         />
-        {/* Particle/Glow effect for AI feel */}
+        {/* Particle/Glow effect */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.4)_0%,transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-700 mix-blend-overlay" />
       </div>
 
       {/* Main Content Container */}
       <div className="relative z-10 flex flex-col flex-grow bg-zinc-950 rounded-[calc(1rem-1.5px)] group-hover:rounded-[calc(1rem-4px)] transition-all duration-500 overflow-hidden">
-        {/* AURORA Status Icon (Top Left) */}
+        {/* Status Icon (Top Left) */}
         {isUnlocked && (
           <div className={cn(
             "absolute top-2 left-2 z-40 p-1.5 sm:p-2 rounded-lg border backdrop-blur-md shadow-lg transition-all duration-500 opacity-60",
@@ -119,45 +118,62 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
         </div>
 
         {/* Thumbnail Area */}
-        <div className="relative aspect-[4/5] overflow-hidden w-full z-10">
+        <div className="relative aspect-[3/4] overflow-hidden w-full z-10">
           <img
-            src={(product.cover_url && product.cover_url.trim()) ? product.cover_url.trim() : `https://picsum.photos/seed/${product.id}/400/500`}
+            src={(product.cover_url && product.cover_url.trim()) ? product.cover_url.trim() : `https://picsum.photos/seed/${product.id}/600/800`}
             alt={product.title}
             loading="lazy"
             className={cn(
-              "w-full h-full object-cover transition-transform duration-1000",
-              !isUnlocked && "opacity-60 grayscale-[0.5] blur-[1px]"
+              "w-full h-full object-cover transition-all duration-500",
+              !isUnlocked 
+                ? "blur-[0.8px] contrast-[1.08] saturate-[0.9] group-hover:blur-[0.3px] group-active:blur-[0.3px] active:blur-[0.3px] group-hover:scale-105" 
+                : "group-hover:scale-105"
             )}
             referrerPolicy="no-referrer"
           />
           
-          {/* Premium Vignette */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/30" />
-          
-          {/* Elite Locked Interface */}
+          {/* Ambient tint overlay for locked items */}
           {!isUnlocked && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center z-30">
-              <motion.div 
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="w-12 h-12 rounded-2xl bg-white/5 backdrop-blur-2xl border border-white/20 flex items-center justify-center text-white/80 shadow-[0_15px_35px_rgba(0,0,0,0.5)] mb-3 group-hover:border-purple-500/50 group-hover:text-purple-400 transition-all duration-700"
-              >
-                <Lock size={20} strokeWidth={2.5} className="drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]" />
-              </motion.div>
-              <p className="text-[7px] sm:text-[8px] font-black text-white/50 uppercase tracking-[0.25em] opacity-0 group-hover:opacity-100 transition-opacity duration-1000 transform translate-y-2 group-hover:translate-y-0">
-                 {t('course.exclusive_content')}
-              </p>
+            <div className="absolute inset-0 bg-gradient-to-t from-amber-950/25 via-black/15 to-transparent pointer-events-none z-10 transition-opacity duration-300 group-hover:opacity-75" />
+          )}
+
+          {/* Subtle Vignette for Contrast */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/10 z-20 pointer-events-none" />
+          
+          {/* Lock Overlay */}
+          {!isUnlocked && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-3 text-center z-30">
+              {/* Golden Soft Aura Glow */}
+              <div className="relative">
+                <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-amber-500/20 to-amber-300/20 blur-md opacity-50 group-hover:opacity-80 group-hover:blur-lg transition-all duration-500" />
+                
+                {/* Main Lock Badge Container */}
+                <motion.div 
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="relative w-12 h-12 sm:w-15 sm:h-15 rounded-2xl bg-black/35 backdrop-blur-[3px] border border-amber-400/60 flex items-center justify-center text-amber-300 shadow-[0_8px_25px_rgba(0,0,0,0.5),0_0_15px_rgba(245,158,11,0.2)] group-hover:border-amber-300 group-hover:bg-black/45 group-hover:shadow-[0_8px_30px_rgba(245,158,11,0.45)] group-hover:scale-110 transition-all duration-500"
+                >
+                  <Lock size={26} strokeWidth={2.2} className="text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,0.9)] sm:size-[30px]" />
+                </motion.div>
+              </div>
             </div>
           )}
         </div>
 
         {/* Info & CTA Section */}
-        <div className="p-2.5 sm:p-4 flex flex-col gap-1.5 flex-grow relative bg-zinc-950 z-20">
-          <h3 className="font-black text-[9px] sm:text-[11px] text-zinc-200 leading-tight uppercase tracking-[0.05em] group-hover:text-white transition-colors">
-            {product.title}
-          </h3>
+        <div className={cn(
+          "p-2.5 sm:p-4 flex flex-col items-center justify-between text-center gap-1.5 flex-grow relative bg-zinc-950 z-20 transition-all",
+          settings?.show_course_titles_home ? "min-h-[90px] sm:min-h-[105px]" : "min-h-[55px] sm:min-h-[65px]"
+        )}>
+          {settings?.show_course_titles_home && (
+            <div className="flex-1 flex items-center justify-center w-full my-auto py-0.5">
+              <h3 className="font-black text-[9px] sm:text-[11px] text-zinc-200 leading-snug uppercase tracking-[0.05em] group-hover:text-white transition-colors break-words text-center w-full">
+                {product.title}
+              </h3>
+            </div>
+          )}
           
-          <div className="mt-auto pt-1">
+          <div className="mt-auto pt-1 w-full">
             {/* Progress row above button */}
             {isUnlocked && (
               <div className="mb-2">
@@ -209,7 +225,7 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
         stateConfig.color === 'amber' ? "bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,1)]" :
         "bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,1)]"
       )} />
-    </motion.div>
+    </div>
   );
 });
 

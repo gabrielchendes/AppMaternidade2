@@ -489,13 +489,13 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
     <AnimatePresence>
       {isOpen && isAiEnabled && (
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 15 }}
-          className="fixed inset-0 z-[100] w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] w-full h-full bg-black text-white flex flex-col overflow-hidden"
         >
           {/* Top Full Screen Navigation Bar */}
-          <div className="flex items-center justify-between px-2.5 sm:px-8 py-2.5 sm:py-4 border-b border-white/10 bg-zinc-900/90 backdrop-blur-md shrink-0 gap-1.5 sm:gap-2">
+          <div className="flex items-center justify-between px-2.5 sm:px-8 py-2.5 sm:py-4 border-b border-white/10 bg-black shrink-0 gap-1.5 sm:gap-2">
             <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
               <button
                 onClick={handleClose}
@@ -720,7 +720,7 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
 
           {/* Quick Prompts (Only if enabled in Admin and not at limit) */}
           {enableQuickPrompts && messages.length <= 2 && !loading && !isLimitReached && (
-            <div className="px-4 py-3 border-t border-white/5 bg-zinc-900/50 max-w-4xl mx-auto w-full flex flex-wrap gap-2">
+            <div className="px-4 py-3 border-t border-white/5 bg-black max-w-4xl mx-auto w-full flex flex-wrap gap-2">
               <span className="text-xs text-gray-400 w-full mb-1 flex items-center gap-1.5 font-medium">
                 <GraduationCap size={15} className="text-pink-400" /> Suggested questions for {expertName}:
               </span>
@@ -737,7 +737,7 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
           )}
 
           {/* Footer Input */}
-          <div className="p-4 sm:p-6 border-t border-white/10 bg-zinc-900/90 shrink-0">
+          <div className="p-4 sm:p-6 border-t border-white/10 bg-black shrink-0">
             <div className="max-w-4xl mx-auto w-full">
               <form
                 onSubmit={(e) => {
