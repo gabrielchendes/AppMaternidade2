@@ -125,3 +125,51 @@ body {
     font-size: 16px !important;
   }
 }
+
+/* Modern Sonner Toast styling */
+[data-sonner-toaster] {
+  top: 16px !important;
+  pointer-events: none;
+}
+
+[data-sonner-toaster] > * {
+  pointer-events: auto;
+}
+
+[data-sonner-toast] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+[data-sonner-toast]:not(:has(.group)) {
+  background: rgba(15, 17, 24, 0.95) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 14px 40px -8px rgba(0, 0, 0, 0.7), 0 0 24px rgba(245, 158, 11, 0.2) !important;
+  color: #ffffff !important;
+  padding: 12px 16px !important;
+}
+
+@keyframes goldShimmerSweep {
+  0% { transform: translateX(-100%) rotate(25deg); }
+  100% { transform: translateX(250%) rotate(25deg); }
+}
+
+.animate-gold-shimmer {
+  animation: goldShimmerSweep 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes floatUpSoft {
+  0%, 100% { transform: translateY(0px); opacity: 0.8; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+
+.animate-float-up {
+  animation: floatUpSoft 1.8s ease-in-out infinite;
+}
+
+

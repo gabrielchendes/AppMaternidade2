@@ -86,9 +86,10 @@ export default function NotificationBell({ user }: NotificationBellProps) {
 
   const markAsRead = async (id: string) => {
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('notifications')
-        .update({ is_read: true, read_at: new Date().toISOString() })
+        .update({ is_read: true, read: true, read_at: now })
         .eq('id', id);
       if (error) throw error;
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
@@ -100,11 +101,12 @@ export default function NotificationBell({ user }: NotificationBellProps) {
 
   const markAllAsRead = async () => {
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('notifications')
-        .update({ is_read: true, read_at: new Date().toISOString() })
+        .update({ is_read: true, read: true, read_at: now })
         .eq('user_id', user.id)
-        .eq('is_read', false);
+        .or('is_read.eq.false,is_read.is.null');
       if (error) throw error;
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(0);

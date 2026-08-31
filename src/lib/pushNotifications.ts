@@ -2,6 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { supabase } from './supabase';
 import { toast } from 'sonner';
+import { showToast } from './customToast';
+import { safeFetch } from './utils';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -72,21 +74,23 @@ export async function requestNotificationPermission(userId: string) {
 /**
  * Handles the heavy lifting of registration in the background
  */
-async function setupPushInBackground(userId: string, messaging: any) {
-  // Prevent push notification setup in known restricted environments like iframes
-  if (window.self !== window.top) {
-    console.log('ℹ️ Push notifications setup skipped: Application is running in an iframe.');
-    return;
-  }
-
+export async function setupPushInBackground(userId: string, messaging: any): Promise<{ success: boolean; token?: string; error?: string }> {
   try {
-    // Register service worker
-    let registration;
+    // Register service worker with explicit root scope
+    let registration: ServiceWorkerRegistration | undefined;
     try {
-      registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    } catch (swError) {
-      console.warn('⚠️ Service Worker registration failed (this is expected in some development environments):', swError);
-      return; // Stop if SW fails
+      if ('serviceWorker' in navigator) {
+        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        await navigator.serviceWorker.ready;
+      }
+    } catch (swError: any) {
+      console.warn('⚠️ Service Worker registration error:', swError);
+      return { success: false, error: 'Falha ao registrar Service Worker: ' + (swError?.message || swError) };
+    }
+
+    if (!registration) {
+      console.warn('⚠️ No active service worker registration found for push.');
+      return { success: false, error: 'Service Worker não disponível neste navegador.' };
     }
 
     // Get token
@@ -97,28 +101,77 @@ async function setupPushInBackground(userId: string, messaging: any) {
       });
 
       if (token) {
-        // 1. Subscribe to topic
-        fetch('/api/v1/notifications?action=sub-topic', {
+        // 1. Subscribe to topic & notify backend API
+        safeFetch('/api/v1/notifications?action=sub-topic', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, token, topic: 'all' })
-        }).catch(e => console.error('❌ Failed to subscribe to topic:', e));
+        }).catch(e => console.warn('⚠️ Push sub-topic notification notice:', e));
 
-        // 2. Save to Supabase
-        supabase.from('push_tokens').upsert({
-          user_id: userId,
-          token: token
-        }, { onConflict: 'token' }).then(({ error }) => {
-          if (!error) console.log('✅ Token saved to Supabase');
-        }).catch(e => console.error('❌ Supabase error:', e));
+        // 2. Save token to Supabase push_tokens table
+        try {
+          const { error: upsertErr } = await supabase.from('push_tokens').upsert({
+            user_id: userId,
+            token: token,
+            platform: 'web'
+          }, { onConflict: 'token' });
+
+          if (!upsertErr) {
+            console.log('✅ Push token saved to Supabase');
+          } else {
+            console.warn('⚠️ Supabase push_token upsert warning:', upsertErr.message);
+          }
+        } catch (dbErr) {
+          console.warn('⚠️ Push token db error:', dbErr);
+        }
+
+        return { success: true, token };
+      } else {
+        return { success: false, error: 'Token FCM não foi gerado pelo navegador.' };
       }
-    } catch (tokenError) {
-      // Be silent if push fails in development/preview
-      console.warn('⚠️ Push subscription failed (Registration might not be possible in this environment):', tokenError);
+    } catch (tokenError: any) {
+      console.warn('⚠️ Push subscription token error:', tokenError);
+      return { success: false, error: tokenError?.message || 'Erro ao obter token FCM' };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Unexpected background push setup error:', error);
+    return { success: false, error: error?.message || 'Erro inesperado' };
   }
+}
+
+/**
+ * Checks current push notification permission and registered status
+ */
+export async function getPushStatus(userId?: string) {
+  const isSupportedBrowser = typeof window !== 'undefined' && 'Notification' in window && 'serviceWorker' in navigator;
+  const permission = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+  
+  let hasTokenInDb = false;
+  let totalRegisteredDevices = 0;
+
+  if (userId) {
+    try {
+      const { data } = await supabase
+        .from('push_tokens')
+        .select('id')
+        .eq('user_id', userId);
+      hasTokenInDb = !!(data && data.length > 0);
+    } catch (e) {}
+  }
+
+  try {
+    const { count } = await supabase
+      .from('push_tokens')
+      .select('*', { count: 'exact', head: true });
+    totalRegisteredDevices = count || 0;
+  } catch (e) {}
+
+  return {
+    isSupportedBrowser,
+    permission,
+    hasTokenInDb,
+    totalRegisteredDevices
+  };
 }
 
 /**
@@ -131,9 +184,8 @@ export async function onForegroundMessage() {
   onMessage(messaging, (payload) => {
     console.log('Message received in foreground:', payload);
     if (payload.notification) {
-      toast(payload.notification.title || 'Nova Notificação', {
-        description: payload.notification.body,
-        icon: '🔔',
+      showToast.info(payload.notification.title || 'Nova Notificação', {
+        description: payload.notification.body
       });
     }
   });

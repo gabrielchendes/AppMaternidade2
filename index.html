@@ -12,6 +12,10 @@
             message.indexOf('Script error') !== -1 || 
             message.toLowerCase().indexOf('script error') !== -1 ||
             message.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+            message.indexOf('NetworkError when attempting to fetch resource') !== -1 ||
+            message.indexOf('NetworkError') !== -1 ||
+            message.indexOf('Failed to fetch') !== -1 ||
+            message.indexOf('Load failed') !== -1 ||
             source.indexOf('googletagmanager') !== -1 || 
             source.indexOf('gtag') !== -1 ||
             source.indexOf('supabase') !== -1 ||
@@ -54,6 +58,10 @@
             msg.indexOf('Script error') !== -1 || 
             msg.toLowerCase().indexOf('script error') !== -1 ||
             msg.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+            msg.indexOf('NetworkError when attempting to fetch resource') !== -1 ||
+            msg.indexOf('NetworkError') !== -1 ||
+            msg.indexOf('Failed to fetch') !== -1 ||
+            msg.indexOf('Load failed') !== -1 ||
             !msg;
 
           if (isBenign) {

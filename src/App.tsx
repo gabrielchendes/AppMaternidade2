@@ -22,17 +22,24 @@ export default function App() {
       sessionStorage.removeItem('chunk-failed-reload');
     } catch (e) {}
 
-    // Global listener for unhandled token refresh/Supabase API rejections
+    // Global listener for unhandled token refresh/Supabase API rejections and transient network errors
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
       const errorMsg = reason?.message || String(reason || '');
-      if (
+      const isAuthError = 
         errorMsg.includes('Refresh Token Not Found') || 
+        errorMsg.includes('Invalid Refresh Token') ||
         errorMsg.includes('invalid_grant') || 
         errorMsg.includes('AuthApiError') ||
-        errorMsg.includes('Invalid Refresh Token')
-      ) {
+        errorMsg.includes('AuthSessionMissingError') ||
+        errorMsg.includes('session_not_found') ||
+        errorMsg.includes('refresh_token_not_found');
+
+      if (isAuthError) {
         console.warn('Caught unhandled auth rejection smoothly, cleaning up auth state...', errorMsg);
+        try {
+          event.preventDefault();
+        } catch (e) {}
         try {
           localStorage.removeItem('maternidade_premium_auth');
           for (const key in localStorage) {
@@ -41,15 +48,25 @@ export default function App() {
             }
           }
         } catch (e) {}
-        if (isSupabaseConfigured) {
+        if (isSupabaseConfigured && supabase) {
           supabase.auth.signOut().catch(() => {});
         }
         setUser(null);
         setAuthLoading(false);
+      } else if (
+        errorMsg.includes('NetworkError') ||
+        errorMsg.includes('fetch resource') ||
+        errorMsg.includes('Failed to fetch') ||
+        errorMsg.includes('Load failed')
+      ) {
+        console.warn('⚠️ Intercepted transient background NetworkError gracefully:', errorMsg);
+        try {
+          event.preventDefault();
+        } catch (e) {}
       }
     };
 
-    // Global onerror handler to suppress and gracefully intercept cross-origin "Script error."
+    // Global onerror handler to suppress and gracefully intercept cross-origin and network exceptions
     const handleGlobalError = (event: ErrorEvent) => {
       const msg = event.message || '';
       const source = event.filename || '';
@@ -57,11 +74,15 @@ export default function App() {
         msg.includes('Script error') || 
         msg.toLowerCase().includes('script error') ||
         msg.includes('Failed to fetch dynamically imported module') ||
+        msg.includes('NetworkError') ||
+        msg.includes('fetch resource') ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('Load failed') ||
         !msg || // Empty error message
         (source && (source.includes('gtag') || source.includes('googletagmanager') || source.includes('supabase') || source.includes('pwa')));
 
       if (isCrossOriginOrChunk) {
-        console.warn('⚠️ Intercepted cross-origin or sandboxed Script error gracefully:', msg, 'from:', source);
+        console.warn('⚠️ Intercepted cross-origin, chunk or network error gracefully:', msg, 'from:', source);
         try {
           event.preventDefault();
           event.stopPropagation();
@@ -85,21 +106,19 @@ export default function App() {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error('Session error:', error.message);
+          console.warn('Session check note:', error.message);
           // If we have a refresh token error, we need to clear local state
-          if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant') || error.message.includes('Invalid Refresh Token')) {
-            console.warn('Handling stale session...');
-            await supabase.auth.signOut().catch(() => {});
-            // Fallback: manually clear if signOut doesn't clean everything
+          if (error.message.includes('Refresh Token') || error.message.includes('invalid_grant') || error.message.includes('Invalid Refresh Token') || error.message.includes('AuthApiError')) {
+            console.warn('Handling stale session cleanly...');
             try {
               localStorage.removeItem('maternidade_premium_auth');
-              // Clear any other supabase-related keys
               for (const key in localStorage) {
                 if (key.includes('supabase') || key.includes('-auth-token') || key.includes('maternidade_premium')) {
                   localStorage.removeItem(key);
                 }
               }
             } catch (e) {}
+            await supabase.auth.signOut().catch(() => {});
           }
           setUser(null);
           setAuthLoading(false);

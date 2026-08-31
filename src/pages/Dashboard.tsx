@@ -96,7 +96,20 @@ export default function Dashboard({ user }: DashboardProps) {
       fetchProfile().catch(e => console.warn('Error fetching profile in AI modal:', e));
     }
   }, [isAiModalOpen, user?.id, user?.email]);
-  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'profile' | 'community' | 'admin'>(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get('tab');
+      if (tabParam === 'community' || tabParam === 'admin' || tabParam === 'profile' || tabParam === 'home') {
+        return tabParam;
+      }
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'community' || hash === 'admin' || hash === 'profile' || hash === 'home') {
+        return hash as any;
+      }
+    }
+    return 'home';
+  });
 
   const handleGlobalRefresh = async () => {
     if (activeTab === 'home') {
@@ -271,21 +284,25 @@ export default function Dashboard({ user }: DashboardProps) {
       if (progressRes.error) throw progressRes.error;
       if (chaptersRes.error) throw chaptersRes.error;
 
-      // Handle purchases by email if applicable
+      // Handle purchases by email if applicable (only if user.id is not a UUID or if table supports string user_id)
       let basePurchases = purchasesByIdRes.data || [];
-      if (user.email && user.email.toLowerCase() !== user.id) {
-        const { data: emailPurchases } = await supabase
-          .from('purchases')
-          .select('product_id, created_at')
-          .eq('user_id', user.email.toLowerCase());
-        if (emailPurchases && emailPurchases.length > 0) {
-          const existingProductIds = new Set(basePurchases.map(p => p.product_id));
-          emailPurchases.forEach(ep => {
-            if (!existingProductIds.has(ep.product_id)) {
-              basePurchases.push(ep);
-              existingProductIds.add(ep.product_id);
-            }
-          });
+      if (user.email && user.email.toLowerCase() !== user.id && !isUUID(user.id)) {
+        try {
+          const { data: emailPurchases, error: emailPurErr } = await supabase
+            .from('purchases')
+            .select('product_id, created_at')
+            .eq('user_id', user.email.toLowerCase());
+          if (!emailPurErr && emailPurchases && emailPurchases.length > 0) {
+            const existingProductIds = new Set(basePurchases.map(p => p.product_id));
+            emailPurchases.forEach(ep => {
+              if (!existingProductIds.has(ep.product_id)) {
+                basePurchases.push(ep);
+                existingProductIds.add(ep.product_id);
+              }
+            });
+          }
+        } catch {
+          // Ignore type mismatch errors
         }
       }
 
@@ -490,7 +507,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     });
 
     // 2. Paid courses that are purchased
@@ -499,7 +516,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     });
 
     // 3. Combine: default free courses first, purchased paid courses always at the end!
@@ -513,7 +530,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     });
   }, [courses, purchases]);
 
@@ -523,7 +540,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const orderA = a.order_index ?? 9999;
       const orderB = b.order_index ?? 9999;
       if (orderA !== orderB) return orderA - orderB;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     });
   }, [courses, isUnlocked]);
 

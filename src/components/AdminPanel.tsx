@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+Ôªøimport React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, Product, CommunityPost } from '../lib/supabase';
@@ -91,6 +91,7 @@ import CourseEditor from './CourseEditor';
 import CourseViewer from './CourseViewer';
 import Community from './Community';
 import PackageEditor from './PackageEditor';
+import { dataCache } from '../lib/cache';
 
 const RotatingBannerPreview = ({ images, interval = 5000 }: { images: string[], interval?: number }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -144,6 +145,25 @@ interface AdminPanelProps {
   user: User;
 }
 
+const SidebarItem = ({ icon, label, active, onClick, badge }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; badge?: number }) => (
+  <button
+    onClick={onClick}
+    className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all ${
+      active ? 'bg-primary text-black shadow-lg shadow-primary/20' : 'text-gray-400 hover:text-white hover:bg-white/5'
+    }`}
+  >
+    <div className="flex items-center gap-3">
+      {icon}
+      <span>{label}</span>
+    </div>
+    {badge !== undefined && badge > 0 && (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500 text-white">
+        {badge}
+      </span>
+    )}
+  </button>
+);
+
 export default function AdminPanel({ user }: AdminPanelProps) {
   const { settings, refreshSettings } = useSettings();
   const { t } = useI18n();
@@ -171,6 +191,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     is_active: true,
     description: ''
   });
+  const [savingProduct, setSavingProduct] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<{ id: string; name: string } | null>(null);
   const [isSyncingProducts, setIsSyncingProducts] = useState(false);
   const [simulatingWebhook, setSimulatingWebhook] = useState(false);
@@ -184,6 +205,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [isSavingWebhookUrl, setIsSavingWebhookUrl] = useState(false);
   const [isTestingWebhookUrl, setIsTestingWebhookUrl] = useState(false);
   const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
+  const [loadingCourses, setLoadingCourses] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Editor states
@@ -203,9 +225,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   const [notificationBody, setNotificationBody] = useState('');
   const [sendingNotification, setSendingNotification] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState<any[]>([]);
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState<'all' | 'courses' | 'community' | 'general'>('all');
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [selectedBroadcast, setSelectedBroadcast] = useState<any | null>(null);
   const [viewingBroadcastDetails, setViewingBroadcastDetails] = useState<any[]>([]);
+  const [broadcastDetailsFilter, setBroadcastDetailsFilter] = useState<'all' | 'read' | 'unread'>('all');
+  const [broadcastDetailsSearch, setBroadcastDetailsSearch] = useState('');
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
   const [bannerPreviewMode, setBannerPreviewMode] = useState<'desktop' | 'mobile'>('mobile');
@@ -365,6 +391,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
   const fetchBroadcastDetails = async (broadcast: any) => {
     setSelectedBroadcast(broadcast);
+    setBroadcastDetailsFilter('all');
+    setBroadcastDetailsSearch('');
     setLoadingDetails(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -373,9 +401,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       });
       if (Array.isArray(data)) {
         setViewingBroadcastDetails(data);
+      } else {
+        setViewingBroadcastDetails([]);
       }
     } catch (e) {
       console.error('Error fetching details:', e);
+      setViewingBroadcastDetails([]);
     } finally {
       setLoadingDetails(false);
     }
@@ -637,41 +668,63 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     fetchData();
   }, [activeTab]);
 
+  const fetchCourses = async (showToast: boolean = false) => {
+    setLoadingCourses(true);
+    try {
+      let response = await supabase
+        .from('courses')
+        .select('*')
+        .order('order_index', { ascending: true });
+      
+      if (response.error && (response.error.code === '42703' || response.error.message?.includes('order_index'))) {
+        response = await supabase
+          .from('courses')
+          .select('*')
+          .order('created_at', { ascending: true });
+      }
+
+      if (!response.error && response.data) {
+        const sorted = [...response.data].sort((a, b) => {
+          const orderA = a.order_index ?? 9999;
+          const orderB = b.order_index ?? 9999;
+          if (orderA !== orderB) return orderA - orderB;
+          return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+        });
+        setCourses(sorted);
+      }
+
+      const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
+      if (chaptersData) {
+        const stats: Record<string, { lessons: number, materials: number }> = {};
+        chaptersData.forEach((ch: any) => {
+          const courseId = ch.modules.course_id;
+          if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
+          if (ch.content_type === 'video') stats[courseId].lessons++;
+          else stats[courseId].materials++;
+        });
+        setCourseStats(stats);
+      }
+
+      dataCache.invalidate();
+      if (showToast) {
+        toast.success('Lista de cursos atualizada!');
+      }
+    } catch (err: any) {
+      console.error('Error fetching courses:', err);
+      if (showToast) toast.error('Erro ao atualizar cursos');
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const tasks: Promise<any>[] = [];
 
-      // Only fetch courses if not loaded
-      if (courses.length === 0) {
-        tasks.push((async () => {
-          let response = await supabase
-            .from('courses')
-            .select('*')
-            .order('order_index', { ascending: true });
-          
-          if (response.error && (response.error.code === '42703' || response.error.message?.includes('order_index'))) {
-            response = await supabase
-              .from('courses')
-              .select('*')
-              .order('created_at', { ascending: false });
-          }
-          if (!response.error && response.data) {
-            setCourses(response.data);
-          }
-
-          const { data: chaptersData } = await supabase.from('chapters').select('id, content_type, modules!inner(course_id)');
-          if (chaptersData) {
-            const stats: Record<string, { lessons: number, materials: number }> = {};
-            chaptersData.forEach((ch: any) => {
-              const courseId = ch.modules.course_id;
-              if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
-              if (ch.content_type === 'video') stats[courseId].lessons++;
-              else stats[courseId].materials++;
-            });
-            setCourseStats(stats);
-          }
-        })());
+      // Fetch courses (if empty or on courses tab)
+      if (courses.length === 0 || activeTab === 'courses') {
+        tasks.push(fetchCourses(false));
       }
 
       // Only fetch packages if not loaded
@@ -727,18 +780,21 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           if (data && !data.error) {
             setAllUsers(Array.isArray(data) ? data : []);
           } else {
-            const { data: profiles } = await supabase
+            let { data: profiles, error: profErr } = await supabase
               .from('profiles')
               .select('*')
               .order('created_at', { ascending: false });
+            if (profErr) {
+              const res = await supabase.from('profiles').select('*');
+              profiles = res.data;
+            }
             setAllUsers(profiles || []);
           }
         } catch (e) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('*')
-            .order('created_at', { ascending: false });
-          setAllUsers(profiles || []);
+          try {
+            const { data: profiles } = await supabase.from('profiles').select('*');
+            setAllUsers(profiles || []);
+          } catch {}
         }
       }
 
@@ -1574,11 +1630,41 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
       if (!response || response.error) throw new Error(response?.error || 'Erro inesperado ao enviar');
 
-      toast.success(notificationTitle ? `Notifica√ß√£o enviada para ${finalUserIds.length} usu√°rios!` : 'Notifica√ß√£o enviada!');
+      if (notificationType === 'in_app') {
+        toast.success(notificationTitle ? `Notifica√ß√£o interna enviada para ${finalUserIds.length} usu√°ria(s)!` : 'Notifica√ß√£o enviada!');
+      } else if (notificationType === 'push') {
+        const pushRes = response.pushResult;
+        if (pushRes && pushRes.usersCount > 0) {
+          toast.success(notificationTitle ? `Notifica√ß√£o Push enviada para ${pushRes.usersCount} usu√°ria(s)!` : 'Notifica√ß√£o enviada!');
+        } else if (pushRes && pushRes.tokensFound === 0) {
+          toast.info(`Nenhuma das usu√°rias selecionadas possui notifica√ß√µes Push ativas no navegador.`);
+        } else if (pushRes && pushRes.reason) {
+          toast.warning(`Aviso Push: ${pushRes.reason}`);
+        } else {
+          toast.success(notificationTitle ? `Notifica√ß√£o enviada para ${finalUserIds.length} usu√°ria(s)!` : 'Notifica√ß√£o enviada!');
+        }
+      } else {
+        toast.success(notificationTitle ? `Notifica√ß√£o enviada para ${finalUserIds.length} usu√°ria(s)!` : 'Notifica√ß√£o enviada!');
+      }
+
+      const newHistoryItem = response?.historyItem || {
+        id: response?.broadcastId || crypto.randomUUID(),
+        title: notificationTitle || 'Notifica√ß√£o',
+        body: notificationBody || '',
+        target_count: finalUserIds.length,
+        read_count: 0,
+        status: 'sent',
+        type: notificationType,
+        created_at: new Date().toISOString()
+      };
+      setNotificationHistory(prev => [newHistoryItem, ...prev.filter(item => item.id !== newHistoryItem.id)]);
       setNotificationTitle('');
       setNotificationBody('');
       setNotificationExclusionCourseId(null);
-      fetchNotificationHistory(); // Refresh history
+      setHistoryCategoryFilter('all');
+      setHistorySearchQuery('');
+      setNotificationSubTab('history');
+      await fetchNotificationHistory();
     } catch (err: any) {
       console.error('Error sending notification:', err);
       toast.error('Erro ao enviar notifica√ß√£o: ' + err.message);
@@ -2483,19 +2569,40 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                 {activeTab === 'courses' && (
                   <div className="space-y-6">
                       <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Gerenciar Cursos</h3>
-                          <button 
-                            onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20"
-                          >
-                            <Plus size={20} /> Criar Curso
-                          </button>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div>
+                            <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Gerenciar Cursos</h3>
+                            <p className="text-xs text-gray-400">Organize os produtos principais, b√¥nus e cursos pagos.</p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => fetchCourses(true)}
+                              disabled={loadingCourses}
+                              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all border border-white/10 active:scale-95 disabled:opacity-50"
+                              title="Atualizar Lista de Cursos"
+                            >
+                              <RefreshCw size={15} className={loadingCourses ? 'animate-spin text-blue-500' : ''} />
+                              <span>{loadingCourses ? 'Atualizando...' : 'Atualizar'}</span>
+                            </button>
+                            <button
+                              onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
+                              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black px-4 sm:px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+                            >
+                              <Sparkles size={16} />
+                              <span>Criar com IA</span>
+                            </button>
+                            <button 
+                              onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
+                              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 cursor-pointer"
+                            >
+                              <Plus size={18} /> Criar Curso
+                            </button>
+                          </div>
                         </div>
                         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex items-center gap-3">
                           <Info size={16} className="text-blue-500 shrink-0" />
                           <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">
-                            A ordem definida abaixo atrav√©s das setas ser√° a mesma exibida na tela de in√≠cio do usu√°rio.
+                            A ordem definida abaixo atrav√©s das setas ser√° a mesma exibida na tela de in√≠cio do usu√°rio. Novos cursos cadastrados s√£o posicionados automaticamente no final da categoria.
                           </p>
                         </div>
                       </div>
@@ -2515,7 +2622,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
                           {courses
                             .filter(c => !c.is_bonus && c.is_free)
-                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .sort((a, b) => {
+                              const orderA = a.order_index ?? 9999;
+                              const orderB = b.order_index ?? 9999;
+                              if (orderA !== orderB) return orderA - orderB;
+                              return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                            })
                             .map((course) => (
                               <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
                             ))}
@@ -2531,7 +2643,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
                           {courses
                             .filter(c => c.is_bonus)
-                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .sort((a, b) => {
+                              const orderA = a.order_index ?? 9999;
+                              const orderB = b.order_index ?? 9999;
+                              if (orderA !== orderB) return orderA - orderB;
+                              return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                            })
                             .map((course) => (
                               <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
                             ))}
@@ -2547,7 +2664,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <div className="flex gap-4 overflow-x-auto pb-6 -mx-2 px-2 scrollbar-none">
                           {courses
                             .filter(c => !c.is_bonus && !c.is_free)
-                            .sort((a, b) => (a.order_index ?? 9999) - (b.order_index ?? 9999))
+                            .sort((a, b) => {
+                              const orderA = a.order_index ?? 9999;
+                              const orderB = b.order_index ?? 9999;
+                              if (orderA !== orderB) return orderA - orderB;
+                              return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+                            })
                             .map((course) => (
                               <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
                             ))}
@@ -2645,26 +2767,43 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             Enviar Nova
                           </button>
                           <button 
-                            onClick={() => setNotificationSubTab('history')}
+                            onClick={() => {
+                              setNotificationSubTab('history');
+                              fetchNotificationHistory();
+                            }}
                             className={`px-6 py-2 rounded-lg text-[10px] font-black transition-all uppercase tracking-widest ${notificationSubTab === 'history' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
                           >
                             Hist√≥rico
                           </button>
                         </div>
 
-                        {notificationSubTab === 'history' && notificationHistory.length > 0 && (
-                          <button 
-                            onClick={() => setShowClearHistoryConfirm(true)}
-                            className="flex items-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-red-500/20"
-                          >
-                            <Trash2 size={14} /> Apagar Tudo
-                          </button>
+                        {notificationSubTab === 'history' && (
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={fetchNotificationHistory}
+                              disabled={loadingHistory}
+                              className="flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/10"
+                              title="Atualizar Hist√≥rico"
+                            >
+                              <RefreshCw size={14} className={loadingHistory ? 'animate-spin text-blue-500' : ''} />
+                              <span>Atualizar</span>
+                            </button>
+
+                            {notificationHistory.length > 0 && (
+                              <button 
+                                onClick={() => setShowClearHistoryConfirm(true)}
+                                className="flex items-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-red-500/20"
+                              >
+                                <Trash2 size={14} /> Apagar Tudo
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
 
                     {notificationSubTab === 'send' ? (
-                      <div className="max-w-2xl">
+                      <div className="max-w-2xl space-y-6">
                         <div className="bg-zinc-900/50 rounded-2xl border border-white/10 p-8 space-y-6">
                           <div className="space-y-2">
                             <label className="text-xs font-black text-gray-500 uppercase tracking-widest">T√≠tulo da Notifica√ß√£o</label>
@@ -2746,6 +2885,69 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                       </div>
                     ) : (
                       <div className="space-y-4">
+                        {/* Filters & Search Header */}
+                        {notificationHistory.length > 0 && (
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-zinc-900/40 p-3 rounded-2xl border border-white/5">
+                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                              {[
+                                { id: 'all', label: 'Todas', count: notificationHistory.length },
+                                { 
+                                  id: 'courses', 
+                                  label: 'üéì Aulas & D√∫vidas', 
+                                  count: notificationHistory.filter(i => {
+                                    const text = ((i.title || '') + ' ' + (i.body || '')).toLowerCase();
+                                    return text.includes('d√∫vida') || text.includes('duvida') || text.includes('aula') || text.includes('curso') || text.includes('pergunta') || text.includes('resposta');
+                                  }).length 
+                                },
+                                { 
+                                  id: 'community', 
+                                  label: 'üí¨ Comunidade', 
+                                  count: notificationHistory.filter(i => {
+                                    const text = ((i.title || '') + ' ' + (i.body || '')).toLowerCase();
+                                    return text.includes('comunidade') || text.includes('post') || text.includes('coment√°rio') || text.includes('comentario');
+                                  }).length 
+                                },
+                                { 
+                                  id: 'general', 
+                                  label: 'üì¢ Avisos Gerais', 
+                                  count: notificationHistory.filter(i => {
+                                    const text = ((i.title || '') + ' ' + (i.body || '')).toLowerCase();
+                                    const isCourse = text.includes('d√∫vida') || text.includes('duvida') || text.includes('aula') || text.includes('curso') || text.includes('pergunta') || text.includes('resposta');
+                                    const isComm = text.includes('comunidade') || text.includes('post') || text.includes('coment√°rio') || text.includes('comentario');
+                                    return !isCourse && !isComm;
+                                  }).length 
+                                }
+                              ].map(tab => (
+                                <button
+                                  key={tab.id}
+                                  onClick={() => setHistoryCategoryFilter(tab.id as any)}
+                                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                                    historyCategoryFilter === tab.id
+                                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                                      : 'bg-black/40 text-gray-400 hover:text-white border border-white/5'
+                                  }`}
+                                >
+                                  <span>{tab.label}</span>
+                                  <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${historyCategoryFilter === tab.id ? 'bg-white/20 text-white' : 'bg-white/5 text-gray-500'}`}>
+                                    {tab.count}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="relative min-w-[200px] sm:max-w-xs">
+                              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                              <input
+                                type="text"
+                                value={historySearchQuery}
+                                onChange={e => setHistorySearchQuery(e.target.value)}
+                                placeholder="Buscar no hist√≥rico..."
+                                className="w-full bg-black/60 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-blue-500 outline-none transition-all"
+                              />
+                            </div>
+                          </div>
+                        )}
+
                         {loadingHistory ? (
                           <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/50 rounded-2xl border border-white/10">
                             <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
@@ -2754,52 +2956,108 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         ) : notificationHistory.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/50 rounded-2xl border border-white/10 text-center px-6">
                             <Bell size={48} className="text-gray-700 mb-4" />
-                            <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Nenhuma notifica√ß√£o enviada ainda</p>
+                            <p className="text-white font-black uppercase text-sm tracking-tight mb-1">Nenhuma notifica√ß√£o enviada ainda</p>
+                            <p className="text-gray-500 text-xs max-w-sm mb-6">Quando voc√™ enviar avisos aos alunos, o hist√≥rico e o relat√≥rio de leitura aparecer√£o aqui em tempo real.</p>
+                            <button 
+                              onClick={() => setNotificationSubTab('send')}
+                              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20"
+                            >
+                              Enviar Primeira Notifica√ß√£o
+                            </button>
                           </div>
                         ) : (
                           <div className="space-y-4">
                             <div className="grid grid-cols-1 gap-4">
-                              {notificationHistory.map(item => (
-                              <div key={item.id} className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 hover:border-white/20 transition-all group">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="space-y-1 flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${
-                                        item.type === 'push' ? 'bg-orange-500/20 text-orange-500' :
-                                        item.type === 'in_app' ? 'bg-blue-500/20 text-blue-500' :
-                                        'bg-green-500/20 text-green-500'
-                                      }`}>
-                                        {item.type === 'both' ? 'Push + Interna' : (item.type === 'in_app' ? 'INTERNA' : item.type)}
-                                      </span>
-                                      <span className="text-[10px] font-bold text-gray-600">
-                                        {new Date(item.created_at || item.sent_at).toLocaleString('pt-BR')}
-                                      </span>
-                                    </div>
-                                    <h4 className="font-black text-white uppercase tracking-tight">{item.title}</h4>
-                                    <p className="text-xs text-gray-500 line-clamp-2">{item.body}</p>
-                                  </div>
-                                  
-                                  <div className="text-right shrink-0">
-                                    <div className="flex items-center gap-4 mb-4">
-                                      <div className="text-center">
-                                        <p className="text-xs font-black text-white">{item.target_count || 0}</p>
-                                        <p className="text-[8px] font-bold text-gray-600 uppercase tracking-widest">Enviados</p>
+                              {notificationHistory
+                                .filter(item => {
+                                  // Category filter
+                                  const text = ((item.title || '') + ' ' + (item.body || '')).toLowerCase();
+                                  const isCourse = text.includes('d√∫vida') || text.includes('duvida') || text.includes('aula') || text.includes('curso') || text.includes('pergunta') || text.includes('resposta');
+                                  const isComm = text.includes('comunidade') || text.includes('post') || text.includes('coment√°rio') || text.includes('comentario');
+
+                                  if (historyCategoryFilter === 'courses' && !isCourse) return false;
+                                  if (historyCategoryFilter === 'community' && !isComm) return false;
+                                  if (historyCategoryFilter === 'general' && (isCourse || isComm)) return false;
+
+                                  // Search query filter
+                                  if (historySearchQuery.trim()) {
+                                    const q = historySearchQuery.toLowerCase().trim();
+                                    return (item.title || '').toLowerCase().includes(q) || (item.body || '').toLowerCase().includes(q);
+                                  }
+
+                                  return true;
+                                })
+                                .map(item => {
+                                const totalTargets = item.target_count || 0;
+                                const totalReads = item.read_count || 0;
+                                const readPercent = totalTargets > 0 ? Math.round((totalReads / totalTargets) * 100) : 0;
+
+                                const text = ((item.title || '') + ' ' + (item.body || '')).toLowerCase();
+                                const isCourse = text.includes('d√∫vida') || text.includes('duvida') || text.includes('aula') || text.includes('curso') || text.includes('pergunta') || text.includes('resposta');
+                                const isComm = text.includes('comunidade') || text.includes('post') || text.includes('coment√°rio') || text.includes('comentario');
+
+                                return (
+                                  <div key={item.id} className="bg-zinc-900/50 rounded-2xl border border-white/10 p-6 hover:border-white/20 transition-all group">
+                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                                      <div className="space-y-2 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          {/* Type badge */}
+                                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${
+                                            item.type === 'push' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                                            item.type === 'in_app' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                                            'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                          }`}>
+                                            {item.type === 'both' ? 'PUSH + INTERNA' : (item.type === 'in_app' ? 'INTERNA' : 'PUSH')}
+                                          </span>
+
+                                          {/* Category badge */}
+                                          {isCourse ? (
+                                            <span className="text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                              üéì AULA / D√öVIDA
+                                            </span>
+                                          ) : isComm ? (
+                                            <span className="text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                                              üí¨ COMUNIDADE
+                                            </span>
+                                          ) : (
+                                            <span className="text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-zinc-700/40 text-zinc-300 border border-zinc-600/30">
+                                              üì¢ GERAL
+                                            </span>
+                                          )}
+
+                                          <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1">
+                                            <Calendar size={12} className="opacity-60" />
+                                            {new Date(item.created_at || item.sent_at).toLocaleString('pt-BR')}
+                                          </span>
+                                        </div>
+                                        <h4 className="font-black text-white uppercase tracking-tight text-base">{item.title}</h4>
+                                        <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">{item.body}</p>
                                       </div>
-                                      <div className="text-center">
-                                        <p className="text-xs font-black text-green-500">{item.read_count || 0}</p>
-                                        <p className="text-[8px] font-bold text-gray-600 uppercase tracking-widest">Lidos</p>
+                                      
+                                      <div className="flex items-center md:flex-col md:items-end justify-between gap-3 shrink-0 pt-3 md:pt-0 border-t md:border-t-0 border-white/5">
+                                        <div className="flex items-center gap-3">
+                                          <div className="text-center px-3 py-1.5 bg-black/40 rounded-xl border border-white/5 min-w-[70px]">
+                                            <p className="text-xs font-black text-white">{totalTargets}</p>
+                                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Enviados</p>
+                                          </div>
+                                          <div className="text-center px-3 py-1.5 bg-black/40 rounded-xl border border-white/5 min-w-[70px]">
+                                            <p className="text-xs font-black text-emerald-400">{totalReads} <span className="text-[9px] font-normal text-emerald-500/70">({readPercent}%)</span></p>
+                                            <p className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Lidos</p>
+                                          </div>
+                                        </div>
+
+                                        <button 
+                                          onClick={() => fetchBroadcastDetails(item)}
+                                          className="px-4 py-2 bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all border border-blue-500/20 shadow-sm"
+                                        >
+                                          <span>Ver Leituras</span>
+                                          <ChevronRight size={13} />
+                                        </button>
                                       </div>
                                     </div>
-                                    <button 
-                                      onClick={() => fetchBroadcastDetails(item)}
-                                      className="text-[10px] font-black text-blue-500 hover:text-blue-400 uppercase tracking-widest flex items-center gap-2 ml-auto"
-                                    >
-                                      Ver Detalhes <ChevronRight size={14} />
-                                    </button>
                                   </div>
-                                </div>
-                              </div>
-                            ))}
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -2860,87 +3118,208 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                             className="absolute inset-0 bg-black/80 backdrop-blur-md"
                           />
                           <motion.div 
-                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                            className="relative w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="relative w-full max-w-3xl bg-zinc-900 border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
                           >
-                            <div className="p-8 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                              <div>
-                                <h3 className="text-xl font-black text-white uppercase tracking-tighter">Detalhes do Envio</h3>
-                                <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">{selectedBroadcast.title}</p>
+                            {/* Modal Header */}
+                            <div className="p-6 md:p-8 border-b border-white/5 bg-white/5 flex items-start justify-between gap-4">
+                              <div className="space-y-1 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                                    selectedBroadcast.type === 'push' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                                    selectedBroadcast.type === 'in_app' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                                    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  }`}>
+                                    {selectedBroadcast.type === 'both' ? 'PUSH + INTERNA' : (selectedBroadcast.type === 'in_app' ? 'INTERNA' : 'PUSH')}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-gray-500">
+                                    {new Date(selectedBroadcast.created_at || selectedBroadcast.sent_at).toLocaleString('pt-BR')}
+                                  </span>
+                                </div>
+                                <h3 className="text-xl font-black text-white uppercase tracking-tighter">{selectedBroadcast.title}</h3>
+                                <p className="text-xs text-gray-400 line-clamp-2">{selectedBroadcast.body}</p>
                               </div>
                               <button 
                                 onClick={() => setSelectedBroadcast(null)}
-                                className="p-2 hover:bg-white/10 rounded-full transition-all"
+                                className="p-2 hover:bg-white/10 text-gray-400 hover:text-white rounded-full transition-all shrink-0"
                               >
-                                <X size={24} className="text-gray-500" />
+                                <X size={22} />
                               </button>
                             </div>
 
-                            <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
-                              {loadingDetails ? (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                  <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
-                                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Buscando leituras...</p>
-                                </div>
-                              ) : selectedBroadcast.type === 'push' ? (
-                                <div className="text-center py-12 px-6">
-                                  <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Bell size={32} className="text-orange-500 opacity-50" />
-                                  </div>
-                                  <p className="text-sm text-white font-bold mb-2">Monitoramento Indispon√≠vel</p>
-                                  <p className="text-xs text-gray-500 leading-relaxed">
-                                    N√£o √© poss√≠vel monitorar a leitura de notifica√ß√µes puramente PUSH, pois elas dependem de permiss√µes externas do sistema operacional do aluno.
-                                  </p>
-                                </div>
-                              ) : viewingBroadcastDetails.length === 0 ? (
-                                <div className="text-center py-12">
-                                  <p className="text-sm text-gray-500">Nenhum dado de leitura encontrado.</p>
-                                </div>
-                              ) : (
-                                <div className="space-y-4">
-                                  <div className="flex items-center justify-between text-[10px] font-black text-gray-500 uppercase tracking-widest px-4">
-                                    <span>Usu√°rio</span>
-                                    <span>Status</span>
-                                  </div>
-                                  <div className="space-y-2">
-                                    {viewingBroadcastDetails.map((detail, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5">
-                                        <div className="flex flex-col">
-                                          <span className="text-sm font-black text-white tracking-tight">
-                                            {detail.profiles?.full_name || 'Usu√°rio sem nome'}
-                                          </span>
-                                          <span className="text-[10px] font-bold text-gray-500 lowercase">
-                                            {detail.profiles?.email || 'N/A'}
-                                          </span>
+                            {/* Modal Metrics Banner */}
+                            {(() => {
+                              const totalCount = viewingBroadcastDetails.length || selectedBroadcast.target_count || 0;
+                              const readCount = viewingBroadcastDetails.filter(d => d.is_read).length;
+                              const unreadCount = Math.max(0, totalCount - readCount);
+                              const rate = totalCount > 0 ? Math.round((readCount / totalCount) * 100) : 0;
+
+                              const filteredDetails = viewingBroadcastDetails.filter(item => {
+                                const matchesFilter = 
+                                  broadcastDetailsFilter === 'all' ? true :
+                                  broadcastDetailsFilter === 'read' ? item.is_read :
+                                  !item.is_read;
+
+                                const query = broadcastDetailsSearch.toLowerCase().trim();
+                                const matchesSearch = !query || 
+                                  (item.profiles?.full_name || '').toLowerCase().includes(query) ||
+                                  (item.profiles?.email || '').toLowerCase().includes(query);
+
+                                return matchesFilter && matchesSearch;
+                              });
+
+                              return (
+                                <>
+                                  <div className="px-6 md:px-8 py-4 bg-black/40 border-b border-white/5 space-y-4">
+                                    {/* Stats Grid */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                      <div className="bg-zinc-800/60 rounded-xl p-3 border border-white/5">
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Destinat√°rios</p>
+                                        <p className="text-lg font-black text-white">{totalCount}</p>
+                                      </div>
+                                      <div className="bg-zinc-800/60 rounded-xl p-3 border border-white/5">
+                                        <p className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">Lidos</p>
+                                        <p className="text-lg font-black text-emerald-400">{readCount}</p>
+                                      </div>
+                                      <div className="bg-zinc-800/60 rounded-xl p-3 border border-white/5">
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">N√£o Lidos</p>
+                                        <p className="text-lg font-black text-gray-300">{unreadCount}</p>
+                                      </div>
+                                      <div className="bg-zinc-800/60 rounded-xl p-3 border border-white/5">
+                                        <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Taxa de Leitura</p>
+                                        <p className="text-lg font-black text-blue-400">{rate}%</p>
+                                      </div>
+                                    </div>
+
+                                    {/* Progress Bar */}
+                                    <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                                      <div 
+                                        className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
+                                        style={{ width: `${rate}%` }} 
+                                      />
+                                    </div>
+
+                                    {/* Controls: Search + Filter Tabs */}
+                                    {viewingBroadcastDetails.length > 0 && (
+                                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                                        <div className="relative w-full sm:w-64">
+                                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                          <input 
+                                            type="text"
+                                            value={broadcastDetailsSearch}
+                                            onChange={e => setBroadcastDetailsSearch(e.target.value)}
+                                            placeholder="Buscar aluno..."
+                                            className="w-full pl-9 pr-3 py-2 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-gray-600 focus:border-blue-500 outline-none"
+                                          />
                                         </div>
-                                        <div>
-                                          {detail.is_read ? (
-                                            <div className="flex flex-col items-end">
-                                              <span className="text-[10px] font-black text-green-500 uppercase tracking-widest flex items-center gap-1">
-                                                <Check size={12} /> Lido
-                                              </span>
-                                              {detail.read_at && (
-                                                <span className="text-[8px] font-bold text-gray-600">
-                                                  {new Date(detail.read_at).toLocaleString('pt-BR')}
+
+                                        <div className="flex p-1 bg-black rounded-xl border border-white/10 w-full sm:w-auto">
+                                          <button 
+                                            onClick={() => setBroadcastDetailsFilter('all')}
+                                            className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${broadcastDetailsFilter === 'all' ? 'bg-zinc-800 text-white' : 'text-gray-500 hover:text-white'}`}
+                                          >
+                                            Todos ({viewingBroadcastDetails.length})
+                                          </button>
+                                          <button 
+                                            onClick={() => setBroadcastDetailsFilter('read')}
+                                            className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${broadcastDetailsFilter === 'read' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                                          >
+                                            Lidos ({readCount})
+                                          </button>
+                                          <button 
+                                            onClick={() => setBroadcastDetailsFilter('unread')}
+                                            className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${broadcastDetailsFilter === 'unread' ? 'bg-zinc-800 text-white' : 'text-gray-500 hover:text-white'}`}
+                                          >
+                                            N√£o Lidos ({unreadCount})
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* User List Content */}
+                                  <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar">
+                                    {loadingDetails ? (
+                                      <div className="flex flex-col items-center justify-center py-16">
+                                        <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
+                                        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Buscando status de leitura...</p>
+                                      </div>
+                                    ) : selectedBroadcast.type === 'push' && viewingBroadcastDetails.length === 0 ? (
+                                      <div className="text-center py-12 px-6 bg-zinc-800/30 rounded-2xl border border-white/5">
+                                        <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                          <Bell size={32} className="text-orange-500 opacity-60" />
+                                        </div>
+                                        <p className="text-sm text-white font-bold mb-2">Notifica√ß√£o Exclusiva por Push</p>
+                                        <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
+                                          Esta mensagem foi disparada exclusivamente para os navegadores e celulares cadastrados. Leituras detalhadas ficam dispon√≠veis quando o aviso √© enviado no formato <strong>INTERNA</strong> ou <strong>AMBAS</strong>.
+                                        </p>
+                                      </div>
+                                    ) : viewingBroadcastDetails.length === 0 ? (
+                                      <div className="text-center py-16">
+                                        <p className="text-sm text-gray-400">Nenhum registro de leitura encontrado para este aviso.</p>
+                                      </div>
+                                    ) : filteredDetails.length === 0 ? (
+                                      <div className="text-center py-12">
+                                        <p className="text-sm text-gray-400">Nenhum aluno encontrado com este filtro.</p>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {filteredDetails.map((detail, idx) => (
+                                          <div key={idx} className="flex items-center justify-between p-4 bg-black/40 rounded-2xl border border-white/5 hover:border-white/10 transition-all">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-9 h-9 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-xs font-black text-white shrink-0 overflow-hidden">
+                                                {detail.profiles?.avatar_url ? (
+                                                  <img 
+                                                    src={detail.profiles.avatar_url} 
+                                                    alt={detail.profiles?.full_name || ''} 
+                                                    className="w-full h-full object-cover" 
+                                                    referrerPolicy="no-referrer"
+                                                  />
+                                                ) : (
+                                                  (detail.profiles?.full_name || 'U').charAt(0).toUpperCase()
+                                                )}
+                                              </div>
+                                              <div className="flex flex-col">
+                                                <span className="text-sm font-black text-white tracking-tight">
+                                                  {detail.profiles?.full_name || 'Aluno'}
+                                                </span>
+                                                <span className="text-[10px] font-bold text-gray-500">
+                                                  {detail.profiles?.email || 'Sem e-mail'}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            <div>
+                                              {detail.is_read ? (
+                                                <div className="flex flex-col items-end">
+                                                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                                                    <CheckCircle2 size={12} className="text-emerald-400" /> Lido
+                                                  </span>
+                                                  {detail.read_at && (
+                                                    <span className="text-[8px] font-bold text-gray-500 mt-1">
+                                                      {new Date(detail.read_at).toLocaleString('pt-BR')}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              ) : (
+                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1.5 bg-zinc-800/80 px-2.5 py-1 rounded-full border border-white/5">
+                                                  <Clock size={12} className="text-gray-500" /> N√£o Lido
                                                 </span>
                                               )}
                                             </div>
-                                          ) : (
-                                            <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">
-                                              N√£o Lido
-                                            </span>
-                                          )}
-                                        </div>
+                                          </div>
+                                        ))}
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
-                                </div>
-                              )}
-                            </div>
+                                </>
+                              );
+                            })()}
 
-                            <div className="p-6 bg-black/40 border-t border-white/5">
+                            {/* Modal Footer */}
+                            <div className="p-6 bg-black/60 border-t border-white/5">
                               <button 
                                 onClick={() => setSelectedBroadcast(null)}
                                 className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white font-black rounded-xl transition-all uppercase text-xs tracking-widest"
@@ -7176,6 +7555,8 @@ export default function AdminPanel({ user }: AdminPanelProps) {
               </motion.div>
             </AnimatePresence>
           )}
+        </main>
+      </div>
 
       {/* Course Editor Modal */}
       {showCourseEditor && (
@@ -7185,6 +7566,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
           onClose={() => {
             setShowCourseEditor(false);
             setEditingCourseId(null);
+            fetchCourses(false);
             fetchData();
           }} 
         />
@@ -7600,7 +7982,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   placeholder="Ex: 3892019 (Deixe em branco se for cadastrar depois)"
                   className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none font-mono"
                 />
-                <p className="text-[10px] text-gray-500">ID num√©rico da Hotmart. Se deixado em branco, o produto ser√° marcado com o aviso "Cadastrar ID Hotmart (Pendente)".</p>
+                <p className="text-[10px] text-gray-500">ID num√©rico da Hotmart. Se deixado em branco, o produto ser√° marcado com o aviso &quot;Cadastrar ID Hotmart (Pendente)&quot;.</p>
               </div>
 
               <div className="space-y-2">
@@ -7619,158 +8001,11 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Tipo do Produto *</label>
                   <select
                     value={productForm.product_type}
-                    onChange={(e) => setProductForm({ ...productForm, product_type: e.target.value, internal_target_id: '' })}
+                    onChange={(e) => setProductForm({ ...productForm, product_type: e.target.value as any, internal_target_id: '' })}
                     className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
                   >
                     <option value="main_product">PRODUTO PRINCIPAL (Acesso Geral √† Plataforma)</option>
                     <option value="course">CURSO INDIVIDUAL PAGO</option>
-                    <option value="package">PACOTE DE CURSOS / OFERTA ESPECIAL</option>
-                    <option value="ai_subscription">ASSINATURA IA EXPERT (Ilimitada)</option>
-                  </select>
-                </div>
-
-                {productForm.product_type === 'course' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Selecione o Curso Destino *</label>
-                    <select
-                      value={productForm.internal_target_id}
-                      onChange={(e) => setProductForm({ ...productForm, internal_target_id: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
-                    >
-                      <option value="">-- Selecione o Curso --</option>
-                      {courses
-                        .filter(c => c.is_free !== true && c.is_bonus !== true && c.is_package_exclusive_bonus !== true)
-                        .map(c => (
-                          <option key={c.id} value={c.id}>{c.title}</option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-
-                {productForm.product_type === 'package' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Selecione o Pacote Destino *</label>
-                    <select
-                      value={productForm.internal_target_id}
-                      onChange={(e) => setProductForm({ ...productForm, internal_target_id: e.target.value })}
-                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
-                    >
-                      <option value="">-- Selecione o Pacote --</option>
-                      {coursePackages.map(p => (
-                        <option key={p.id} value={p.id}>{p.title}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Link de Checkout Hotmart (Opcional)</label>
-                <input
-                  type="url"
-                  value={productForm.checkout_url}
-                  onChange={(e) => setProductForm({ ...productForm, checkout_url: e.target.value })}
-                  placeholder="https://pay.hotmart.com/..."
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Descri√ß√£o Interna (Opcional)</label>
-                <textarea
-                  value={productForm.description}
-                  onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                  placeholder="Anota√ß√µes para equipe t√©cnica..."
-                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none h-20"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-              <button
-                type="button"
-                onClick={() => setShowProductModal(false)}
-                className="px-5 py-3 rounded-xl text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 transition-all"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveProduct}
-                className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider text-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg"
-              >
-                Salvar Produto
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Confirma√ß√£o de Exclus√£o Elegante */}
-      {deletingProduct && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-red-500/30 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-red-500/10 rounded-2xl text-red-500 border border-red-500/20 shrink-0">
-                <AlertTriangle size={28} />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-black text-white uppercase tracking-tight">Confirmar Exclus√£o</h3>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Tem certeza que deseja remover o produto <strong className="text-white">"{deletingProduct.name}"</strong> do cat√°logo?
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-black/50 p-4 rounded-xl border border-white/5 text-xs text-gray-400 space-y-1.5">
-              <p>‚Ä¢ Este produto deixar√° de ser reconhecido via Webhook.</p>
-              <p>‚Ä¢ Compras j√° liberadas aos alunos n√£o ser√£o canceladas.</p>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeletingProduct(null)}
-                className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-xs rounded-xl transition-all border border-white/10"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const id = deletingProduct.id;
-                  setDeletingProduct(null);
-                  await handleDeleteProduct(id);
-                }}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-red-600/20 flex items-center gap-2"
-              >
-                <Trash2 size={14} /> Sim, Excluir Produto
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </main>
-    </div>
-  </div>
-  );
-}
-
-function SidebarItem({ icon, label, active, onClick, badge }: { icon: any, label: string, active: boolean, onClick: () => void, badge?: number }) {
-  return (
-    <button 
-      onClick={onClick}
-      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl font-bold text-sm transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-    >
-      <div className="flex items-center gap-3">
-        {icon}
-        {label}
-      </div>
-      {badge ? (
-        <span className="min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-black rounded-full px-1 border border-black/20 animate-pulse transition-all">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
+                    <option value="package">PACOTE DE CURSOS / OFERTA ESPECIAL</optixúÏXÕn„6æÁ)¶>¨ù¢¥í4)Z◊ˆbë∂@ÅÌ6@éã¬†§±-ò&íÚœ~ö˙}Ç}±éDŸë,*M9§@sà•—hf¯Õ˜i+9>É∆ﬂ00(0≤Õg√ NV„≥Ü}ójgë˝EÈeøºûÿmä0ç†©LÏ¬õ7–ÛÂ£†	nÃæƒQ«§<B∂eW_u‰/xà¢˙Ü≈çeS%-ïà°∞Ã4ﬂ≤o/. KS‘7VÛhë»['1ÍŒ¯ñ*SŒ%<Vı0(¢∑dv¿xü¨∏»pT√"ëµ‰bbπû°ù$ÒæÂe%oÁ\ŒË˝û√hÌ›C§ﬁ˙˝~%Ù7–å= Ïªõ~QÏœ€“U¿[≥i&Ñ3
+B•	öÚÉ≠Áâ≈‡Ú¥ då1€H7ÏRÇ÷¡lñÓ≥p•DôîoÛeHˇo®*≥"ë»§íÿÒÂáú@W©Mî,·Ìt∆˜y»Ç††Ë!3úW[êù„†È/y⁄ÎE‡r[¿Ï#d=Ô∑£]‘ß÷:\‹¥erŸ˙6±˜∞˚äúÕd™s˙ªªP…Ã¿[ËˆÓ¯Lùwa ›n[ßr’=æ∂Ûñ.∑Î¯®‰F®˝≥≈Mb]ŸÎT˜èQÚyˇWÂÌ¯t}ﬂ92ñ2O≥gùﬁ©JΩº}TÏπèì˚+ë∞◊Ô‘˙Yæ§$ﬂ'r1¬Ì£±~ﬁ‰<W≠¬&2Õ|öÃGê´ƒG8èZ£2Â$”¬˜Û5Zç¯Du¶$Búb®Gùπµ©A ∑˝π≤KÆm?RÀÄÚ¯÷Ù Tú6Îu1Ì'4ëN>ˇı˘O¸‘+N∑£Å_›p5Ì¨À≥pç‹”≠÷f¥ªÚu◊√∫∏(£PˇÀêÆK8˜AYnªã£BçÄÜHPd±Í5í4ö‰”q*pT¿“∞s<`∆S*1µO‰¶F¡m≤BB≥®¥0 èßö•™¿€{‚iùoá	WôPm¸€jÒ„ìsâô(ØÃø´|¡a‰∞¬∏2sÎ)§*yÕî[Hë@87X s“Æ5˚ÊÏ&ß›ßDFÏ{‚Hê9˛‘ÈRRØ‡iÓ‰<Àí|J›–¿êÜ:àlÛ‡x‚SÂ48SDìà∫À>vªî&%≤£áU)˚xïnèNmÕ@K®F¨UÎLs“ãªZØäzì\˜åüVKè Èå[éÌ”éf≤ÙM›˙¨}ò¡èπ›Åwƒ⁄‘Û¿-ÍÙòÍ6ü\è
+Ω>å{:w*ÜôµJ6VÌ‰Â6YI"I¥ ç$r?WÎR&ø©òãﬁîÉˆüÕ.›Ë+Ü`e(X‹¿\≠*¥»ág˘Ê.ÿ÷®≥‰t]Õﬁﬂr—”ç&9`^Lö;±¿{æ¬…&zqbx(Úëf¯ä÷’Í¯tò6ï#–Œt}¿÷mduò”q3ßÔók&fá´cŒ‡Í‚∏¶Å¢√Ob∑dˇ˜Œ‘◊oa¯^qJ}˘^8⁄]~∑Øb¿e≤ÃáôI	À„$√ç÷¸◊Ö{.V\C)Œ∆o˛f7tzb®›ñ28⁄Œ<€ü˝  ˇˇ ^h∏Z

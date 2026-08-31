@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR, enUS, es } from 'date-fns/locale';
+import { safeFetch } from '../lib/utils';
 
 interface ChapterQuestionsProps {
   chapterId: string;
@@ -87,19 +88,19 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
     }
   };
 
-  const notifyAdmin = async (type: 'question' | 'community', content: string) => {
+  const notifyAdmin = async (type: 'question', content: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      const title = type === 'question' 
-        ? (t('admin.notifications_question') || 'Nova dúvida na aula') 
-        : (t('admin.notifications_community') || 'Nova atividade na comunidade');
+      const studentName = userData.name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'Aluna';
+      const title = '❓ Nova dúvida na Aula';
+      const cleanSnippet = content.trim().substring(0, 100) + (content.length > 100 ? '...' : '');
+      const body = `${studentName} perguntou: "${cleanSnippet}"`;
       
-      console.log('🔔 Chamando API de notificação para admin:', { title, type });
+      console.log('🔔 [ChapterQuestions] Disparando notificação PUSH para o Admin:', { title, body, chapterId });
 
-      // We directly call the API backend - the backend will find the admins to notify
-      const response = await fetch('/api/v1/notifications?action=notify-admin', {
+      safeFetch('/api/v1/notifications?action=notify-admin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,16 +108,14 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
         },
         body: JSON.stringify({
           title,
-          body: `${userData.name}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+          body,
+          data: {
+            type: 'chapter_question',
+            url: '/?tab=admin&subtab=questions',
+            chapterId
+          }
         })
-      });
-
-      if (!response.ok) {
-         const errorData = await response.json().catch(() => ({}));
-         console.error('Failed to notify admin via API:', response.status, errorData);
-      } else {
-         console.log('Admin notified successfully via API');
-      }
+      }).catch(e => console.warn('[ChapterQuestions] Erro ao notificar admin:', e));
     } catch (e) {
       console.error('Error notifying admin:', e);
     }

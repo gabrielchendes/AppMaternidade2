@@ -1,13 +1,18 @@
 // Import and configure the Firebase SDK
-// These scripts are made available when the app is served or deployed on Firebase Hosting
-// If you're not using Firebase Hosting, you must import the scripts from a CDN
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
 console.log('[firebase-messaging-sw.js] SW Script loaded');
 
-// Initialize the Firebase app in the service worker by passing in
-// your app's Firebase config object.
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
+});
+
+// Initialize the Firebase app in the service worker
 firebase.initializeApp({
   apiKey: "AIzaSyDjl30PtezVKv0eJvEnNJopGCHGGQGLiAg",
   authDomain: "app-maternidade.firebaseapp.com",
@@ -22,16 +27,22 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
   
-  if (!payload.notification) {
-    console.log('[firebase-messaging-sw.js] Message does not contain a notification field, possibly showing manual notification...');
-    const notificationTitle = payload.data?.title || 'Novo aviso';
+  // If the message already includes a notification payload, Firebase SDK automatically handles display.
+  // We only display a manual notification if this is a data-only payload to avoid duplicate popups.
+  if (!payload.notification && payload.data) {
+    const notificationTitle = payload.data.title || 'Nova Notificação';
+    const tag = payload.data.broadcast_id || payload.data.id || 'maternidade-push-notification';
+    
     const notificationOptions = {
-      body: payload.data?.body || 'Você tem uma nova mensagem.',
-      icon: '/firebase-logo.svg',
-      badge: '/firebase-logo.svg',
-      data: payload.data
+      body: payload.data.body || 'Você tem uma nova mensagem.',
+      icon: payload.data.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: tag,
+      renotify: false,
+      data: payload.data || {}
     };
-    self.registration.showNotification(notificationTitle, notificationOptions);
+
+    return self.registration.showNotification(notificationTitle, notificationOptions);
   }
 });
 
@@ -39,7 +50,6 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
-  // Get the click_action URL from the notification data or use a default
   const urlToOpen = event.notification.data?.url ||
                     event.notification.data?.click_action || 
                     event.notification.click_action || 
@@ -47,17 +57,16 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Check if there is already a window open with this URL
       for (let i = 0; i < windowClients.length; i++) {
         const client = windowClients[i];
         if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
-      // If no window is open, open a new one
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
     })
   );
 });
+

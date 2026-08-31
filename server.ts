@@ -3,6 +3,11 @@ import { createServer as createViteServer, loadEnv } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import DOMException from 'node-domexception';
+
+if (typeof (globalThis as any).DOMException === 'undefined') {
+  (globalThis as any).DOMException = DOMException;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +35,17 @@ async function startServer() {
 
   app.use(express.json({ limit: '20mb' }));
   app.use(express.urlencoded({ limit: '20mb', extended: true }));
+
+  // CORS headers
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Serve static files from public directory
   app.use(express.static(path.join(__dirname, 'public')));

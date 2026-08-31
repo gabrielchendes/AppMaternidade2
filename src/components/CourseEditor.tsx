@@ -41,8 +41,29 @@ import { toast } from 'sonner';
 import CoursePreviewViewer from './CoursePreviewViewer';
 import { AdminChecklistEditor } from './AdminChecklistEditor';
 import { AiLessonGeneratorModal } from './AiLessonGeneratorModal';
+import { AiCourseGeneratorModal } from './AiCourseGeneratorModal';
 import { fetchChecklistByChapterId, saveChecklistToDatabase } from '../services/checklistService';
 import ImageCropperModal from './ImageCropperModal';
+import { dataCache } from '../lib/cache';
+
+const getNextCategoryOrderIndex = async (isBonus: boolean, isFree: boolean): Promise<number> => {
+  try {
+    let query = supabase.from('courses').select('order_index');
+    if (isBonus) {
+      query = query.eq('is_bonus', true);
+    } else if (isFree) {
+      query = query.eq('is_bonus', false).eq('is_free', true);
+    } else {
+      query = query.eq('is_bonus', false).eq('is_free', false);
+    }
+    const { data: existingCourses, error } = await query;
+    if (error || !existingCourses || existingCourses.length === 0) return 1;
+    const maxOrder = Math.max(...existingCourses.map((c: any) => typeof c.order_index === 'number' ? c.order_index : 0), 0);
+    return maxOrder + 1;
+  } catch (e) {
+    return 9999;
+  }
+};
 
 const adjustColorBrightness = (hex: string, percent: number) => {
   try {
@@ -135,12 +156,145 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
   const [editingModule, setEditingModule] = useState<Partial<Module>>({ title: '' });
   const [showMissingHotmartModal, setShowMissingHotmartModal] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isAiCourseModalOpen, setIsAiCourseModalOpen] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
     title: string;
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  const handleApplyAiCourse = async (
+    generatedCourse: Partial<Course>,
+    suggestedModules?: any[],
+    autoGenerateLessons?: boolean
+  ) => {
+    setCourse(prev => ({
+      ...prev,
+      ...generatedCourse
+    }));
+    setIsDirty(true);
+
+    if (autoGenerateLessons && suggestedModules && suggestedModules.length > 0) {
+      try {
+        setSaving(true);
+        toast.info('Criando estrutura de módulos e aulas com IA...');
+
+        let currentCourseId = courseId;
+
+        // Automatically save course if it doesn't exist yet
+        if (!currentCourseId) {
+          const courseTitle = generatedCourse.title || course.title || 'Novo Curso';
+          const nextOrder = await getNextCategoryOrderIndex(!!course.is_bonus, !course.is_bonus && !!course.is_free);
+
+          const { data: newCourse, error: courseError } = await supabase.from('courses').insert([{
+            title: courseTitle,
+            subtitle: generatedCourse.subtitle || course.subtitle || '',
+            description: generatedCourse.description || course.description || '',
+            cover_url: course.cover_url || '',
+            premium_cover_url: course.premium_cover_url || '',
+            is_active: course.is_active !== undefined ? course.is_active : true,
+            is_free: course.is_free || false,
+            is_bonus: course.is_bonus || false,
+            price: generatedCourse.price || course.price || 9700,
+            old_price: generatedCourse.old_price || course.old_price || 29700,
+            benefits: generatedCourse.benefits || course.benefits || [],
+            cta_text: generatedCourse.cta_text || 'UNLOCK ACCESS NOW',
+            premium_badge_text: generatedCourse.premium_badge_text || 'EXCLUSIVE METHOD',
+            offer_badge_text: generatedCourse.offer_badge_text || 'SPECIAL OFFER • 65% OFF',
+            lifetime_badge_text: generatedCourse.lifetime_badge_text || 'LIFETIME ACCESS',
+            social_proof: generatedCourse.social_proof || '+3,480 active students transformed',
+            show_lifetime_badge: true,
+            payment_label_text: generatedCourse.payment_label_text || 'Secure Checkout',
+            secure_payment_label: generatedCourse.secure_payment_label || '100% Encrypted & Safe',
+            instant_access_label: generatedCourse.instant_access_label || 'Instant Access in Your Email',
+            preview_enabled: true,
+            preview_type: generatedCourse.preview_type || 'text',
+            preview_title: generatedCourse.preview_title || courseTitle,
+            preview_subtitle: generatedCourse.preview_subtitle || generatedCourse.subtitle || '',
+            preview_rating: generatedCourse.preview_rating || '4.9 ⭐ (980+ reviews)',
+            preview_students_label: generatedCourse.preview_students_label || '+2,850 Active Students',
+            preview_guarantee_label: generatedCourse.preview_guarantee_label || '7-Day Guarantee',
+            preview_support_vip_label: generatedCourse.preview_support_vip_label || 'VIP Support',
+            preview_bonus_title: generatedCourse.preview_bonus_title || 'Exclusive Bonuses Included',
+            preview_modules_label: generatedCourse.preview_modules_label || 'Curriculum & Modules',
+            preview_students_tag: generatedCourse.preview_students_tag || 'Instant & Lifetime Access',
+            preview_risk_zero_label: generatedCourse.preview_risk_zero_label || '100% Risk Free',
+            preview_guarantee_title: generatedCourse.preview_guarantee_title || '100% Risk-Free 7-Day Guarantee',
+            preview_guarantee_subtitle: generatedCourse.preview_guarantee_subtitle || '100% Money-back guarantee.',
+            preview_guarantee_description: generatedCourse.preview_guarantee_description || '',
+            preview_footer_cta: generatedCourse.preview_footer_cta || 'GET INSTANT ACCESS',
+            preview_text: generatedCourse.preview_text || 'PREVIEW COURSE',
+            preview_rich_text: generatedCourse.preview_rich_text || '',
+            order_index: nextOrder
+          }]).select().single();
+
+          if (courseError) throw courseError;
+          currentCourseId = newCourse.id;
+          setCourseId(newCourse.id);
+          setCourse(newCourse);
+          dataCache.invalidate();
+        }
+
+        let firstCreatedChapter: any = null;
+        const currentModuleCount = modules.length || 0;
+
+        for (let mIdx = 0; mIdx < suggestedModules.length; mIdx++) {
+          const mod = suggestedModules[mIdx];
+          const { data: newMod, error: modError } = await supabase
+            .from('modules')
+            .insert([{
+              course_id: currentCourseId,
+              title: mod.title,
+              order_index: currentModuleCount + mIdx
+            }])
+            .select()
+            .single();
+
+          if (modError) {
+            console.error('Error creating module:', modError);
+            continue;
+          }
+
+          if (newMod && mod.chapters?.length) {
+            for (let cIdx = 0; cIdx < mod.chapters.length; cIdx++) {
+              const ch = mod.chapters[cIdx];
+              const { data: newChap, error: chapError } = await supabase
+                .from('chapters')
+                .insert([{
+                  module_id: newMod.id,
+                  title: ch.title,
+                  description: ch.description || '',
+                  content_type: ch.content_type || 'interactive',
+                  duration_minutes: ch.duration_minutes || 15,
+                  order_index: cIdx
+                }])
+                .select()
+                .single();
+
+              if (!chapError && newChap && !firstCreatedChapter) {
+                firstCreatedChapter = newChap;
+              }
+            }
+          }
+        }
+
+        await fetchCourseData();
+        toast.success('Módulos e Aulas criados com sucesso a partir da Copy!');
+
+        // If there's a chapter created, allow direct AI Lesson generation
+        if (firstCreatedChapter) {
+          setAiEditChapter(firstCreatedChapter);
+          setIsAiModalOpen(true);
+        }
+      } catch (err: any) {
+        console.error('Error auto-generating lessons:', err);
+        toast.error('Erro ao gerar aulas automaticamente: ' + (err.message || 'Tente novamente.'));
+      } finally {
+        setSaving(false);
+      }
+    }
+  };
 
   // Course State
   const [course, setCourse] = useState<Partial<Course>>({
@@ -364,16 +518,20 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           toast.error('Informe o título do curso antes de adicionar aulas.');
           return;
         }
+        const nextOrder = await getNextCategoryOrderIndex(!!course.is_bonus, !course.is_bonus && !!course.is_free);
         const { data: newCourse, error } = await supabase.from('courses').insert([{
           title: course.title,
           description: course.description || '',
           is_active: course.is_active !== undefined ? course.is_active : true,
           is_free: course.is_free !== undefined ? course.is_free : true,
+          is_bonus: course.is_bonus || false,
+          order_index: nextOrder
         }]).select().single();
         if (error) throw error;
         currentCourseId = newCourse.id;
         setCourseId(newCourse.id);
         setCourse(newCourse);
+        dataCache.invalidate();
       }
 
       if (chapterData.id) {
@@ -448,6 +606,11 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     try {
       setSaving(true);
 
+      let targetOrderIndex = course.order_index ?? 0;
+      if (!courseId) {
+        targetOrderIndex = await getNextCategoryOrderIndex(!!course.is_bonus, !course.is_bonus && !!course.is_free);
+      }
+
       const courseData = {
         title: course.title,
         description: course.description || '',
@@ -484,7 +647,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         preview_guarantee_subtitle: course.preview_guarantee_subtitle || '',
         preview_guarantee_description: course.preview_guarantee_description || '',
         preview_footer_cta: course.preview_footer_cta || '',
-        order_index: course.order_index || 0,
+        order_index: targetOrderIndex,
         preview_bonus_title: course.preview_bonus_title || '',
         preview_title: course.preview_title || '',
         preview_subtitle: course.preview_subtitle || '',
@@ -513,6 +676,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           }
           throw error;
         }
+        dataCache.invalidate();
         toast.success('Informações salvas!');
       } else {
         const { data, error } = await supabase.from('courses').insert([courseData]).select().single();
@@ -525,6 +689,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         }
         setCourseId(data.id);
         setCourse(data);
+        dataCache.invalidate();
         toast.success('Curso criado!');
       }
     } catch (err: any) {
@@ -556,6 +721,8 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         const isIndividualPaid = !course.is_free && !course.is_bonus && !course.is_package_exclusive_bonus;
         const finalHotmartId = isIndividualPaid ? (course.hotmart_product_id?.trim() || null) : null;
         const finalCheckoutUrl = isIndividualPaid ? (course.checkout_url?.trim() || null) : null;
+
+        const nextOrder = await getNextCategoryOrderIndex(!!course.is_bonus, !course.is_bonus && !!course.is_free);
 
         const courseData = {
           title: course.title,
@@ -593,7 +760,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           preview_guarantee_subtitle: course.preview_guarantee_subtitle || '',
           preview_guarantee_description: course.preview_guarantee_description || '',
           preview_footer_cta: course.preview_footer_cta || '',
-          order_index: course.order_index || 0,
+          order_index: nextOrder,
           preview_bonus_title: course.preview_bonus_title || '',
           preview_title: course.preview_title || '',
           preview_subtitle: course.preview_subtitle || '',
@@ -626,6 +793,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         currentCourseId = newCourse.id;
         setCourseId(newCourse.id);
         setCourse(newCourse);
+        dataCache.invalidate();
         toast.success('Curso criado automaticamente!');
       }
       
@@ -763,7 +931,16 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsAiCourseModalOpen(true)}
+            className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black px-4 sm:px-5 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+          >
+            <Sparkles size={16} />
+            <span className="hidden sm:inline">CRIAR COPY COM IA (ALTA CONVERSÃO)</span>
+            <span className="sm:hidden">COPY IA</span>
+          </button>
           <button 
             onClick={() => handleSaveCourse(false)}
             disabled={saving}
@@ -779,11 +956,52 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         <div className="max-w-5xl mx-auto py-12 px-6 space-y-12 pb-32">
           {/* Section 1: Course Info */}
           <section className="space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
-                <Settings size={22} />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
+                  <Settings size={22} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black uppercase tracking-tighter italic text-white">Configurações do Curso</h3>
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Informações da Home e Card de Vendas</p>
+                </div>
               </div>
-              <h3 className="text-2xl font-black uppercase tracking-tighter italic text-white">Configurações do Curso</h3>
+              <button
+                type="button"
+                onClick={() => setIsAiCourseModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-md shadow-amber-500/10 active:scale-95 self-start sm:self-auto cursor-pointer"
+              >
+                <Sparkles size={14} className="text-amber-400" />
+                Gerar Textos de Venda com IA
+              </button>
+            </div>
+
+            {/* AI Banner Callout */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-transparent border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 to-rose-500 flex items-center justify-center text-black shadow-lg shadow-amber-500/20 shrink-0">
+                  <Sparkles size={22} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    Criador de Copywriting com IA (Acelere sua Evolução & Preview)
+                    <span className="text-[9px] uppercase tracking-wider font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      CRO Máximo
+                    </span>
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Gere promessas magnéticas, benefícios irresistíveis, badges e a carta de vendas de alta conversão. (Fotos são inseridas manualmente).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiCourseModalOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shrink-0 transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+              >
+                <Sparkles size={15} />
+                Gerar com IA
+              </button>
             </div>
 
             <div className="bg-white/5 rounded-[40px] border border-white/10 p-10 space-y-10 shadow-2xl relative overflow-hidden group">
@@ -1189,12 +1407,21 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                       <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Informações detalhadas da página de venda</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => setCourse({...course, preview_enabled: !course.preview_enabled})}
-                    className={`h-10 px-6 rounded-xl border transition-all flex items-center gap-3 font-black text-[10px] tracking-widest ${course.preview_enabled ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-gray-500'}`}
-                  >
-                    <PlayCircle size={16} /> {course.preview_enabled ? 'HABILITADO' : 'DESABILITADO'}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsAiCourseModalOpen(true)}
+                      className="h-10 px-4 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 transition-all flex items-center gap-2 font-black text-[10px] tracking-widest uppercase cursor-pointer"
+                    >
+                      <Sparkles size={14} className="text-amber-400" /> OTIMIZAR COPY COM IA
+                    </button>
+                    <button 
+                      onClick={() => setCourse({...course, preview_enabled: !course.preview_enabled})}
+                      className={`h-10 px-6 rounded-xl border transition-all flex items-center gap-3 font-black text-[10px] tracking-widest ${course.preview_enabled ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-white/5 border-white/10 text-gray-500'}`}
+                    >
+                      <PlayCircle size={16} /> {course.preview_enabled ? 'HABILITADO' : 'DESABILITADO'}
+                    </button>
+                  </div>
                 </div>
 
                 {course.preview_enabled && (
@@ -2860,6 +3087,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
       initialBlocks={aiEditChapter ? (aiEditChapter.rich_text ? (JSON.parse(aiEditChapter.rich_text).blocks || []) : []) : []}
       modulesMap={courseId ? { [courseId]: modules } : {}}
       onLessonCreated={handleLessonCreatedByAi}
+    />
+
+    {/* AI Course Copy & Sales Preview Generator Modal */}
+    <AiCourseGeneratorModal
+      isOpen={isAiCourseModalOpen}
+      onClose={() => setIsAiCourseModalOpen(false)}
+      initialCourse={course}
+      onApplyCourse={handleApplyAiCourse}
     />
   </div>
 );

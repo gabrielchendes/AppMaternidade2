@@ -40,6 +40,7 @@ import {
 import { LessonBlock, LessonBlockItem } from '../types/lms';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import { showToast } from '../lib/customToast';
 
 interface BlockLessonViewerProps {
   chapterId: string;
@@ -251,7 +252,7 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
   const handleAnalyzeMessage = async (block: LessonBlock) => {
     const textToAnalyze = analyzerInputs[block.id];
     if (!textToAnalyze || !textToAnalyze.trim()) {
-      toast.error('Please paste or enter the message text to analyze.');
+      showToast.error('Please paste or enter the message text to analyze.');
       return;
     }
 
@@ -277,10 +278,10 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
       const updatedResults = { ...analyzerResults, [block.id]: data.analysis };
       setAnalyzerResults(updatedResults);
       saveLocalState(completedItems, quizAnswers, reflections, { analyzerResults: updatedResults });
-      toast.success('Analysis completed successfully!');
+      showToast.success('Analysis completed successfully!');
     } catch (err: any) {
       console.error('Analysis error:', err);
-      toast.error('Error analyzing message: ' + (err.message || 'Please try again'));
+      showToast.error('Error analyzing message: ' + (err.message || 'Please try again'));
     } finally {
       setAnalyzerLoading(prev => ({ ...prev, [block.id]: false }));
     }
@@ -292,7 +293,7 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
     const updatedTracker = { ...trackerStartDates, [blockId]: startDate };
     setTrackerStartDates(updatedTracker);
     saveLocalState(completedItems, quizAnswers, reflections, { trackerStartDates: updatedTracker });
-    toast.success('Tracker started! Stay focused.');
+    showToast.success('Tracker started! Stay focused.');
   };
 
   // Reset Tracker
@@ -302,7 +303,7 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
       const updatedTracker = { ...trackerStartDates, [blockId]: now };
       setTrackerStartDates(updatedTracker);
       saveLocalState(completedItems, quizAnswers, reflections, { trackerStartDates: updatedTracker });
-      toast.info('Streak reset. Starting over is a sign of resilience!');
+      showToast.info('Streak reset. Starting over is a sign of resilience!');
     }
   };
 
@@ -468,8 +469,23 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
 
               {/* 1. TEXT BLOCK */}
               {block.type === 'text' && block.content && (
-                <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap font-normal space-y-2">
-                  {block.content}
+                <div className="text-sm text-gray-200 leading-relaxed font-normal">
+                  {/<[a-z][\s\S]*>/i.test(block.content) ? (
+                    <div
+                      className="space-y-4 text-gray-200 
+                        [&>h3]:text-base [&>h3]:sm:text-lg [&>h3]:font-black [&>h3]:text-amber-300 [&>h3]:tracking-tight [&>h3]:mt-6 [&>h3]:mb-2 [&>h3]:uppercase [&>h3]:italic
+                        [&>h4]:text-sm [&>h4]:sm:text-base [&>h4]:font-bold [&>h4]:text-emerald-300 [&>h4]:mt-4 [&>h4]:mb-2
+                        [&>p]:text-xs [&>p]:sm:text-sm [&>p]:leading-relaxed [&>p]:text-gray-300
+                        [&>ul]:list-disc [&>ul]:list-inside [&>ul]:space-y-2 [&>ul]:text-gray-300 [&>ul]:text-xs [&>ul]:sm:text-sm
+                        [&>ol]:list-decimal [&>ol]:list-inside [&>ol]:space-y-2 [&>ol]:text-gray-300 [&>ol]:text-xs [&>ol]:sm:text-sm
+                        [&>blockquote]:border-l-4 [&>blockquote]:border-amber-400 [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-amber-200 [&>blockquote]:my-4 [&>blockquote]:bg-amber-500/5 [&>blockquote]:py-2 [&>blockquote]:rounded-r-xl"
+                      dangerouslySetInnerHTML={{ __html: block.content }}
+                    />
+                  ) : (
+                    <div className="text-xs sm:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap font-normal space-y-3">
+                      {block.content}
+                    </div>
+                  )}
                 </div>
               )}
 

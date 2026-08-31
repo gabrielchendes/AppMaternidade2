@@ -254,21 +254,7 @@ CREATE TABLE IF NOT EXISTS public.post_comments (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. Tabela `notifications`
-CREATE TABLE IF NOT EXISTS public.notifications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    broadcast_id UUID REFERENCES public.notification_history(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    message TEXT, -- Alias para body para retrocompatibilidade
-    is_read BOOLEAN DEFAULT false,
-    read BOOLEAN DEFAULT false, -- Alias para is_read para retrocompatibilidade
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    read_at TIMESTAMPTZ
-);
-
--- Tabela de Histórico de Notificações
+-- 9. Tabela `notification_history` (Histórico de Envios/Transmissões)
 CREATE TABLE IF NOT EXISTS public.notification_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
@@ -283,6 +269,20 @@ CREATE TABLE IF NOT EXISTS public.notification_history (
 ALTER TABLE public.notification_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admin total em histórico" ON public.notification_history;
 CREATE POLICY "Admin total em histórico" ON public.notification_history FOR ALL USING (public.is_admin());
+
+-- 9.1 Tabela `notifications` (Notificações Individuais por Aluna)
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    broadcast_id UUID REFERENCES public.notification_history(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    message TEXT, -- Alias para body para retrocompatibilidade
+    is_read BOOLEAN DEFAULT false,
+    read BOOLEAN DEFAULT false, -- Alias para is_read para retrocompatibilidade
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    read_at TIMESTAMPTZ
+);
 
 -- 10. Tabela `push_tokens`
 CREATE TABLE IF NOT EXISTS public.push_tokens (

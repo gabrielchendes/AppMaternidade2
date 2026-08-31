@@ -86,24 +86,42 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   const manualAvatarInputRef = useRef<HTMLInputElement>(null);
   const postInputRef = useRef<HTMLTextAreaElement>(null);
 
-  const notifyAdmin = async (content: string) => {
+  const notifyAdmin = async (type: 'post' | 'comment', content: string, postId?: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
       
-      const authorName = (adminMode && personaActive) ? manualAuthorName : (user.user_metadata?.full_name || user.email?.split('@')[0]);
+      const authorName = (adminMode && personaActive) 
+        ? (manualAuthorName || 'Aluna') 
+        : (user.user_metadata?.full_name || user.email?.split('@')[0] || 'Aluna');
       
-      await fetch('/api/v1/notifications?action=notify-admin', {
+      const title = type === 'post' 
+        ? '💬 Novo post na Comunidade' 
+        : '💬 Novo comentário na Comunidade';
+
+      const cleanSnippet = content.trim().substring(0, 100) + (content.length > 100 ? '...' : '');
+      const body = type === 'post' 
+        ? `${authorName}: "${cleanSnippet}"`
+        : `${authorName} comentou: "${cleanSnippet}"`;
+
+      console.log('🔔 [Community] Disparando notificação PUSH para o Admin:', { title, body, type, postId });
+
+      safeFetch('/api/v1/notifications?action=notify-admin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          title: t('admin.notifications_community') || 'Nova atividade na comunidade',
-          body: `${authorName}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`
+          title,
+          body,
+          data: {
+            type: type === 'post' ? 'community_post' : 'community_comment',
+            url: '/?tab=community',
+            postId: postId || null
+          }
         })
-      });
+      }).catch(e => console.warn('[Community] Erro ao notificar admin:', e));
     } catch (e) {
       console.error('Error notifying admin:', e);
     }
@@ -623,9 +641,9 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         // Replace temp post with real one
         setPosts(prev => prev.map(p => p.id === tempId ? newPost as CommunityPost : p));
         
-        // Notify Admin if not admin posting
-        if (!adminMode) {
-          notifyAdmin(content).catch(e => console.warn('Notification failed:', e));
+        // Notify Admin if student posting or persona active
+        if (!adminMode || personaActive) {
+          notifyAdmin('post', content, newPost.id).catch(e => console.warn('Notification failed:', e));
         }
       }
 
@@ -782,8 +800,10 @@ export default function Community({ user, isImportMode = false }: CommunityProps
           [postId]: (prev[postId] || []).map(c => c.id === tempCommentId ? data : c)
         }));
         
-        // Notify Admin if not admin
-        if (!adminMode) notifyAdmin(content).catch(e => console.warn(e));
+        // Notify Admin if student comment or persona active
+        if (!adminMode || personaActive) {
+          notifyAdmin('comment', content, postId).catch(e => console.warn(e));
+        }
 
         // Notify Post Owner
         try {

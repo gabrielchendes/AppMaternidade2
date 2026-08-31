@@ -134,10 +134,8 @@ export default function AuthForm() {
 
   if (step === 'master_password') {
     return (
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-red-500/30 shadow-2xl"
+      <div 
+        className="w-full max-w-md p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-red-500/30 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
       >
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -189,7 +187,7 @@ export default function AuthForm() {
             {t('global.back')}
           </button>
         </form>
-      </motion.div>
+      </div>
     );
   }
 
@@ -207,17 +205,14 @@ export default function AuthForm() {
     <div className="flex flex-col items-center gap-6 w-full max-w-md">
       {/* PWA Install Button at the top */}
       {(showInstallButton && (isInstallable || import.meta.env.DEV)) && !isInstalled && (
-        <motion.button
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+        <button
+          type="button"
           onClick={handleInstallClick}
-          className={`flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 ${settings.login_install_button_pulsing === 'pulsing' || settings.login_install_button_pulsing === true ? 'animate-bounce' : ''}`}
+          className={`flex items-center gap-2 px-4 py-2 bg-primary group border border-primary/20 rounded-full text-[10px] font-black text-black uppercase tracking-widest italic shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 duration-200 animate-in fade-in slide-in-from-top-3 ${settings.login_install_button_pulsing === 'pulsing' || settings.login_install_button_pulsing === true ? 'animate-bounce' : ''}`}
         >
           <Smartphone size={12} className="group-hover:scale-110 transition-transform" />
           {settings.custom_texts?.['pwa.install_app'] || t('pwa.install_app') || '📲 Instalar App'}
-        </motion.button>
+        </button>
       )}
 
       <div className="w-full p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">

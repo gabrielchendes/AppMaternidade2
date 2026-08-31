@@ -26,8 +26,11 @@ class ErrorBoundary extends Component<Props, State> {
     
     const errorMessage = error?.message || '';
     const errorName = error?.name || '';
-    const isChunkError = 
+    const isChunkOrNetworkError = 
       errorMessage.includes('Failed to fetch dynamically imported module') ||
+      errorMessage.includes('NetworkError') ||
+      errorMessage.includes('fetch resource') ||
+      errorMessage.includes('Failed to fetch') ||
       errorMessage.includes('Loading chunk') ||
       errorMessage.includes('dynamic') ||
       errorMessage.includes('Script error') ||
@@ -36,11 +39,11 @@ class ErrorBoundary extends Component<Props, State> {
       errorName === 'Script error' ||
       !errorMessage;
 
-    if (isChunkError) {
+    if (isChunkOrNetworkError) {
       const hasReloaded = sessionStorage.getItem('chunk-failed-reload');
       if (!hasReloaded) {
         sessionStorage.setItem('chunk-failed-reload', 'true');
-        console.warn('⚠️ ErrorBoundary caught a dynamic chunk load failure. Automatically reloading page to get latest changes...');
+        console.warn('⚠️ ErrorBoundary caught a dynamic chunk load or network failure. Automatically reloading page to get latest changes...');
         window.location.reload();
       }
     }

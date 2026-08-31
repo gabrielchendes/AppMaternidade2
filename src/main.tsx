@@ -40,7 +40,15 @@ createRoot(document.getElementById('root')!).render(
         <SettingsProvider>
           <I18nProvider>
             <App />
-            <Toaster position="top-center" richColors theme="dark" />
+            <Toaster 
+              position="top-center" 
+              theme="dark" 
+              offset="16px"
+              duration={4000}
+              toastOptions={{
+                className: 'modern-top-toast-container',
+              }}
+            />
           </I18nProvider>
         </SettingsProvider>
       </TenantProvider>

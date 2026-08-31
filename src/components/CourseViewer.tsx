@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Course, Module, Chapter, UserProgress } from '../types/lms';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import { showToast } from '../lib/customToast';
 import ReactPlayer from 'react-player';
 import { useI18n } from '../contexts/I18nContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -181,13 +182,15 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
       });
 
       if (targetState) {
-        toast.success(t('course.lesson_completed') || 'Aula concluída!');
+        showToast.success(t('course.lesson_completed') || 'Aula concluída!', {
+          description: 'Seu progresso foi salvo com sucesso.'
+        });
       } else {
-        toast.info(t('course.lesson_unmarked') || 'Aula marcada como não concluída');
+        showToast.info(t('course.lesson_unmarked') || 'Aula marcada como não concluída');
       }
     } catch (err) {
       console.error('Error toggling progress:', err);
-      toast.error(t('course.progress_error') || 'Erro ao atualizar progresso');
+      showToast.error(t('course.progress_error') || 'Erro ao atualizar progresso');
     }
   };
 
@@ -214,7 +217,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
         return [...prev, { user_id: userId, chapter_id: chapterId, completed: true }];
       });
 
-      toast.success(t('course.lesson_completed') || 'Aula concluída!');
+      showToast.success(t('course.lesson_completed') || 'Aula concluída!', {
+        description: 'Seu progresso foi salvo com sucesso.'
+      });
     } catch (err) {
       console.error('Error marking progress:', err);
     }
@@ -762,8 +767,8 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               </div>
 
               {/* Media Player Section with Elegant Frame */}
-              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'checklist' || activeChapter?.content_type === 'interactive' ? 'max-w-4xl' : activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
-                {activeChapter?.content_type === 'interactive' ? (
+              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'checklist' || activeChapter?.content_type === 'interactive' || activeChapter?.content_type === 'text' ? 'max-w-4xl' : activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
+                {activeChapter?.content_type === 'interactive' || (activeChapter?.content_type === 'text' && activeChapter.rich_text?.startsWith('{')) ? (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -799,6 +804,36 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                         />
                       );
                     })()}
+                  </motion.div>
+                ) : activeChapter?.content_type === 'text' ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="w-full max-w-4xl bg-zinc-950/80 border border-white/10 rounded-3xl p-6 sm:p-10 space-y-6 shadow-2xl backdrop-blur-sm"
+                  >
+                    <div className="border-b border-white/10 pb-4 space-y-1">
+                      <h2 className="text-xl sm:text-2xl font-black text-white">{activeChapter.title}</h2>
+                      {activeChapter.description && (
+                        <p className="text-xs sm:text-sm text-gray-400">{activeChapter.description}</p>
+                      )}
+                    </div>
+                    {/<[a-z][\s\S]*>/i.test(activeChapter.rich_text || '') ? (
+                      <div
+                        className="space-y-4 text-gray-200 
+                          [&>h3]:text-lg [&>h3]:sm:text-xl [&>h3]:font-black [&>h3]:text-amber-300 [&>h3]:tracking-tight [&>h3]:mt-6 [&>h3]:mb-3
+                          [&>h4]:text-base [&>h4]:sm:text-lg [&>h4]:font-bold [&>h4]:text-emerald-300 [&>h4]:mt-4 [&>h4]:mb-2
+                          [&>p]:text-sm [&>p]:sm:text-base [&>p]:leading-relaxed [&>p]:text-gray-300 [&>p]:mb-4
+                          [&>ul]:list-disc [&>ul]:list-inside [&>ul]:space-y-2 [&>ul]:text-gray-300 [&>ul]:text-sm [&>ul]:sm:text-base [&>ul]:mb-4
+                          [&>ol]:list-decimal [&>ol]:list-inside [&>ol]:space-y-2 [&>ol]:text-gray-300 [&>ol]:text-sm [&>ol]:sm:text-base [&>ol]:mb-4
+                          [&>blockquote]:border-l-4 [&>blockquote]:border-amber-400 [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-amber-200 [&>blockquote]:my-6 [&>blockquote]:bg-amber-500/5 [&>blockquote]:py-3 [&>blockquote]:rounded-r-2xl"
+                        dangerouslySetInnerHTML={{ __html: activeChapter.rich_text || '' }}
+                      />
+                    ) : (
+                      <div className="text-sm sm:text-base text-gray-200 leading-relaxed whitespace-pre-line space-y-4">
+                        {activeChapter.rich_text || activeChapter.description || ''}
+                      </div>
+                    )}
                   </motion.div>
                 ) : activeChapter?.content_type === 'checklist' ? (
                   <motion.div

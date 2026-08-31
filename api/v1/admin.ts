@@ -1,21 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { processHotmartWebhookPayload } from './hotmart-webhook';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://fhnmpltilhongdofnzbj.supabase.co';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl) console.error('[Admin API] SUPABASE_URL is missing');
-if (!supabaseServiceRoleKey) console.warn('[Admin API] SUPABASE_SERVICE_ROLE_KEY is missing');
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey || supabaseAnonKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false
+const supabaseAdmin = createClient(
+  supabaseUrl,
+  supabaseServiceRoleKey || supabaseAnonKey || 'anon-key-placeholder',
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
   }
-});
+);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,27 +40,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // Auth Check for Admin APIs
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+    if (!authHeader) return res.status(401).json({ error: 'Unauthorized: No token provided' });
     const token = authHeader.split(' ')[1];
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    
-    if (authError || !user) {
-      if (authError) {
-        const urlHost = new URL(supabaseUrl).hostname;
-        console.error('[Admin API] auth.getUser error:', {
-          message: authError.message,
-          status: authError.status,
-          token_preview: token.substring(0, 10) + '...',
-          url_host: urlHost,
-          issuer_check: token.includes('fhnmplthlongdfnzbj') ? 'Match' : 'Mismatch?' 
-        });
+    if (!token) return res.status(401).json({ error: 'Unauthorized: Invalid token format' });
+
+    let user: any = null;
+    try {
+      const { data, error: authError } = await supabaseAdmin.auth.getUser(token);
+      if (authError || !data?.user) {
+        console.warn('[Admin API] auth.getUser warning:', authError?.message);
+        return res.status(401).json({ error: 'Sessão expirada ou token inválido. Faça login novamente.' });
       }
-      throw new Error('Falha na autenticação');
+      user = data.user;
+    } catch (authErr: any) {
+      console.error('[Admin API] auth error:', authErr);
+      return res.status(401).json({ error: 'Erro de validação de autenticação: ' + (authErr.message || '') });
     }
 
     // Admin Verification (Double Check)
-    const { data: profile } = await supabaseAdmin.from('profiles').select('email, is_admin').eq('id', user.id).single();
-    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email, app_url').eq('id', 1).single();
+    const { data: profile } = await supabaseAdmin.from('profiles').select('email, is_admin').eq('id', user.id).maybeSingle();
+    const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email, app_url').eq('id', 1).maybeSingle();
     
     const isHardcodedAdmin = user.email?.toLowerCase() === 'gabrielchendes@gmail.com';
     const isSuperAdmin = (settings?.admin_email && user.email?.toLowerCase() === settings.admin_email.toLowerCase()) || isHardcodedAdmin;
@@ -129,21 +128,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function handleUsersList(req: VercelRequest, res: VercelResponse) {
   try {
-    const [listDataRes, profilesRes, purchasesRes, pushTokensRes] = await Promise.all([
-      supabaseAdmin.auth.admin.listUsers(),
+    let authUsers: any[] = [];
+    try {
+      const listDataRes = await supabaseAdmin.auth.admin.listUsers();
+      if (listDataRes?.data?.users) {
+        authUsers = listDataRes.data.users;
+      }
+    } catch (e: any) {
+      console.warn('[Admin API] listUsers fallback due to:', e.message);
+    }
+
+    const [profilesRes, purchasesRes, pushTokensRes] = await Promise.all([
       supabaseAdmin.from('profiles').select('*'),
       supabaseAdmin.from('purchases').select('user_id, product_id'),
       supabaseAdmin.from('push_tokens').select('user_id')
     ]);
     
-    if (listDataRes.error) throw listDataRes.error;
-    
-    const users = listDataRes.data?.users || [];
     const profiles = profilesRes.data || [];
     const purchases = purchasesRes.data || [];
     const pushTokens = pushTokensRes.data || [];
     
-    const merged = users.map((u: any) => {
+    // If authUsers is available from service role, merge them. Otherwise, synthesize from profiles.
+    let baseList = authUsers;
+    if (baseList.length === 0 && profiles.length > 0) {
+      baseList = profiles.map(p => ({
+        id: p.id,
+        email: p.email,
+        created_at: p.created_at || new Date().toISOString(),
+        user_metadata: { full_name: p.full_name }
+      }));
+    }
+
+    const merged = baseList.map((u: any) => {
       const profile = profiles.find((p: any) => p.id === u.id || (p.email && u.email && p.email.toLowerCase() === u.email.toLowerCase()));
       const hasPush = Array.isArray(pushTokens) && pushTokens.some((t: any) => t.user_id === u.id);
       
@@ -179,6 +195,7 @@ async function handleUsersList(req: VercelRequest, res: VercelResponse) {
     });
     return res.status(200).json(merged);
   } catch (err: any) {
+    console.error('[Admin API] Error in handleUsersList:', err);
     return res.status(500).json({ error: err.message });
   }
 }
@@ -1605,7 +1622,26 @@ async function handleWebhookSimulate(req: VercelRequest, res: VercelResponse) {
     // Process simulation directly in local database first
     let localResult: any = null;
     try {
-      localResult = await processHotmartWebhookPayload(mockPayload);
+      const isAppr = (event_type || '').includes('APPROVED');
+      if (isAppr) {
+        const { data: existingProfile } = await supabaseAdmin
+          .from('profiles')
+          .select('id, email')
+          .ilike('email', buyer_email)
+          .maybeSingle();
+
+        if (existingProfile) {
+          await supabaseAdmin
+            .from('profiles')
+            .update({ 
+              has_access: true, 
+              has_unlimited_ai: resolvedProductType === 'ai_subscription',
+              updated_at: new Date().toISOString() 
+            })
+            .eq('id', existingProfile.id);
+        }
+      }
+      localResult = { success: true, message: `Status de simulação atualizado para ${buyer_email}` };
     } catch (localErr: any) {
       console.warn('[handleWebhookSimulate] Local processing warning:', localErr.message);
     }
