@@ -240,8 +240,14 @@ export default function AuthForm() {
                 </div>
               )}
               {(settings.login_display_type === 'title' || settings.login_display_type === 'both') && (
-                <h1 className="text-3xl sm:text-4xl font-serif font-black text-white italic mb-2 tracking-tight">
-                  <span className="bg-gradient-to-r from-white via-white/95 to-white/80 bg-clip-text text-transparent drop-shadow-sm">
+                <h1 
+                  className="text-3xl sm:text-4xl font-serif font-black italic mb-2 tracking-tight"
+                  style={{ color: settings.custom_texts?.['auth.title_color'] || '#ffffff' }}
+                >
+                  <span 
+                    className={settings.custom_texts?.['auth.title_color'] ? 'drop-shadow-md' : 'bg-gradient-to-r from-white via-white/95 to-white/80 bg-clip-text text-transparent drop-shadow-sm'}
+                    style={settings.custom_texts?.['auth.title_color'] ? { color: settings.custom_texts['auth.title_color'] } : undefined}
+                  >
                     {settings.app_name}
                   </span>
                 </h1>
