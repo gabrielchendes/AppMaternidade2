@@ -62,30 +62,34 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
       )}
       onClick={() => onOpen(product)}
     >
-      {/* AI Border Effect - Static & Filled with Pulse on Hover */}
-      <div className="absolute inset-0 z-0 opacity-100 overflow-hidden">
+      {/* Precision Uniform Border Glow Effect */}
+      <div className="absolute inset-0 z-0 opacity-100 overflow-hidden pointer-events-none rounded-2xl">
         <motion.div
           className="absolute inset-0 z-0 transition-opacity duration-500 group-hover:opacity-100 opacity-80"
           animate={{
             opacity: [0.8, 1, 0.8],
           }}
           transition={{
-            duration: 2,
+            duration: 2.5,
             repeat: Infinity,
             ease: "easeInOut"
           }}
           style={{
-            background: stateConfig.color === 'emerald' ? '#10b981' :
-                        stateConfig.color === 'blue' ? '#3b82f6' :
-                        stateConfig.color === 'amber' ? '#f59e0b' : '#a855f7'
+            background: stateConfig.color === 'emerald' 
+              ? 'linear-gradient(135deg, #10b981 0%, rgba(16,185,129,0.7) 50%, #10b981 100%)' 
+              : stateConfig.color === 'blue' 
+              ? 'linear-gradient(135deg, #3b82f6 0%, rgba(59,130,246,0.7) 50%, #3b82f6 100%)' 
+              : stateConfig.color === 'amber' 
+              ? 'linear-gradient(135deg, #f59e0b 0%, rgba(245,158,11,0.7) 50%, #f59e0b 100%)' 
+              : 'linear-gradient(135deg, #a855f7 0%, rgba(168,85,247,0.7) 50%, #a855f7 100%)'
           }}
         />
-        {/* Particle/Glow effect */}
+        {/* Subtle Ambient Particle/Glow overlay */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.4)_0%,transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-700 mix-blend-overlay" />
       </div>
 
-      {/* Main Content Container */}
-      <div className="relative z-10 flex flex-col flex-grow bg-zinc-950 rounded-[calc(1rem-1.5px)] group-hover:rounded-[calc(1rem-4px)] transition-all duration-500 overflow-hidden">
+      {/* Main Content Container - mathematically matching nested radius: 16px - 1.5px = 14.5px */}
+      <div className="relative z-10 flex flex-col flex-grow bg-zinc-950 rounded-[14.5px] transition-all duration-300 overflow-hidden">
         {/* Status Icon (Top Left) */}
         {isUnlocked && (
           <div className={cn(

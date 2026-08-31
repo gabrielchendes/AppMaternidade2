@@ -860,8 +860,18 @@ export default function Community({ user, isImportMode = false }: CommunityProps
         <p className="text-gray-400 text-[10px]">{t('community.subtitle') || 'Compartilhe sua jornada com outras mães'}</p>
       </div>
 
-      {/* Post Creation Card */}
-      <div ref={inputAreaRef} className="bg-zinc-900 rounded-2xl border border-white/10 p-4 mb-6 shadow-xl">
+      {/* Post Creation Card with Static Luxury Luminous Frame & Obsidian Glass Chassis */}
+      <div 
+        ref={inputAreaRef} 
+        className="relative rounded-[24px] p-[1.5px] bg-gradient-to-b from-amber-400/40 via-primary/30 to-amber-900/30 shadow-[0_12px_36px_-10px_rgba(245,158,11,0.18),0_0_20px_rgba(244,63,94,0.08)] mb-6 transition-all duration-300 overflow-hidden"
+      >
+        {/* Main Obsidian Glass Body */}
+        <div className="relative rounded-[22.5px] bg-gradient-to-b from-[#141624]/98 via-[#0c0e16]/98 to-[#06070a]/98 backdrop-blur-2xl p-4 sm:p-5 text-white overflow-hidden ring-1 ring-inset ring-amber-400/15">
+          {/* Top Specular Horizon Gleam */}
+          <div className="absolute top-0 inset-x-8 h-[1px] bg-gradient-to-r from-transparent via-amber-300/60 to-transparent pointer-events-none" />
+
+          {/* Ambient Glow Aura */}
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-64 h-24 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
         {isAdmin && isImportMode && (
           <div className="flex flex-col gap-4 mb-4 pb-4 border-b border-white/5">
             <div className="flex items-center justify-between">
@@ -1031,10 +1041,19 @@ export default function Community({ user, isImportMode = false }: CommunityProps
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 text-sm font-medium transition-all"
+              className="group/photo relative flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-amber-400/40 transition-all duration-300 active:scale-95 text-xs font-semibold tracking-wide text-zinc-300 hover:text-white shadow-sm hover:shadow-[0_0_16px_rgba(245,158,11,0.12)] cursor-pointer overflow-hidden"
             >
-              <ImageIcon size={18} className="text-green-500" />
-              {t('community.add_photo') || 'Adicionar foto'}
+              {/* Specular Light Reflection */}
+              <div className="absolute inset-0 bg-gradient-to-r from-amber-400/0 via-amber-400/10 to-primary/0 opacity-0 group-hover/photo:opacity-100 transition-opacity pointer-events-none" />
+              
+              {/* Icon Capsule */}
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-amber-400/20 via-primary/20 to-black border border-amber-400/30 group-hover/photo:border-amber-400/60 flex items-center justify-center text-amber-300 group-hover/photo:text-amber-200 transition-all shadow-sm">
+                <ImageIcon size={13} className="stroke-[2.2]" />
+              </div>
+
+              <span className="relative z-10 font-bold text-zinc-300 group-hover/photo:text-amber-200 transition-colors">
+                {t('community.add_photo') || 'Add Photo'}
+              </span>
             </button>
             <input 
               type="file" 
@@ -1056,6 +1075,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
             </button>
           </div>
         </form>
+        </div>
       </div>
 
       {/* Posts Feed */}
@@ -1072,8 +1092,12 @@ export default function Community({ user, isImportMode = false }: CommunityProps
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               key={post.id}
-              className="bg-zinc-900 rounded-2xl border border-white/10 overflow-hidden shadow-lg"
+              className="group/post relative rounded-2xl p-[1px] bg-gradient-to-b from-white/15 via-white/[0.06] to-white/[0.02] hover:from-amber-400/35 hover:via-primary/20 hover:to-white/5 transition-all duration-500 shadow-[0_8px_24px_rgba(0,0,0,0.4)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.6),0_0_20px_rgba(245,158,11,0.08)] overflow-hidden"
             >
+              {/* Top Hairline Light Reflection */}
+              <div className="absolute top-0 inset-x-6 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent group-hover/post:via-amber-300/50 transition-colors pointer-events-none z-20" />
+
+              <div className="relative w-full bg-[#11131a] rounded-[15px] overflow-hidden flex flex-col">
               {/* Post Header */}
               <div className="p-4 flex items-center justify-between">
                 <div 
@@ -1462,6 +1486,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
                   </motion.div>
                 )}
               </AnimatePresence>
+              </div>
             </motion.div>
           ))
         )}

@@ -96,6 +96,28 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+/* Elegant Glowing Border Animation for Login Card */
+@keyframes glowingBorder {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animated-luxury-border {
+  background: linear-gradient(
+    135deg,
+    rgba(244, 63, 94, 0.45),
+    rgba(255, 255, 255, 0.15),
+    rgba(245, 158, 11, 0.4),
+    rgba(244, 63, 94, 0.45)
+  );
+  background-size: 300% 300%;
+  animation: glowingBorder 7s ease infinite;
+}
+
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,

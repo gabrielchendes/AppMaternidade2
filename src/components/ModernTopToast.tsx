@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, useMotionValue, useTransform } from 'motion/react';
-import { CheckCircle2, AlertCircle, AlertTriangle, Info, Sparkles, X, ChevronUp, Trophy } from 'lucide-react';
+import { CheckCircle2, AlertCircle, AlertTriangle, Info, Bell, X, ChevronUp, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info' | 'achievement' | 'default';
@@ -33,7 +33,7 @@ interface VariantConfig {
 
 const variantConfigs: Record<ToastVariant, VariantConfig> = {
   success: {
-    badgeLabel: 'SUCESSO',
+    badgeLabel: 'SUCCESS',
     badgeText: 'text-emerald-300',
     badgeBg: 'bg-emerald-500/15 border-emerald-500/30',
     iconBg: 'bg-gradient-to-br from-emerald-500/25 via-emerald-950/40 to-black',
@@ -44,7 +44,7 @@ const variantConfigs: Record<ToastVariant, VariantConfig> = {
     topGleam: 'from-amber-400/0 via-amber-300/90 to-emerald-400/0',
   },
   error: {
-    badgeLabel: 'ATENÇÃO',
+    badgeLabel: 'ALERT',
     badgeText: 'text-rose-300',
     badgeBg: 'bg-rose-500/15 border-rose-500/30',
     iconBg: 'bg-gradient-to-br from-rose-500/25 via-rose-950/40 to-black',
@@ -55,7 +55,7 @@ const variantConfigs: Record<ToastVariant, VariantConfig> = {
     topGleam: 'from-amber-400/0 via-rose-400/90 to-amber-400/0',
   },
   warning: {
-    badgeLabel: 'AVISO',
+    badgeLabel: 'WARNING',
     badgeText: 'text-amber-300',
     badgeBg: 'bg-amber-500/15 border-amber-500/30',
     iconBg: 'bg-gradient-to-br from-amber-500/25 via-amber-950/40 to-black',
@@ -66,7 +66,7 @@ const variantConfigs: Record<ToastVariant, VariantConfig> = {
     topGleam: 'from-amber-400/0 via-amber-300/90 to-amber-400/0',
   },
   info: {
-    badgeLabel: 'INFORMAÇÃO',
+    badgeLabel: 'INFORMATION',
     badgeText: 'text-sky-300',
     badgeBg: 'bg-sky-500/15 border-sky-500/30',
     iconBg: 'bg-gradient-to-br from-sky-500/25 via-sky-950/40 to-black',
@@ -77,7 +77,7 @@ const variantConfigs: Record<ToastVariant, VariantConfig> = {
     topGleam: 'from-amber-400/0 via-amber-300/80 to-sky-400/0',
   },
   achievement: {
-    badgeLabel: 'CONQUISTA',
+    badgeLabel: 'ACHIEVEMENT',
     badgeText: 'text-amber-300',
     badgeBg: 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border-amber-400/40',
     iconBg: 'bg-gradient-to-br from-amber-400/30 via-yellow-600/30 to-black',
@@ -88,13 +88,13 @@ const variantConfigs: Record<ToastVariant, VariantConfig> = {
     topGleam: 'from-yellow-400/0 via-amber-200 to-yellow-400/0',
   },
   default: {
-    badgeLabel: 'NOTIFICAÇÃO',
+    badgeLabel: 'NOTIFICATION',
     badgeText: 'text-amber-300',
     badgeBg: 'bg-amber-500/15 border-amber-500/30',
     iconBg: 'bg-gradient-to-br from-amber-500/25 via-amber-950/30 to-black',
     iconRing: 'ring-1 ring-amber-400/40 border border-amber-400/40',
     iconGlow: 'shadow-[0_0_15px_rgba(245,158,11,0.3)]',
-    iconNode: <Sparkles size={19} className="text-amber-300" />,
+    iconNode: <Bell size={19} className="text-amber-300" />,
     ambientGlow: 'shadow-[0_16px_45px_-10px_rgba(245,158,11,0.25)]',
     topGleam: 'from-amber-400/0 via-amber-300/90 to-amber-400/0',
   }
@@ -166,8 +166,7 @@ export const ModernTopToast: React.FC<ModernTopToastProps> = ({
             {/* Content & Micro Badges */}
             <div className="flex-1 min-w-0 pr-1">
               <div className="flex items-center gap-2 mb-1">
-                <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-md border ${cfg.badgeBg} ${cfg.badgeText} flex items-center gap-1 shadow-sm`}>
-                  <Sparkles size={9} className="text-amber-300 animate-pulse" />
+                <span className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-md border ${cfg.badgeBg} ${cfg.badgeText} shadow-sm`}>
                   {badge || cfg.badgeLabel}
                 </span>
               </div>
@@ -207,7 +206,7 @@ export const ModernTopToast: React.FC<ModernTopToastProps> = ({
                 handleDismiss();
               }}
               className="shrink-0 p-1.5 text-zinc-400 hover:text-amber-200 rounded-xl hover:bg-amber-400/15 border border-transparent hover:border-amber-400/30 transition-all cursor-pointer"
-              title="Fechar notificação"
+              title="Close notification"
             >
               <X size={14} />
             </button>
@@ -220,7 +219,7 @@ export const ModernTopToast: React.FC<ModernTopToastProps> = ({
               handleDismiss();
             }}
             className="mt-3 pt-1.5 border-t border-amber-400/15 flex items-center justify-between cursor-pointer group/handle select-none"
-            title="Puxe para cima ou toque para fechar"
+            title="Swipe up or tap to dismiss"
           >
             <div className="flex items-center gap-1.5">
               {/* Glowing Upward Arrow Capsule */}
@@ -228,13 +227,8 @@ export const ModernTopToast: React.FC<ModernTopToastProps> = ({
                 <ChevronUp size={14} className="text-amber-200 animate-float-up stroke-[2.5]" />
               </div>
               <span className="text-[10px] font-bold text-amber-300/80 group-hover/handle:text-amber-200 transition-colors tracking-wide flex items-center gap-1">
-                Puxe para cima <span className="text-amber-400/50 text-[9px]">• Toque para fechar</span>
+                Swipe up <span className="text-amber-400/50 text-[9px]">• Tap to dismiss</span>
               </span>
-            </div>
-
-            <div className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-amber-400/50 group-hover/handle:text-amber-300/80 transition-colors font-semibold">
-              <Sparkles size={10} className="text-amber-400/60" />
-              <span>Privé</span>
             </div>
           </div>
 

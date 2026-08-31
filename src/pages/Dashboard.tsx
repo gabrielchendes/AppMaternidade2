@@ -59,9 +59,15 @@ export default function Dashboard({ user }: DashboardProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
+  const [viewingCourse, setViewingCourse] = useState<Course | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Preload CourseViewer chunk in the background so opening a course is instantaneous
+    import('../components/CourseViewer').catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (isAiModalOpen && user?.id) {
@@ -449,13 +455,21 @@ export default function Dashboard({ user }: DashboardProps) {
     return false;
   }, [purchases, courses, isAdmin]);
 
-  const handleOpenCourse = useCallback(async (course: Course) => {
+  const handleOpenCourse = useCallback(async (courseOrPartial: any) => {
+    if (!courseOrPartial) return;
+    // Look up full course object from state if partial object passed from smart header
+    const course = courses.find(c => c.id === courseOrPartial.id) || courseOrPartial;
+
     if (isUnlocked(course)) {
       // Update last viewed for the "Resume" button
-      localStorage.setItem(`last_viewed_${user.id}`, JSON.stringify({
-        courseId: course.id,
-        timestamp: Date.now()
-      }));
+      try {
+        localStorage.setItem(`last_viewed_${user.id}`, JSON.stringify({
+          courseId: course.id,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.warn('Storage write failed', e);
+      }
 
       // Check if the course has modules or chapters in the stats
       const hasContent = (courseStats[course.id]?.lessons || 0) + (courseStats[course.id]?.materials || 0) > 0;
@@ -466,12 +480,13 @@ export default function Dashboard({ user }: DashboardProps) {
         return;
       }
       
-      // Otherwise, open the viewer (even if empty, it will handle it)
+      // Otherwise, open the viewer with immediate course context
+      setViewingCourse(course);
       setViewingCourseId(course.id);
     } else {
       setSelectedCourse(course);
     }
-  }, [viewingCourseId, isUnlocked, courseStats]);
+  }, [courses, viewingCourseId, isUnlocked, courseStats, user?.id]);
 
   const handleSimulatePurchase = useCallback(async () => {
     if (!selectedCourse) return;
@@ -672,11 +687,15 @@ export default function Dashboard({ user }: DashboardProps) {
     <div className="min-h-screen pb-20 bg-[#0b0c10]">
       <AnimatePresence>
         {viewingCourseId && (
-          <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[250]"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+          <Suspense fallback={<div className="fixed inset-0 bg-[#0b0c10] flex items-center justify-center z-[250]"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
             <CourseViewer 
               courseId={viewingCourseId} 
+              initialCourse={viewingCourse}
               userId={user.id} 
-              onClose={() => setViewingCourseId(null)} 
+              onClose={() => {
+                setViewingCourseId(null);
+                setViewingCourse(null);
+              }} 
             />
           </Suspense>
         )}

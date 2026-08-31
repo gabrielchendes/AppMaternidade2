@@ -2331,12 +2331,12 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 className="p-6 flex items-center justify-between cursor-pointer group/item"
                               >
                                 <div className="flex items-center gap-6 flex-1 min-w-0">
-                                  <div className="relative w-24 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden shrink-0">
-                                    <img src={ch.cover_url || course.cover_url} className="w-full h-full object-cover opacity-60 group-hover/item:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                      {ch.content_type === 'video' ? <Video size={16} className="text-white/40" /> : ch.content_type === 'checklist' ? <CheckSquare size={16} className="text-emerald-400" /> : <FileText size={16} className="text-white/40" />}
+                                  <div className="relative w-24 h-14 rounded-xl bg-black/60 border border-white/15 overflow-hidden shrink-0 shadow-md">
+                                    <img src={ch.cover_url || course.cover_url} className="w-full h-full object-cover opacity-90 group-hover/item:scale-105 group-hover/item:opacity-100 transition-all duration-500" referrerPolicy="no-referrer" />
+                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                                      {ch.content_type === 'video' ? <Video size={16} className="text-white drop-shadow-md" /> : ch.content_type === 'checklist' ? <CheckSquare size={16} className="text-emerald-400 drop-shadow-md" /> : <FileText size={16} className="text-white drop-shadow-md" />}
                                     </div>
-                                    <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/60 backdrop-blur-md rounded-md">
+                                    <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/75 backdrop-blur-md rounded-md border border-white/10">
                                       <span className="text-[8px] font-black text-white">{idx + 1}</span>
                                     </div>
                                   </div>

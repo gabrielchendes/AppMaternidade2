@@ -495,14 +495,15 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
           className="fixed inset-0 z-[100] w-full h-full bg-black text-white flex flex-col overflow-hidden"
         >
           {/* Top Full Screen Navigation Bar */}
-          <div className="flex items-center justify-between px-2.5 sm:px-8 py-2.5 sm:py-4 border-b border-white/10 bg-black shrink-0 gap-1.5 sm:gap-2">
-            <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
+          <div className="flex items-center justify-between px-3 sm:px-8 py-3 sm:py-4 border-b border-white/10 bg-black/90 backdrop-blur-2xl shrink-0 gap-2 sm:gap-4 z-50">
+            <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
               <button
                 onClick={handleClose}
-                className="p-1 sm:p-2 text-gray-300 hover:text-white hover:bg-white/10 rounded-2xl transition-colors flex items-center gap-1 shrink-0"
+                className="group relative p-2.5 sm:p-3 hover:bg-white/10 rounded-2xl transition-all active:scale-95 bg-white/5 border border-white/10 overflow-hidden shrink-0 cursor-pointer"
                 title="Back"
               >
-                <ArrowLeft size={20} className="sm:w-[22px] sm:h-[22px]" />
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                <ArrowLeft size={18} className="text-white/80 group-hover:text-white relative z-10" />
               </button>
 
               <div className="relative shrink-0">
@@ -539,20 +540,22 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
               </div>
             </div>
 
-            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 onClick={handleClear}
                 title="Reset conversation"
-                className="p-1.5 sm:p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
+                className="group relative p-2.5 sm:p-3 hover:bg-white/10 rounded-2xl transition-all active:scale-95 bg-white/5 border border-white/10 overflow-hidden shrink-0 cursor-pointer text-gray-400 hover:text-white"
               >
-                <RefreshCw size={17} className="sm:w-[18px] sm:h-[18px]" />
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-400/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                <RefreshCw size={16} className="relative z-10" />
               </button>
               <button
                 onClick={handleClose}
                 title="Close chat"
-                className="p-1.5 sm:p-2.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-2xl transition-colors"
+                className="group relative p-2.5 sm:p-3 hover:bg-white/10 rounded-2xl transition-all active:scale-95 bg-white/5 border border-white/10 overflow-hidden shrink-0 cursor-pointer text-gray-400 hover:text-white"
               >
-                <X size={20} className="sm:w-[22px] sm:h-[22px]" />
+                <div className="absolute inset-0 bg-gradient-to-br from-rose-500/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                <X size={18} className="relative z-10" />
               </button>
             </div>
           </div>

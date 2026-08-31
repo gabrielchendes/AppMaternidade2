@@ -37,22 +37,27 @@ import PullToRefresh from './PullToRefresh';
 import { InteractiveChecklist } from './InteractiveChecklist';
 import { BlockLessonViewer } from './BlockLessonViewer';
 
+import { dataCache } from '../lib/cache';
+
 interface CourseViewerProps {
   courseId: string;
   userId: string;
   onClose: () => void;
+  initialCourse?: Course | null;
+  isProfessor?: boolean;
 }
 
-export default function CourseViewer({ courseId, userId, onClose, isProfessor = false }: CourseViewerProps & { isProfessor?: boolean }) {
+export default function CourseViewer({ courseId, userId, onClose, initialCourse, isProfessor = false }: CourseViewerProps) {
   const { t } = useI18n();
   const { settings } = useSettings();
-  const [course, setCourse] = useState<Course | null>(null);
+  const [course, setCourse] = useState<Course | null>(initialCourse || null);
   const [modules, setModules] = useState<Module[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [progress, setProgress] = useState<UserProgress[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'player'>('grid');
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,20 +72,24 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
         scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
       }
       // Track last viewed chapter for "Continue watching" feature
-      localStorage.setItem(`last_viewed_${userId}`, JSON.stringify({
-        courseId,
-        chapterId: activeChapter.id,
-        timestamp: Date.now()
-      }));
+      try {
+        localStorage.setItem(`last_viewed_${userId}`, JSON.stringify({
+          courseId,
+          chapterId: activeChapter.id,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.warn('Storage write failed', e);
+      }
     }
   }, [activeChapter]);
 
   const sortedChapters = useMemo(() => {
     return [...chapters].sort((a, b) => {
-      const modA = modules.find(m => m.id === a.module_id)?.order_index || 0;
-      const modB = modules.find(m => m.id === b.module_id)?.order_index || 0;
+      const modA = modules.find(m => m.id === a.module_id)?.order_index ?? 0;
+      const modB = modules.find(m => m.id === b.module_id)?.order_index ?? 0;
       if (modA !== modB) return modA - modB;
-      return a.order_index - b.order_index;
+      return (a.order_index ?? 0) - (b.order_index ?? 0);
     });
   }, [chapters, modules]);
 
@@ -90,69 +99,143 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
 
   const fetchCourseData = async () => {
     try {
-      setLoading(true);
-      
-      const { data: courseData, error: courseError } = await supabase
+      setErrorMessage(null);
+      const cacheKey = `course_full_${courseId}`;
+      const cached = dataCache.get(cacheKey);
+
+      if (cached) {
+        if (cached.course) setCourse(cached.course);
+        if (cached.modules) setModules(cached.modules);
+        if (cached.chapters) {
+          setChapters(cached.chapters);
+          if (cached.chapters.length === 1) {
+            setActiveChapter(cached.chapters[0]);
+            setViewMode('player');
+          }
+        }
+        if (cached.progress) setProgress(cached.progress);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
+      // Safe UUID verification to prevent Postgres type errors on user_progress
+      const isUUID = (str?: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
+
+      // Execute queries in parallel for high speed and fault tolerance
+      const courseQuery = supabase
         .from('courses')
         .select('*')
         .eq('id', courseId)
-        .single();
+        .maybeSingle();
 
-      if (courseError) throw courseError;
-      setCourse(courseData);
+      const modulesQuery = supabase
+        .from('modules')
+        .select('*')
+        .eq('course_id', courseId)
+        .order('order_index');
 
-      const [modulesRes, progressRes] = await Promise.all([
-        supabase.from('modules').select('*').eq('course_id', courseId).order('order_index'),
-        supabase.from('user_progress').select('*').eq('user_id', userId)
+      const progressQuery = isUUID(userId)
+        ? supabase.from('user_progress').select('*').eq('user_id', userId)
+        : Promise.resolve({ data: [], error: null });
+
+      const [courseRes, modulesRes, progressRes] = await Promise.allSettled([
+        courseQuery,
+        modulesQuery,
+        progressQuery
       ]);
 
-      const modulesData = modulesRes.data || [];
-      const progressData = progressRes.data || [];
+      // 1. Process course
+      let currentCourse = initialCourse || course;
+      if (courseRes.status === 'fulfilled' && courseRes.value?.data) {
+        currentCourse = courseRes.value.data;
+        setCourse(currentCourse);
+      }
 
-      setModules(modulesData);
-      setProgress(progressData);
+      // 2. Process modules
+      let modulesData: Module[] = [];
+      if (modulesRes.status === 'fulfilled' && modulesRes.value?.data) {
+        modulesData = modulesRes.value.data;
+        setModules(modulesData);
+      }
 
+      // 3. Process progress
+      let progressData: UserProgress[] = [];
+      if (progressRes.status === 'fulfilled' && progressRes.value?.data) {
+        progressData = progressRes.value.data;
+        setProgress(progressData);
+      }
+
+      // 4. Process chapters
       const moduleIds = modulesData.map(m => m.id);
-      
+      let finalChapters: Chapter[] = [];
+
       if (moduleIds.length > 0) {
-        const { data: chaptersData, error: chaptersError } = await supabase
+        const { data: chaptersData } = await supabase
           .from('chapters')
           .select('*')
           .in('module_id', moduleIds)
           .order('order_index');
-        
-        if (chaptersError) throw chaptersError;
-        
-        const finalChapters = chaptersData || [];
-        setChapters(finalChapters);
 
-        if (finalChapters.length === 1) {
-          setActiveChapter(finalChapters[0]);
-          setViewMode('player');
-        } else {
-          // Check for last viewed chapter in this course
-          const lastViewedStr = localStorage.getItem(`last_viewed_${userId}`);
-          if (lastViewedStr) {
-            try {
-              const lastViewed = JSON.parse(lastViewedStr);
-              if (lastViewed.courseId === courseId) {
-                const chapter = finalChapters.find(ch => ch.id === lastViewed.chapterId);
-                if (chapter && !progressData.find(p => p.chapter_id === chapter.id)?.completed) {
-                  setActiveChapter(chapter);
-                  setViewMode('player');
-                }
+        finalChapters = chaptersData || [];
+      }
+
+      // If course has direct pdf_url and no chapters created yet, synthesize a PDF lesson
+      if (finalChapters.length === 0 && currentCourse?.pdf_url) {
+        const pdfChapter: Chapter = {
+          id: `pdf-${courseId}`,
+          module_id: '',
+          title: currentCourse.title || t('course.pdf_material') || 'Digital PDF Material',
+          description: currentCourse.description || '',
+          content_type: 'pdf',
+          pdf_url: currentCourse.pdf_url,
+          cover_url: currentCourse.cover_url || currentCourse.premium_cover_url,
+          duration_minutes: 10,
+          order_index: 0,
+          is_preview: false,
+          created_at: new Date().toISOString()
+        };
+        finalChapters = [pdfChapter];
+      }
+
+      setChapters(finalChapters);
+
+      // Save to memory cache for instantaneous subsequent views (5 minutes)
+      dataCache.set(cacheKey, {
+        course: currentCourse,
+        modules: modulesData,
+        chapters: finalChapters,
+        progress: progressData
+      }, 300000);
+
+      // Setup initial view
+      if (finalChapters.length === 1) {
+        setActiveChapter(finalChapters[0]);
+        setViewMode('player');
+      } else if (finalChapters.length > 1) {
+        const lastViewedStr = localStorage.getItem(`last_viewed_${userId}`);
+        if (lastViewedStr) {
+          try {
+            const lastViewed = JSON.parse(lastViewedStr);
+            if (lastViewed.courseId === courseId) {
+              const chapter = finalChapters.find(ch => ch.id === lastViewed.chapterId);
+              if (chapter && !progressData.find(p => p.chapter_id === chapter.id)?.completed) {
+                setActiveChapter(chapter);
+                setViewMode('player');
               }
-            } catch (e) {
-              console.error('Error parsing last viewed:', e);
             }
+          } catch (e) {
+            console.warn('Error parsing last viewed:', e);
           }
-          if (!activeChapter) setViewMode('grid');
         }
+        if (!activeChapter) setViewMode('grid');
+      } else {
+        setViewMode('grid');
       }
     } catch (err: any) {
       console.error('❌ Error in CourseViewer fetch:', err);
-      toast.error(err.message || t('course.loading_error') || 'Erro ao carregar curso');
-      onClose();
+      setErrorMessage(err?.message || t('course.loading_error') || 'Unable to load lessons at this time.');
     } finally {
       setLoading(false);
     }
@@ -182,15 +265,15 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
       });
 
       if (targetState) {
-        showToast.success(t('course.lesson_completed') || 'Aula concluída!', {
-          description: 'Seu progresso foi salvo com sucesso.'
+        showToast.success(t('course.lesson_completed') || 'Lesson completed!', {
+          description: t('course.progress_saved') || 'Your progress has been saved successfully.'
         });
       } else {
-        showToast.info(t('course.lesson_unmarked') || 'Aula marcada como não concluída');
+        showToast.info(t('course.lesson_unmarked') || 'Lesson marked as incomplete');
       }
     } catch (err) {
       console.error('Error toggling progress:', err);
-      showToast.error(t('course.progress_error') || 'Erro ao atualizar progresso');
+      showToast.error(t('course.progress_error') || 'Error updating progress');
     }
   };
 
@@ -532,7 +615,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
               }
             }}
             className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn"
-            title={t('course.view_fullscreen') || "Ver em Tela Cheia"}
+            title={t('course.view_fullscreen') || "View Fullscreen"}
           >
             <Maximize2 size={24} className="group-hover/btn:rotate-12 transition-transform" />
           </button>
@@ -542,19 +625,35 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
   };
 
 
-  if (loading) return (
-    <div className="fixed inset-0 bg-bg-main p-6 sm:p-12 z-[200]">
-      <div className="max-w-7xl mx-auto w-full space-y-12 animate-pulse">
-        <div className="h-20 bg-white/5 rounded-3xl" />
-        <div className="h-12 w-64 bg-white/5 rounded-2xl mx-auto" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {[1,2,3,4,5,6,7,8].map(i => (
-            <div key={i} className="aspect-[16/9] bg-white/5 rounded-3xl" />
-          ))}
+  if (errorMessage && !course) {
+    return (
+      <div className="fixed inset-0 bg-[#0b0c10] z-[200] flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-3xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-6">
+          <AlertCircle size={32} />
+        </div>
+        <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight mb-2">
+          {t('course.loading_error') || 'Unable to load lessons'}
+        </h2>
+        <p className="text-sm text-gray-400 max-w-md mb-8">
+          {errorMessage}
+        </p>
+        <div className="flex gap-4">
+          <button
+            onClick={() => { setErrorMessage(null); fetchCourseData(); }}
+            className="px-6 py-3 rounded-xl bg-primary text-black font-black uppercase text-xs tracking-wider hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+          >
+            {t('course.try_again') || 'Try Again'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-6 py-3 rounded-xl bg-white/10 text-white font-bold uppercase text-xs tracking-wider hover:bg-white/20 active:scale-95 transition-all cursor-pointer"
+          >
+            {t('course.back_home') || 'Back to Home'}
+          </button>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-bg-main z-[200] flex flex-col text-white font-sans overflow-hidden">
@@ -572,7 +671,7 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
         <div className="flex-1 max-w-[180px] sm:max-w-sm mx-auto flex flex-col gap-1 sm:gap-2">
           <div className="flex items-center justify-between">
              <span className="text-[9px] sm:text-[10px] font-black text-white/40 uppercase tracking-widest leading-none">
-                {completedChaptersCount} / {chapters.length} {t('course.lessons') || 'Aulas'}
+                {completedChaptersCount} / {chapters.length} {t('course.lessons') || 'Lessons'}
               </span>
               <span className={`text-[10px] sm:text-xs font-black italic leading-none ${
                 calculateProgress() === 100 ? 'text-green-500' : 
@@ -614,13 +713,62 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                 </div>
 
                 <div className="space-y-24">
-                  {(modules.length > 0 ? modules : [{ id: null, title: null }]).map((module, mIdx) => {
-                  const moduleChapters = sortedChapters.filter(ch => module.id === null ? !ch.module_id : ch.module_id === module.id);
-                  if (moduleChapters.length === 0) return null;
-                  const moduleProgress = module.id ? calculateModuleProgress(module.id) : 0;
+                  {loading && chapters.length === 0 ? (
+                    <div className="space-y-10 animate-pulse">
+                      <div className="flex items-center justify-center gap-4 pb-6 border-b border-white/5">
+                        <div className="h-4 w-40 bg-white/10 rounded-full" />
+                      </div>
+                      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 sm:gap-x-8 sm:gap-y-12">
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                          <div key={i} className="flex flex-col gap-3">
+                            <div className="aspect-square rounded-2xl sm:rounded-[24px] bg-white/5 border border-white/10" />
+                            <div className="h-4 w-3/4 bg-white/10 rounded-md" />
+                            <div className="h-3 w-1/2 bg-white/5 rounded-md" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : sortedChapters.length === 0 ? (
+                    <div className="max-w-xl mx-auto py-12 px-6 rounded-3xl bg-white/5 border border-white/10 text-center space-y-6">
+                      <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary mx-auto flex items-center justify-center">
+                        <FileText size={32} />
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-xl font-black text-white uppercase italic">
+                          {course?.pdf_url ? (t('course.pdf_material') || 'Digital PDF Material') : (t('course.content') || 'Course Content')}
+                        </h3>
+                        <p className="text-sm text-gray-400">
+                          {course?.pdf_url 
+                            ? (t('course.pdf_description') || 'This course includes exclusive digital material in PDF format.') 
+                            : (t('course.lessons_available') || 'Course modules and lessons will be available here.')}
+                        </p>
+                      </div>
+                      {course?.pdf_url ? (
+                        <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
+                          <button
+                            onClick={() => window.open(course.pdf_url!, '_blank')}
+                            className="px-8 py-4 rounded-xl bg-primary text-black font-black uppercase text-xs tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <Maximize2 size={16} /> {t('course.open_pdf') || 'Open PDF Material'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={onClose}
+                          className="px-6 py-3 rounded-xl bg-white/10 text-white font-bold uppercase text-xs tracking-wider hover:bg-white/20 active:scale-95 transition-all cursor-pointer"
+                        >
+                          {t('course.back_home') || 'Back to Home'}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    (modules.length > 0 ? modules : [{ id: null, title: null }]).map((module, mIdx) => {
+                      const moduleChapters = sortedChapters.filter(ch => module.id === null ? !ch.module_id : ch.module_id === module.id);
+                      if (moduleChapters.length === 0) return null;
+                      const moduleProgress = module.id ? calculateModuleProgress(module.id) : 0;
 
-                  return (
-                    <div key={module.id || 'global'} className="space-y-10 group/module">
+                      return (
+                        <div key={module.id || 'global'} className="space-y-10 group/module">
                       {!module.title || module.title === 'Conteúdo' ? (
                         <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-10">
                           <div className="flex items-center gap-4">
@@ -683,40 +831,53 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                             }}
                             className="group relative flex flex-col text-left transition-all w-full"
                           >
-                            <div className={`relative aspect-square rounded-2xl sm:rounded-3xl overflow-hidden mb-3 sm:mb-5 border-2 shadow-2xl bg-zinc-900 transition-all duration-500 w-full ${isCompleted ? 'border-green-500/30' : 'border-white/5 group-hover:border-primary/50'}`}>
+                            <div className={`relative aspect-square rounded-2xl sm:rounded-[24px] overflow-hidden mb-3 sm:mb-5 border shadow-2xl bg-zinc-950 transition-all duration-500 w-full ${
+                              isCompleted 
+                                ? 'border-emerald-500/40 ring-1 ring-emerald-500/30 shadow-[0_10px_30px_rgba(16,185,129,0.15)]' 
+                                : 'border-white/15 ring-1 ring-inset ring-white/5 group-hover:border-primary/60 group-hover:ring-primary/30 group-hover:shadow-[0_16px_40px_rgba(244,63,94,0.25),0_0_20px_rgba(255,255,255,0.05)]'
+                            }`}>
+                              {/* Top Specular Light Beam */}
+                              <div className="absolute top-0 inset-x-3 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent z-30 pointer-events-none group-hover:via-primary/50 transition-colors" />
+
                               {chapter.cover_url && chapter.cover_url.trim() ? (
                                 <img 
                                   src={chapter.cover_url.trim()} 
-                                  className={`w-full h-full object-cover transition-all duration-700 ${isCompleted ? 'opacity-30 grayscale-[50%]' : 'opacity-40 group-hover:opacity-60 group-hover:scale-110'}`} 
+                                  className={`w-full h-full object-cover transition-all duration-700 ${isCompleted ? 'opacity-75 grayscale-[20%]' : 'opacity-100 group-hover:scale-105'}`} 
                                   alt={chapter.title} 
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
-                                <div className="w-full h-full bg-zinc-950 flex items-center justify-center opacity-40 group-hover:opacity-60 transition-opacity">
-                                  <PlayCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white/10" />
+                                <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-white/30 group-hover:text-primary transition-colors">
+                                  <PlayCircle className="w-10 h-10 sm:w-12 sm:h-12" />
                                 </div>
                               )}
                               
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
+                              {/* Crisp Subtle Gradient to ensure text & badges pop without darkening the artwork */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 pointer-events-none" />
 
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl border flex items-center justify-center transition-all duration-500 backdrop-blur-md ${isCompleted ? 'bg-green-500 border-green-400 scale-90' : 'bg-black/40 border-white/20 group-hover:bg-primary group-hover:border-primary group-hover:rotate-0'}`}>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-2xl border flex items-center justify-center transition-all duration-500 shadow-xl backdrop-blur-md ${
+                                  isCompleted 
+                                    ? 'bg-emerald-500/90 border-emerald-400 text-white scale-90 shadow-[0_0_15px_rgba(16,185,129,0.5)]' 
+                                    : 'bg-black/50 border-white/30 text-white group-hover:bg-primary group-hover:border-primary group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(244,63,94,0.6)]'
+                                }`}>
                                   {isCompleted ? (
-                                    <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+                                    <CheckCircle2 className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
                                   ) : (
-                                    <Play className="w-4 h-4 sm:w-6 sm:h-6 text-white fill-white ml-0.5 sm:ml-1" />
+                                    <Play className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-white ml-0.5 sm:ml-1 drop-shadow-md" />
                                   )}
                                 </div>
                               </div>
 
                               {isCompleted && (
-                                <div className="absolute top-2 left-2 sm:top-4 sm:left-4 bg-green-500 text-white text-[8px] sm:text-[10px] font-black px-2 py-0.5 sm:px-3 sm:py-1 rounded-full uppercase tracking-widest shadow-lg italic">
+                                <div className="absolute top-2.5 left-2.5 sm:top-3.5 sm:left-3.5 bg-emerald-500 text-white text-[8px] sm:text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest shadow-lg italic flex items-center gap-1 border border-emerald-300/40">
+                                  <CheckCircle2 size={10} />
                                   {t('course.completed')}
                                 </div>
                               )}
 
-                              <div className="absolute bottom-2 right-2 sm:bottom-4 sm:right-4 bg-black/60 backdrop-blur-md text-[8px] sm:text-[10px] font-black text-white/80 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded sm:rounded-lg border border-white/10 uppercase tracking-widest italic">
-                                {chapter.duration_minutes} MIN
+                              <div className="absolute bottom-2.5 right-2.5 sm:bottom-3.5 sm:right-3.5 bg-black/80 backdrop-blur-md text-[8px] sm:text-[10px] font-black text-white px-2.5 py-1 rounded-lg border border-white/20 uppercase tracking-widest italic shadow-lg">
+                                {chapter.duration_minutes || 5} MIN
                               </div>
                             </div>
                             
@@ -737,8 +898,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                       })}
                     </div>
                   </div>
-                )})}
-              </div>
+                );
+              }))}
+            </div>
               
               <SupportSection page="course" settings={settings} t={t} />
             </motion.div>
@@ -905,9 +1067,9 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                     `}
                   >
                     {progress.find(p => p.chapter_id === activeChapter?.id)?.completed ? (
-                      <><CheckCircle2 size={20} /> {t('course.lesson_completed_btn') || 'AULA CONCLUÍDA'}</>
+                      <><CheckCircle2 size={20} /> {t('course.lesson_completed_btn') || 'LESSON COMPLETED'}</>
                     ) : (
-                      t('course.complete_lesson_btn') || 'CONCLUIR AULA'
+                      t('course.complete_lesson_btn') || 'COMPLETE LESSON'
                     )}
                   </motion.button>
                 </div>
@@ -920,13 +1082,13 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                       if (idx > 0) setActiveChapter(sortedChapters[idx - 1]);
                     }}
                     disabled={sortedChapters.findIndex(ch => ch.id === activeChapter?.id) === 0}
-                    className="flex flex-col items-start gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-left"
+                    className="flex flex-col items-start gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-left cursor-pointer"
                   >
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-primary transition-colors flex items-center gap-1">
-                      <ChevronLeft size={12} /> {t('course.prev_lesson') || 'Aula Anterior'}
+                      <ChevronLeft size={12} /> {t('course.prev_lesson') || 'Previous Lesson'}
                     </span>
                     <span className="text-sm font-bold text-white line-clamp-1">
-                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) - 1]?.title || t('nav.home') || 'Início'}
+                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) - 1]?.title || t('nav.home') || 'Home'}
                     </span>
                   </button>
 
@@ -936,13 +1098,13 @@ export default function CourseViewer({ courseId, userId, onClose, isProfessor = 
                       if (idx < sortedChapters.length - 1) setActiveChapter(sortedChapters[idx + 1]);
                     }}
                     disabled={sortedChapters.findIndex(ch => ch.id === activeChapter?.id) === sortedChapters.length - 1}
-                    className="flex flex-col items-end gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-right"
+                    className="flex flex-col items-end gap-1 p-6 bg-white/5 hover:bg-white/10 rounded-3xl transition-all disabled:opacity-20 group text-right cursor-pointer"
                   >
                     <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-primary transition-colors flex items-center gap-1">
-                      {t('course.next_lesson') || 'Próxima Aula'} <ChevronRight size={12} />
+                      {t('course.next_lesson') || 'Next Lesson'} <ChevronRight size={12} />
                     </span>
                     <span className="text-sm font-bold text-white line-clamp-1">
-                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) + 1]?.title || t('course.end_label') || 'Fim'}
+                      {sortedChapters[sortedChapters.findIndex(ch => ch.id === activeChapter?.id) + 1]?.title || t('course.end_label') || 'End'}
                     </span>
                   </button>
                 </div>

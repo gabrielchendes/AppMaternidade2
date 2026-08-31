@@ -215,145 +215,165 @@ export default function AuthForm() {
         </button>
       )}
 
-      <div className="w-full p-8 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
-      <div className="text-center mb-8">
-        {(settings.login_display_type === 'logo' || settings.login_display_type === 'both') && settings.logo_url && (
-          <img 
-            src={settings.logo_url} 
-            alt={settings.app_name} 
-            style={{ height: `${settings.logo_height || 64}px` }}
-            className="mx-auto mb-4 object-contain"
-            referrerPolicy="no-referrer"
-          />
-        )}
-        {(settings.login_display_type === 'title' || settings.login_display_type === 'both') && (
-          <h1 className="text-3xl font-bold text-primary italic mb-2">
-            {settings.app_name}
-          </h1>
-        )}
-        <p className="text-gray-400 text-sm">
-          {t('auth.subtitle')}
-        </p>
-      </div>
+      {/* Main Login Card with Luxury Luminous Border */}
+      <div className="w-full relative group">
+        {/* Ambient Outer Halo / Glow */}
+        <div className="absolute -inset-[2px] rounded-[26px] animated-luxury-border opacity-75 blur-md group-hover:opacity-100 group-hover:blur-lg transition-all duration-700 pointer-events-none" />
+        
+        {/* Border wrapper for crisp 1px gradient frame */}
+        <div className="relative rounded-[24px] p-[1.5px] animated-luxury-border shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(244,63,94,0.15)]">
+          <div className="w-full p-8 sm:p-10 bg-[#0d0f18]/90 backdrop-blur-2xl rounded-[22.5px] relative overflow-hidden">
+            {/* Soft inner radial sheen */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-gradient-to-b from-white/10 to-transparent pointer-events-none blur-xl" />
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="relative">
-          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
-          <input
-            type="email"
-            placeholder={t('auth.email')}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
-            required
-            onInvalid={(e) => {
-              const target = e.target as HTMLInputElement;
-              if (target.validity.valueMissing) {
-                target.setCustomValidity(t('auth.fill_this_field'));
-              } else if (target.validity.typeMismatch) {
-                target.setCustomValidity(t('auth.invalid_email'));
-              } else {
-                target.setCustomValidity('');
-              }
-            }}
-            onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
-            title={email ? t('auth.invalid_email') : t('auth.fill_this_field')}
-          />
-        </div>
+            <div className="text-center mb-8 relative z-10">
+              {(settings.login_display_type === 'logo' || settings.login_display_type === 'both') && settings.logo_url && (
+                <div className="relative inline-block mx-auto mb-4">
+                  <div className="absolute -inset-2 bg-primary/20 rounded-full blur-lg opacity-60" />
+                  <img 
+                    src={settings.logo_url} 
+                    alt={settings.app_name} 
+                    style={{ height: `${settings.logo_height || 64}px` }}
+                    className="relative mx-auto object-contain drop-shadow-[0_4px_16px_rgba(0,0,0,0.5)]"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              )}
+              {(settings.login_display_type === 'title' || settings.login_display_type === 'both') && (
+                <h1 className="text-3xl sm:text-4xl font-serif font-black text-white italic mb-2 tracking-tight">
+                  <span className="bg-gradient-to-r from-white via-white/95 to-white/80 bg-clip-text text-transparent drop-shadow-sm">
+                    {settings.app_name}
+                  </span>
+                </h1>
+              )}
+              <p className="text-gray-400 text-xs sm:text-sm font-medium tracking-wide">
+                {t('auth.subtitle')}
+              </p>
+            </div>
 
-        <AnimatePresence mode="wait">
-          {method === 'password' && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden"
-            >
-              <div className="relative pt-2">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+            <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
+              <div className="relative group/input">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within/input:text-primary transition-colors" size={18} />
                 <input
-                  type="password"
-                  placeholder={t('auth.password')}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg py-3 pl-10 pr-4 text-white placeholder:text-gray-600 focus:outline-none focus:border-primary transition-colors text-base"
-                  required={method === 'password'}
+                  type="email"
+                  placeholder={t('auth.email')}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 focus:border-primary/60 rounded-xl py-3.5 pl-12 pr-4 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-base shadow-inner"
+                  required
                   onInvalid={(e) => {
                     const target = e.target as HTMLInputElement;
                     if (target.validity.valueMissing) {
                       target.setCustomValidity(t('auth.fill_this_field'));
+                    } else if (target.validity.typeMismatch) {
+                      target.setCustomValidity(t('auth.invalid_email'));
                     } else {
                       target.setCustomValidity('');
                     }
                   }}
                   onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
-                  title={t('auth.fill_this_field')}
+                  title={email ? t('auth.invalid_email') : t('auth.fill_this_field')}
                 />
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? (
-            <Loader2 className="animate-spin" size={20} />
-          ) : (
-            <>
-              {t('auth.login')}
-              <ArrowRight size={18} />
-            </>
-          )}
-        </button>
-      </form>
+              <AnimatePresence mode="wait">
+                {method === 'password' && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="relative pt-2 group/pass">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within/pass:text-primary transition-colors" size={18} />
+                      <input
+                        type="password"
+                        placeholder={t('auth.password')}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 focus:border-primary/60 rounded-xl py-3.5 pl-12 pr-4 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-base shadow-inner"
+                        required={method === 'password'}
+                        onInvalid={(e) => {
+                          const target = e.target as HTMLInputElement;
+                          if (target.validity.valueMissing) {
+                            target.setCustomValidity(t('auth.fill_this_field'));
+                          } else {
+                            target.setCustomValidity('');
+                          }
+                        }}
+                        onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
+                        title={t('auth.fill_this_field')}
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-      <div className="mt-6 text-center space-y-4">
-        <p className="text-xs text-gray-500">
-          {t('auth.restricted_access_msg')}
-        </p>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full relative group/btn overflow-hidden rounded-xl p-[1px] font-black uppercase text-xs sm:text-sm tracking-widest transition-all duration-300 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_10px_25px_rgba(244,63,94,0.3)] mt-2"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-primary via-rose-500 to-amber-500 group-hover:brightness-110 transition-all" />
+                <div className="relative w-full py-4 px-6 rounded-[11px] bg-gradient-to-r from-primary to-primary-hover text-white flex items-center justify-center gap-2 group-hover:bg-opacity-90 transition-all">
+                  {loading ? (
+                    <Loader2 className="animate-spin" size={20} />
+                  ) : (
+                    <>
+                      <span>{t('auth.login')}</span>
+                      <ArrowRight size={18} className="group-hover/btn:translate-x-1 transition-transform" />
+                    </>
+                  )}
+                </div>
+              </button>
+            </form>
 
-        {settings.show_support_login && (
-          (settings.support_whatsapp_login_enabled && settings.support_whatsapp) || 
-          (settings.support_email_login_enabled && settings.support_email)
-        ) && (
-          <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
-            <div className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-3">
-              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest text-center">
-                {t('auth.support_box')}
+            <div className="mt-8 text-center space-y-4 relative z-10">
+              <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                {t('auth.restricted_access_msg')}
               </p>
-              <div className="flex flex-col gap-2">
-                {settings.support_whatsapp_login_enabled && settings.support_whatsapp && (
-                  <a 
-                    href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-500 rounded-lg text-xs font-bold transition-all"
-                  >
-                    <WhatsAppIcon size={14} /> {t('auth.whatsapp_label')}
-                  </a>
-                )}
-                {settings.support_email_login_enabled && settings.support_email && (
-                  <a 
-                    href={`mailto:${settings.support_email}`}
-                    className="flex items-center justify-center gap-2 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg text-xs font-bold transition-all"
-                  >
-                    <Mail size={14} /> {t('auth.email_label')}
-                  </a>
-                )}
-              </div>
+
+              {settings.show_support_login && (
+                (settings.support_whatsapp_login_enabled && settings.support_whatsapp) || 
+                (settings.support_email_login_enabled && settings.support_email)
+              ) && (
+                <div className="pt-4 border-t border-white/5 flex flex-col gap-2">
+                  <div className="bg-white/[0.03] rounded-xl p-4 border border-white/10 space-y-3">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">
+                      {t('auth.support_box')}
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      {settings.support_whatsapp_login_enabled && settings.support_whatsapp && (
+                        <a 
+                          href={`https://wa.me/${settings.support_whatsapp.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 py-2.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 rounded-lg text-xs font-bold transition-all"
+                        >
+                          <WhatsAppIcon size={14} /> {t('auth.whatsapp_label')}
+                        </a>
+                      )}
+                      {settings.support_email_login_enabled && settings.support_email && (
+                        <a 
+                          href={`mailto:${settings.support_email}`}
+                          className="flex items-center justify-center gap-2 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg text-xs font-bold transition-all"
+                        >
+                          <Mail size={14} /> {t('auth.email_label')}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
       <PWAInstallModal
         isOpen={isPWAModalOpen}
         onClose={() => setIsPWAModalOpen(false)}
         onInstall={promptInstall}
       />
-    </div>
     </div>
   );
 }
