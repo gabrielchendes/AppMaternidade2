@@ -4,6 +4,7 @@ import { ChapterQuestion } from '../types/lms';
 import { useI18n } from '../contexts/I18nContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Send, User as UserIcon, Loader2, MessageSquare, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -203,7 +204,7 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
             disabled={!newQuestion.trim() || sending}
             className="flex items-center gap-2 px-8 py-3 bg-primary hover:bg-primary-hover text-white font-black rounded-xl text-xs transition-all active:scale-95 disabled:opacity-50 shadow-lg shadow-primary/20"
           >
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            {sending ? <GlowingSpinner size="xs" color="white" /> : <Send size={16} />}
             {t('course.send_question') || 'ENVIAR DÚVIDA'}
           </button>
         </div>
@@ -212,7 +213,7 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
       <div className="space-y-6">
         {loading ? (
           <div className="flex justify-center py-10">
-            <Loader2 className="animate-spin text-primary" size={32} />
+            <GlowingSpinner size="md" />
           </div>
         ) : questions.length === 0 ? (
           <div className="text-center py-12 bg-white/5 rounded-3xl border border-dashed border-white/10">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { GlowingSpinner } from './GlowingSpinner';
 import { 
   X, 
   Save, 
@@ -141,7 +142,7 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-        <Loader2 className="animate-spin text-primary" size={48} />
+        <GlowingSpinner size="lg" />
       </div>
     );
   }

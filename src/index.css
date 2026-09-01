@@ -69,11 +69,21 @@ body {
   }
 }
 
-.spinner-smooth {
-  animation: continuousSpin 0.75s linear infinite;
+.spinner-smooth,
+.animate-spin {
+  animation: continuousSpin 0.75s linear infinite !important;
   will-change: transform;
   transform: translateZ(0);
   backface-visibility: hidden;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+.spinner-glow-primary {
+  filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.45)) !important;
+}
+
+.spinner-glow-blue {
+  filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.45)) !important;
 }
 
 .content-visibility-auto {

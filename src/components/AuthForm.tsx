@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Loader2, Key, ShieldAlert, MessageSquare, Smartphone } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Key, ShieldAlert, MessageSquare, Smartphone } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import WhatsAppIcon from './WhatsAppIcon';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
@@ -176,7 +177,7 @@ export default function AuthForm() {
             disabled={loading}
             className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : t('auth.verify_access')}
+            {loading ? <GlowingSpinner size="sm" color="white" /> : t('auth.verify_access')}
           </button>
 
           <button
@@ -323,7 +324,7 @@ export default function AuthForm() {
                 <div className="absolute inset-0 bg-gradient-to-r from-primary via-rose-500 to-amber-500 group-hover:brightness-110 transition-all" />
                 <div className="relative w-full py-4 px-6 rounded-[11px] bg-gradient-to-r from-primary to-primary-hover text-white flex items-center justify-center gap-2 group-hover:bg-opacity-90 transition-all">
                   {loading ? (
-                    <Loader2 className="animate-spin" size={20} />
+                    <GlowingSpinner size="sm" color="white" />
                   ) : (
                     <>
                       <span>{t('auth.login')}</span>

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { User } from '@supabase/supabase-js';
 import { supabase, CommunityPost, PostComment } from '../lib/supabase';
 import { Send, User as UserIcon, Trash2, Loader2, Heart, MessageCircle, Image as ImageIcon, X, CornerUpRight, Edit3, ShieldCheck, Check } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, formatDistanceToNow, subDays, isAfter, formatRelative } from 'date-fns';
@@ -847,7 +848,7 @@ export default function Community({ user, isImportMode = false }: CommunityProps
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className={`animate-spin ${isImportMode ? 'text-blue-500' : 'text-primary'}`} size={32} />
+        <GlowingSpinner size="md" color={isImportMode ? 'blue' : 'primary'} />
       </div>
     );
   }

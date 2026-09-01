@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, Notification } from '../lib/supabase';
 import { Bell, X, Check, Loader2, Info } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { ptBR, enUS, es } from 'date-fns/locale';
@@ -173,7 +174,7 @@ export default function NotificationBell({ user }: NotificationBellProps) {
               <div className="overflow-y-auto flex-1 custom-scrollbar">
                 {loading ? (
                   <div className="flex items-center justify-center py-20">
-                    <Loader2 className="animate-spin text-primary" size={32} />
+                    <GlowingSpinner size="md" />
                   </div>
                 ) : notifications.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-gray-500 px-6 text-center">

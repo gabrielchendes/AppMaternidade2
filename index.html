@@ -150,13 +150,18 @@
     <div id="root">
       <div style="min-height: 100vh; background-color: var(--bg-main, #0b0c10); display: flex; align-items: center; justify-content: center; position: fixed; inset: 0; z-index: 9999;">
         <div style="position: relative; display: flex; align-items: center; justify-content: center;">
-          <div style="width: 48px; height: 48px; border-radius: 50%; border: 3.5px solid rgba(255, 255, 255, 0.08); border-top-color: var(--primary, #f43f5e); animation: init-spin 0.75s linear infinite; will-change: transform; transform: translateZ(0);"></div>
+          <div style="position: absolute; width: 96px; height: 96px; border-radius: 50%; background: var(--primary, #f43f5e); opacity: 0.25; filter: blur(24px); pointer-events: none; animation: init-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;"></div>
+          <div style="width: 48px; height: 48px; border-radius: 50%; border: 3.5px solid rgba(255, 255, 255, 0.1); border-top-color: var(--primary, #f43f5e); animation: init-spin 0.75s linear infinite; will-change: transform; transform: translateZ(0); filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.45));"></div>
         </div>
       </div>
       <style>
         @keyframes init-spin {
           0% { transform: rotate(0deg) translateZ(0); }
           100% { transform: rotate(360deg) translateZ(0); }
+        }
+        @keyframes init-pulse {
+          0%, 100% { opacity: 0.25; transform: scale(1); }
+          50% { opacity: 0.12; transform: scale(0.9); }
         }
       </style>
     </div>

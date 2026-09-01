@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Send, X, User as UserIcon, RefreshCw, Copy, Check, AlertCircle, Loader2, GraduationCap, ArrowLeft, Clock, Lock, ExternalLink, ShoppingBag, Sparkles } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import { toast } from 'sonner';
 import { useSettings } from '../contexts/SettingsContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -637,7 +638,7 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
                   }}
                 />
                 <div className="bg-zinc-900 border border-white/10 rounded-2xl p-4 text-sm text-gray-300 rounded-tl-none flex items-center gap-2.5">
-                  <Loader2 size={18} className="animate-spin text-pink-400" />
+                  <GlowingSpinner size="xs" color="primary" />
                   <span>{typingText}</span>
                 </div>
               </motion.div>
@@ -762,7 +763,7 @@ export default function AiAssistantModal({ userId, userEmail, userName, userAvat
                   disabled={!input.trim() || loading || isLimitReached}
                   className="px-5 sm:px-6 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold rounded-2xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-pink-500/20"
                 >
-                  {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                  {loading ? <GlowingSpinner size="xs" color="white" /> : <Send size={20} />}
                 </button>
               </form>
             </div>

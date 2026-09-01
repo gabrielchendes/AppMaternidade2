@@ -127,6 +127,7 @@ const ProductCard = memo(({ product, isUnlocked, progress = 0, stats, settings, 
             src={(product.cover_url && product.cover_url.trim()) ? product.cover_url.trim() : `https://picsum.photos/seed/${product.id}/600/800`}
             alt={product.title}
             loading="lazy"
+            decoding="async"
             className={cn(
               "w-full h-full object-cover transition-all duration-500",
               !isUnlocked 

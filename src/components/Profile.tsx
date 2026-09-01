@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { User, Lock, Mail, Save, Loader2, Camera, Bell, LogOut, Download, Smartphone } from 'lucide-react';
+import { GlowingSpinner } from './GlowingSpinner';
 import { supabase } from '../lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -199,7 +200,7 @@ export default function Profile({ user, canInstall, onInstall }: ProfileProps) {
             )}
             {uploading && (
               <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                <Loader2 className="animate-spin text-primary" size={32} />
+                <GlowingSpinner size="md" />
               </div>
             )}
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">

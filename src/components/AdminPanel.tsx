@@ -4,6 +4,7 @@ import { User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, Product, CommunityPost } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { CommunityIcon } from './CommunityIcon';
+import { GlowingSpinner } from './GlowingSpinner';
 import { 
   Users, 
   BookOpen, 
@@ -1912,7 +1913,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="animate-spin text-primary" size={48} />
+              <GlowingSpinner size="lg" />
             </div>
           ) : (
             <AnimatePresence mode="wait">
@@ -2950,7 +2951,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
 
                         {loadingHistory ? (
                           <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/50 rounded-2xl border border-white/10">
-                            <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
+                            <GlowingSpinner size="md" color="blue" className="mb-4" />
                             <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Carregando Histórico...</p>
                           </div>
                         ) : notificationHistory.length === 0 ? (
@@ -3243,7 +3244,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                   <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar">
                                     {loadingDetails ? (
                                       <div className="flex flex-col items-center justify-center py-16">
-                                        <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
+                                        <GlowingSpinner size="md" color="blue" className="mb-4" />
                                         <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Buscando status de leitura...</p>
                                       </div>
                                     ) : selectedBroadcast.type === 'push' && viewingBroadcastDetails.length === 0 ? (

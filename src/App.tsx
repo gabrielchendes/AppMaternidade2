@@ -6,22 +6,13 @@ import { lazyWithRetry } from './lib/lazyWithRetry';
 import { safeFetch } from './lib/utils';
 import { toast } from 'sonner';
 import LoginPage from './pages/LoginPage';
+import { GlowingSpinner } from './components/GlowingSpinner';
 
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
 
 // Smooth hardware-accelerated Loading Screen
 function LoadingScreen() {
-  return (
-    <div className="min-h-screen bg-[#0b0c10] flex flex-col items-center justify-center relative overflow-hidden">
-      <div className="relative flex items-center justify-center">
-        <div className="absolute w-24 h-24 rounded-full bg-primary/20 blur-xl pointer-events-none animate-pulse" />
-        <div 
-          className="w-12 h-12 rounded-full border-[3.5px] border-white/10 border-t-primary spinner-smooth"
-          style={{ willChange: 'transform' }}
-        />
-      </div>
-    </div>
-  );
+  return <GlowingSpinner fullScreen size="lg" />;
 }
 
 // Main application component

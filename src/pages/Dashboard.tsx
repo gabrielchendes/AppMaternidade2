@@ -28,6 +28,7 @@ import { lazyWithRetry } from '../lib/lazyWithRetry';
 
 import AiAssistantModal from '../components/AiAssistantModal';
 import AccessDeniedModal from '../components/AccessDeniedModal';
+import { GlowingSpinner } from '../components/GlowingSpinner';
 
 // Lazy load heavy components
 const Profile = lazyWithRetry(() => import('../components/Profile'));
@@ -38,7 +39,7 @@ const CoursePreviewViewer = lazyWithRetry(() => import('../components/CoursePrev
 
 const ComponentLoader = () => (
   <div className="w-full py-20 flex items-center justify-center">
-    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+    <GlowingSpinner size="md" />
   </div>
 );
 
@@ -49,13 +50,20 @@ interface DashboardProps {
 export default function Dashboard({ user }: DashboardProps) {
   const { settings } = useSettings();
   const { t } = useI18n();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [courseChapters, setCourseChapters] = useState<Record<string, string[]>>({});
-  const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>({});
-  const [purchases, setPurchases] = useState<{product_id: string, created_at: any}[]>([]);
-  const [userProgress, setUserProgress] = useState<any[]>([]);
+
+  // Instant synchronous cache retrieval for 0ms initial render
+  const cacheKey = `dashboard_data_${user?.id}`;
+  const initialCached = useMemo(() => {
+    return user?.id ? dataCache.getSync(cacheKey, null) : null;
+  }, [user?.id, cacheKey]);
+
+  const [courses, setCourses] = useState<Course[]>(() => initialCached?.courses || []);
+  const [courseChapters, setCourseChapters] = useState<Record<string, string[]>>(() => initialCached?.courseChapters || {});
+  const [courseStats, setCourseStats] = useState<Record<string, { lessons: number, materials: number }>>(() => initialCached?.courseStats || {});
+  const [purchases, setPurchases] = useState<{product_id: string, created_at: any}[]>(() => initialCached?.purchases || []);
+  const [userProgress, setUserProgress] = useState<any[]>(() => initialCached?.userProgress || []);
   const [userProfile, setUserProfile] = useState<{ has_access?: boolean; has_unlimited_ai?: boolean; is_admin?: boolean } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !initialCached?.courses?.length);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
@@ -135,12 +143,10 @@ export default function Dashboard({ user }: DashboardProps) {
     await new Promise(resolve => setTimeout(resolve, 800));
   };
 
-  // Refresh data when closing course viewer
+  // Refresh data when closing course viewer silently in background
   useEffect(() => {
     if (!viewingCourseId && courses.length > 0) {
-      const cacheKey = `dashboard_data_${user.id}`;
-      dataCache.invalidate(cacheKey);
-      fetchData(true);
+      fetchData(false);
     }
   }, [viewingCourseId]);
 
@@ -150,9 +156,9 @@ export default function Dashboard({ user }: DashboardProps) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
     
-    // If switching back to home, refresh progress
+    // If switching back to home, refresh progress silently in background
     if (activeTab === 'home' && courses.length > 0) {
-       fetchData(true);
+       fetchData(false);
     }
 
     // Always scroll to top when changing tabs
@@ -270,14 +276,14 @@ export default function Dashboard({ user }: DashboardProps) {
     if (!user?.id) return;
     
     const cacheKey = `dashboard_data_${user.id}`;
-    const cachedData = forceNoCache ? null : dataCache.get(cacheKey);
+    const cachedData = forceNoCache ? null : dataCache.get(cacheKey, true);
     
-    if (cachedData) {
+    if (cachedData && cachedData.courses && cachedData.courses.length > 0) {
       setCourses(cachedData.courses);
-      setPurchases(cachedData.purchases);
-      setUserProgress(cachedData.userProgress);
-      setCourseStats(cachedData.courseStats);
-      setCourseChapters(cachedData.courseChapters);
+      setPurchases(cachedData.purchases || []);
+      setUserProgress(cachedData.userProgress || []);
+      setCourseStats(cachedData.courseStats || {});
+      setCourseChapters(cachedData.courseChapters || {});
       setLoading(false);
     }
 
@@ -285,11 +291,15 @@ export default function Dashboard({ user }: DashboardProps) {
       const isUUID = (str?: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
 
-      // Execute primary queries safely
+      // Execute primary queries safely with optimized parallel requests
       const [coursesRes, purchasesByIdRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
-        supabase.from('courses').select('*').eq('is_active', true),
+        supabase
+          .from('courses')
+          .select('id, title, subtitle, description, cover_url, premium_cover_url, price, old_price, checkout_url, is_free, is_bonus, is_package_exclusive_bonus, order_index, pdf_url, created_at, is_active, button_text, button_link')
+          .eq('is_active', true)
+          .order('order_index', { ascending: true }),
         supabase.from('purchases').select('product_id, created_at').eq('user_id', user.id),
-        supabase.from('user_progress').select('*').eq('user_id', user.id),
+        supabase.from('user_progress').select('chapter_id, completed, user_id').eq('user_id', user.id),
         supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)'),
         supabase.from('chapters').select('id, content_type, modules!inner(course_id)'),
       ]);
@@ -392,13 +402,15 @@ export default function Dashboard({ user }: DashboardProps) {
 
       if (chaptersRes.data) {
         chaptersRes.data.forEach((ch: any) => {
-          const courseId = ch.modules.course_id;
-          if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
-          if (!chapterMap[courseId]) chapterMap[courseId] = [];
-          
-          chapterMap[courseId].push(ch.id);
-          if (ch.content_type === 'video') stats[courseId].lessons++;
-          else stats[courseId].materials++;
+          const courseId = ch.modules?.course_id;
+          if (courseId) {
+            if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
+            if (!chapterMap[courseId]) chapterMap[courseId] = [];
+            
+            chapterMap[courseId].push(ch.id);
+            if (ch.content_type === 'video') stats[courseId].lessons++;
+            else stats[courseId].materials++;
+          }
         });
       }
 
@@ -408,14 +420,14 @@ export default function Dashboard({ user }: DashboardProps) {
       setCourseStats(stats);
       setCourseChapters(chapterMap);
 
-      // Save to cache
+      // Save to persistent cache (5 minutes TTL with SWR)
       dataCache.set(cacheKey, {
         courses: processedCourses,
         purchases: allPurchases,
         userProgress: progressRes.data || [],
         courseStats: stats,
         courseChapters: chapterMap
-      }, 120000); // 2 minutes cache for dashboard
+      }, 300000);
 
     } catch (error: any) {
       console.error('Error fetching data:', error);
@@ -685,18 +697,18 @@ export default function Dashboard({ user }: DashboardProps) {
   const hasCoursesLoaded = courses.length > 0;
   
   if (loading && !hasCoursesLoaded) {
-    return (
-      <div className="min-h-screen bg-bg-main flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+    return <GlowingSpinner fullScreen size="lg" />;
   }
 
   return (
     <div className="min-h-screen pb-20 bg-[#0b0c10]">
       <AnimatePresence>
         {viewingCourseId && (
-          <Suspense fallback={<div className="fixed inset-0 bg-[#0b0c10] flex items-center justify-center z-[250]"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+          <Suspense fallback={
+            <div className="fixed inset-0 bg-[#0b0c10] flex items-center justify-center z-[250]">
+              <GlowingSpinner size="lg" />
+            </div>
+          }>
             <CourseViewer 
               courseId={viewingCourseId} 
               initialCourse={viewingCourse}
@@ -818,7 +830,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       {mainCourses.length > 0 ? (
                         mainCourses.map(course => (
                           <ProductCard
-                            key={course.id + refreshKey}
+                            key={course.id}
                             product={course}
                             isUnlocked={isUnlocked(course)}
                             progress={getCourseProgress(course.id)}
@@ -843,7 +855,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       >
                         {bonusCourses.map(course => (
                           <ProductCard
-                            key={course.id + refreshKey}
+                            key={course.id}
                             product={course}
                             isUnlocked={true}
                             progress={getCourseProgress(course.id)}
@@ -861,7 +873,7 @@ export default function Dashboard({ user }: DashboardProps) {
                       {paidCourses.length > 0 ? (
                         paidCourses.map(course => (
                           <ProductCard
-                            key={course.id + refreshKey}
+                            key={course.id}
                             product={course}
                             isUnlocked={isUnlocked(course)}
                             progress={getCourseProgress(course.id)}
@@ -941,7 +953,11 @@ export default function Dashboard({ user }: DashboardProps) {
       {/* Improved Course Preview Experience */}
       <AnimatePresence>
         {previewCourse && (
-          <Suspense fallback={<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[310] backdrop-blur-md"><Loader2 className="animate-spin text-primary" size={48} /></div>}>
+          <Suspense fallback={
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[310] backdrop-blur-md">
+              <GlowingSpinner size="lg" />
+            </div>
+          }>
             <CoursePreviewViewer 
               course={previewCourse} 
               onClose={() => setPreviewCourse(null)}
