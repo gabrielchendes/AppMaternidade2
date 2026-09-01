@@ -65,8 +65,17 @@ export default function Dashboard({ user }: DashboardProps) {
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   useEffect(() => {
-    // Preload CourseViewer chunk in the background so opening a course is instantaneous
-    import('../components/CourseViewer').catch(() => {});
+    // Preload CourseViewer chunk during browser idle time so initial home rendering is 100% fluid
+    const timer = setTimeout(() => {
+      if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(() => {
+          import('../components/CourseViewer').catch(() => {});
+        });
+      } else {
+        import('../components/CourseViewer').catch(() => {});
+      }
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {

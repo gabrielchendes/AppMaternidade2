@@ -20,6 +20,8 @@ export default defineConfig(({mode}) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+          maximumFileSizeToCacheInBytes: 4000000,
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/object\/public\/.*/,
@@ -93,7 +95,27 @@ export default defineConfig(({mode}) => {
       target: 'esnext',
       minify: 'esbuild',
       cssMinify: true,
-      chunkSizeWarningLimit: 1000,
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'vendor-react';
+              }
+              if (id.includes('motion')) {
+                return 'vendor-motion';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-lucide';
+              }
+              if (id.includes('@supabase')) {
+                return 'vendor-supabase';
+              }
+            }
+          }
+        }
+      }
     },
     resolve: {
       alias: {

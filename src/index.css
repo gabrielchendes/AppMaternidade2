@@ -60,6 +60,22 @@ body {
   perspective: 1000px;
 }
 
+@keyframes continuousSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner-smooth {
+  animation: continuousSpin 0.75s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 .content-visibility-auto {
   content-visibility: auto;
   contain-intrinsic-size: 0 500px;

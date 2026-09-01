@@ -155,7 +155,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
     return defaultSettings;
   });
-  const [loading, setLoading] = useState(true);
+
+  // Fast initialization: if we already have valid cached settings, don't block the screen
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      return !localStorage.getItem('app_settings_cache');
+    } catch {
+      return false;
+    }
+  });
 
   const fetchSettings = async () => {
     if (!supabase) {
@@ -163,13 +171,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Create a timeout to prevent hanging
+    // Safety timeout to prevent hanging on poor mobile connections
     const timeoutId = setTimeout(() => {
-      if (loading) {
-        console.warn('Settings fetch timed out, using defaults');
-        setLoading(false);
-      }
-    }, 3500);
+      setLoading(false);
+    }, 2000);
 
     try {
       const { data, error } = await supabase
@@ -180,7 +185,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.warn('Supabase notice fetching settings, falling back to cached/defaults:', error?.message || error);
-        // If it's an auth error, it might be a stale token
         if (error.message && (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant'))) {
           console.warn('Stale auth detected in SettingsProvider, clearing...');
           localStorage.removeItem('maternidade_premium_auth');

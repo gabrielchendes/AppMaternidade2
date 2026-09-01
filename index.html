@@ -96,9 +96,6 @@
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
     <title>Maternidade Premium</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
@@ -150,7 +147,19 @@
     <meta name="theme-color" content="#0f0f0f" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height: 100vh; background-color: var(--bg-main, #0b0c10); display: flex; align-items: center; justify-content: center; position: fixed; inset: 0; z-index: 9999;">
+        <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+          <div style="width: 48px; height: 48px; border-radius: 50%; border: 3.5px solid rgba(255, 255, 255, 0.08); border-top-color: var(--primary, #f43f5e); animation: init-spin 0.75s linear infinite; will-change: transform; transform: translateZ(0);"></div>
+        </div>
+      </div>
+      <style>
+        @keyframes init-spin {
+          0% { transform: rotate(0deg) translateZ(0); }
+          100% { transform: rotate(360deg) translateZ(0); }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -34,24 +34,22 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !isIframe) 
 }
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <TenantProvider>
-        <SettingsProvider>
-          <I18nProvider>
-            <App />
-            <Toaster 
-              position="top-center" 
-              theme="dark" 
-              offset="16px"
-              duration={4000}
-              toastOptions={{
-                className: 'modern-top-toast-container',
-              }}
-            />
-          </I18nProvider>
-        </SettingsProvider>
-      </TenantProvider>
-    </ErrorBoundary>
-  </StrictMode>,
+  <ErrorBoundary>
+    <TenantProvider>
+      <SettingsProvider>
+        <I18nProvider>
+          <App />
+          <Toaster 
+            position="top-center" 
+            theme="dark" 
+            offset="16px"
+            duration={4000}
+            toastOptions={{
+              className: 'modern-top-toast-container',
+            }}
+          />
+        </I18nProvider>
+      </SettingsProvider>
+    </TenantProvider>
+  </ErrorBoundary>,
 );

@@ -2,13 +2,27 @@ import { useState, useEffect, Suspense } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { useSettings } from './contexts/SettingsContext';
-import { motion, AnimatePresence } from 'motion/react';
 import { lazyWithRetry } from './lib/lazyWithRetry';
 import { safeFetch } from './lib/utils';
 import { toast } from 'sonner';
+import LoginPage from './pages/LoginPage';
 
-const LoginPage = lazyWithRetry(() => import('./pages/LoginPage'));
 const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+
+// Smooth hardware-accelerated Loading Screen
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen bg-[#0b0c10] flex flex-col items-center justify-center relative overflow-hidden">
+      <div className="relative flex items-center justify-center">
+        <div className="absolute w-24 h-24 rounded-full bg-primary/20 blur-xl pointer-events-none animate-pulse" />
+        <div 
+          className="w-12 h-12 rounded-full border-[3.5px] border-white/10 border-t-primary spinner-smooth"
+          style={{ willChange: 'transform' }}
+        />
+      </div>
+    </div>
+  );
+}
 
 // Main application component
 export default function App() {
@@ -289,31 +303,17 @@ export default function App() {
   }, [settings?.ga4_tag_id]);
 
   if (settingsLoading || authLoading) {
-    return (
-      <div className="min-h-screen bg-bg-main flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return (
     <div className="min-h-screen bg-bg-main text-white font-sans selection:bg-primary/30 text-pretty">
       {!user ? (
-          <Suspense fallback={
-            <div className="min-h-screen bg-bg-main flex items-center justify-center">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          }>
-            <LoginPage />
-          </Suspense>
+        <LoginPage />
       ) : (
-          <Suspense fallback={
-            <div className="min-h-screen bg-bg-main flex items-center justify-center">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            </div>
-          }>
-            <Dashboard user={user} />
-          </Suspense>
+        <Suspense fallback={<LoadingScreen />}>
+          <Dashboard user={user} />
+        </Suspense>
       )}
     </div>
   );
