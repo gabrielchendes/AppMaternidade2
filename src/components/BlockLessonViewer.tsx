@@ -1244,12 +1244,25 @@ export const BlockLessonViewer: React.FC<BlockLessonViewerProps> = ({
               {block.type === 'video' && block.url && (
                 <div className="space-y-3">
                   <div className="aspect-video w-full rounded-2xl overflow-hidden border border-white/10 bg-black">
-                    <iframe
-                      src={block.url}
-                      className="w-full h-full"
-                      allow="autoplay; encrypted-media"
-                      allowFullScreen
-                    />
+                    {block.url.includes('r2.dev') || 
+                     block.url.includes('cloudflare') || 
+                     block.url.match(/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i) ? (
+                      <video
+                        src={block.url}
+                        controls
+                        playsInline
+                        webkit-playsinline="true"
+                        preload="metadata"
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <iframe
+                        src={block.url}
+                        className="w-full h-full border-0"
+                        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                        allowFullScreen
+                      />
+                    )}
                   </div>
                 </div>
               )}

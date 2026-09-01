@@ -406,18 +406,15 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
     if (!activeChapter?.video_url || activeChapter.video_url === 'undefined') return null;
 
     const url = activeChapter.video_url;
-    const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
     let content = null;
-    let videoRef: any = null;
 
     // Handle YouTube
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       let videoId = '';
-      if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0];
-      else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0];
-      else if (url.includes('youtube.com/shorts/')) videoId = url.split('youtube.com/shorts/')[1].split('?')[0];
-      else if (url.includes('embed/')) videoId = url.split('embed/')[1].split('?')[0];
+      if (url.includes('v=')) videoId = url.split('v=')[1]?.split('&')[0] || '';
+      else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1]?.split('?')[0] || '';
+      else if (url.includes('youtube.com/shorts/')) videoId = url.split('youtube.com/shorts/')[1]?.split('?')[0] || '';
+      else if (url.includes('embed/')) videoId = url.split('embed/')[1]?.split('?')[0] || '';
 
       if (videoId) {
         content = (
@@ -433,7 +430,7 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
     }
     // Handle Vimeo
     else if (url.includes('vimeo.com')) {
-      const videoId = url.split('vimeo.com/')[1].split('?')[0];
+      const videoId = url.split('vimeo.com/')[1]?.split('?')[0];
       if (videoId) {
         content = (
           <iframe
@@ -449,9 +446,9 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
     // Handle Google Drive
     else if (url.includes('drive.google.com')) {
       let videoId = '';
-      if (url.includes('/d/')) videoId = url.split('/d/')[1].split('/')[0];
-      else if (url.includes('id=')) videoId = url.split('id=')[1].split('&')[0];
-      else if (url.includes('/file/d/')) videoId = url.split('/file/d/')[1].split('/')[0];
+      if (url.includes('/d/')) videoId = url.split('/d/')[1]?.split('/')[0] || '';
+      else if (url.includes('id=')) videoId = url.split('id=')[1]?.split('&')[0] || '';
+      else if (url.includes('/file/d/')) videoId = url.split('/file/d/')[1]?.split('/')[0] || '';
 
       if (videoId) {
         content = (
@@ -493,23 +490,53 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
         />
       );
     }
-    // Cloudflare R2 or direct video links
-    else if (url.includes('r2.dev') || url.match(/\.(mp4|webm|ogg)$/i)) {
-      content = (
-        <video
-          src={url}
-          controls
-          autoPlay
-          playsInline
-          preload="metadata"
-          className="w-full h-full"
-          onEnded={() => {
-            if (activeChapter) {
-              markChapterComplete(activeChapter.id);
-            }
-          }}
-        />
-      );
+    // Cloudflare Stream, Cloudflare R2, or any direct video link (mp4, webm, mov, ogg, etc.)
+    else if (
+      url.includes('r2.dev') || 
+      url.includes('cloudflare') || 
+      url.includes('videodelivery.net') || 
+      url.includes('cloudflarestream.com') ||
+      url.match(/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i)
+    ) {
+      if (url.includes('iframe.videodelivery.net') || (url.includes('cloudflarestream.com') && url.includes('/iframe'))) {
+        content = (
+          <iframe
+            src={url}
+            className="w-full h-full border-0 absolute inset-0"
+            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+            allowFullScreen
+            title={activeChapter.title}
+          />
+        );
+      } else if (url.includes('cloudflarestream.com') || url.includes('videodelivery.net')) {
+        const streamId = url.split('/').pop()?.split('?')[0];
+        content = (
+          <iframe
+            src={`https://iframe.videodelivery.net/${streamId}`}
+            className="w-full h-full border-0 absolute inset-0"
+            allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+            allowFullScreen
+            title={activeChapter.title}
+          />
+        );
+      } else {
+        content = (
+          <video
+            src={url}
+            controls
+            autoPlay
+            playsInline
+            webkit-playsinline="true"
+            preload="metadata"
+            className="w-full h-full object-contain"
+            onEnded={() => {
+              if (activeChapter) {
+                markChapterComplete(activeChapter.id);
+              }
+            }}
+          />
+        );
+      }
     }
     // Fallback to ReactPlayer
     else {
@@ -527,7 +554,9 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
           config={{
             file: {
               attributes: {
-                preload: 'metadata'
+                preload: 'metadata',
+                playsInline: true,
+                'webkit-playsinline': 'true'
               }
             }
           }}
@@ -539,24 +568,6 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
         />
       );
     }
-
-    const handleFullscreen = (e: React.MouseEvent) => {
-      const container = e.currentTarget.parentElement?.parentElement;
-      if (!container) return;
-      
-      const media = container.querySelector('video') || container.querySelector('iframe') || container.querySelector('div[style*="absolute"]');
-      if (media) {
-        if (media.requestFullscreen) media.requestFullscreen();
-        else if ((media as any).webkitRequestFullscreen) (media as any).webkitRequestFullscreen();
-        else if ((media as any).mozRequestFullScreen) (media as any).mozRequestFullScreen();
-        else if ((media as any).msRequestFullscreen) (media as any).msRequestFullscreen();
-        // Special case for mobile video elements that don't support the standard API directly on the container
-        const videoElement = media.querySelector('video') || (media.tagName === 'VIDEO' ? media : null);
-        if (videoElement && (videoElement as any).webkitEnterFullscreen) {
-          (videoElement as any).webkitEnterFullscreen();
-        }
-      }
-    };
 
     return (
       <div className="absolute inset-0 bg-black group/video-container overflow-hidden rounded-xl">
@@ -573,19 +584,21 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
   const renderPdf = () => {
     if (!activeChapter?.pdf_url) return null;
     
-    // Simple mobile detection
-    const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    // URL Encoding for special characters in R2 filenames
-    const encodedUrl = encodeURIComponent(activeChapter.pdf_url);
-    const googleDocsViewer = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
-    
-    // PDF parameters for native viewer
-    const desktopUrl = activeChapter.pdf_url.includes('#') 
-      ? activeChapter.pdf_url 
-      : `${activeChapter.pdf_url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&pagemode=none`;
-    
-    const viewerUrl = isMobileDevice ? googleDocsViewer : desktopUrl;
+    // Mechanism: Google Drive preview or Google Docs Viewer to avoid Chrome iframe PDF blocking
+    let viewerUrl = '';
+    if (activeChapter.pdf_url.includes('drive.google.com')) {
+      let fileId = '';
+      const match1 = activeChapter.pdf_url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+      const match2 = activeChapter.pdf_url.match(/id=([a-zA-Z0-9_-]+)/);
+      const match3 = activeChapter.pdf_url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match1) fileId = match1[1];
+      else if (match2) fileId = match2[1];
+      else if (match3) fileId = match3[1];
+      viewerUrl = fileId ? `https://drive.google.com/file/d/${fileId}/preview` : activeChapter.pdf_url;
+    } else {
+      const encodedUrl = encodeURIComponent(activeChapter.pdf_url);
+      viewerUrl = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
+    }
 
     return (
       <div className="w-full h-full relative group/pdf bg-[#1a1a1a] overflow-hidden rounded-[2rem] sm:rounded-[3rem]">
@@ -614,7 +627,7 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                 markChapterComplete(activeChapter.id);
               }
             }}
-            className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn"
+            className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn cursor-pointer"
             title={t('course.view_fullscreen') || "View Fullscreen"}
           >
             <Maximize2 size={24} className="group-hover/btn:rotate-12 transition-transform" />

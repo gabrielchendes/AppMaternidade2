@@ -77,22 +77,38 @@ export default function CoursePreviewViewer({ course, onClose, onPurchase }: Cou
       const videoUrl = course.preview_video_url || course.preview_url || '';
       const isYouTube = videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be');
       const isVimeo = videoUrl.includes('vimeo.com');
+      const isDrive = videoUrl.includes('drive.google.com');
 
       const getEmbedUrl = () => {
         if (isYouTube) {
-          const id = videoUrl.split('v=')[1]?.split('&')[0] || videoUrl.split('/').pop();
-          return `https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
+          const id = videoUrl.split('v=')[1]?.split('&')[0] || videoUrl.split('/').pop()?.split('?')[0];
+          return `https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
         }
         if (isVimeo) {
-          const id = videoUrl.split('/').pop();
-          return `https://player.vimeo.com/video/${id}?autoplay=1&title=0&byline=0&portrait=0`;
+          const id = videoUrl.split('/').pop()?.split('?')[0];
+          return `https://player.vimeo.com/video/${id}?autoplay=1&title=0&byline=0&portrait=0&playsinline=1`;
+        }
+        if (isDrive) {
+          const id = videoUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1] || videoUrl.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || videoUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+          return `https://drive.google.com/file/d/${id}/preview`;
+        }
+        if (videoUrl.includes('iframe.videodelivery.net')) {
+          return videoUrl;
+        }
+        if (videoUrl.includes('cloudflarestream.com') || videoUrl.includes('videodelivery.net')) {
+          const streamId = videoUrl.split('/').pop()?.split('?')[0];
+          return `https://iframe.videodelivery.net/${streamId}`;
         }
         return videoUrl;
       };
 
+      const isDirectOrCloudflare = videoUrl.includes('r2.dev') || 
+                                  videoUrl.includes('cloudflare') || 
+                                  videoUrl.match(/\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i);
+
       return (
         <div className="relative aspect-video w-full bg-black rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10 ring-1 ring-white/5">
-          {isYouTube || isVimeo ? (
+          {isYouTube || isVimeo || isDrive || videoUrl.includes('videodelivery.net') || videoUrl.includes('cloudflarestream.com') ? (
             <iframe
               src={getEmbedUrl()}
               className="w-full h-full border-0"
@@ -105,6 +121,9 @@ export default function CoursePreviewViewer({ course, onClose, onPurchase }: Cou
               className="w-full h-full object-contain"
               controls
               autoPlay
+              playsInline
+              webkit-playsinline="true"
+              preload="metadata"
             />
           )}
         </div>
@@ -112,14 +131,16 @@ export default function CoursePreviewViewer({ course, onClose, onPurchase }: Cou
     }
 
     if (type === 'pdf') {
-      const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const encodedUrl = encodeURIComponent(course.preview_pdf_url || '');
-      const googleDocsViewer = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
-      const desktopUrl = (course.preview_pdf_url || '').includes('#') 
-        ? course.preview_pdf_url 
-        : `${course.preview_pdf_url}#toolbar=0&navpanes=0&scrollbar=0&view=FitH&pagemode=none`;
-      
-      const viewerUrl = isMobileDevice ? googleDocsViewer : desktopUrl;
+      let viewerUrl = '';
+      if ((course.preview_pdf_url || '').includes('drive.google.com')) {
+        const fileId = (course.preview_pdf_url || '').match(/\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1] || 
+                       (course.preview_pdf_url || '').match(/id=([a-zA-Z0-9_-]+)/)?.[1] || 
+                       (course.preview_pdf_url || '').match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+        viewerUrl = fileId ? `https://drive.google.com/file/d/${fileId}/preview` : (course.preview_pdf_url || '');
+      } else {
+        const encodedUrl = encodeURIComponent(course.preview_pdf_url || '');
+        viewerUrl = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
+      }
 
       return (
         <div className="relative aspect-[1/1.4] sm:aspect-[3/4] w-full bg-[#1a1a1a] rounded-[2rem] sm:rounded-[3rem] overflow-hidden shadow-2xl border border-white/10 ring-8 ring-white/5">
@@ -144,7 +165,7 @@ export default function CoursePreviewViewer({ course, onClose, onPurchase }: Cou
               href={course.preview_pdf_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn"
+              className="bg-primary hover:bg-primary/90 text-black p-4 rounded-2xl transition-all hover:scale-110 active:scale-95 shadow-[0_8px_32px_rgba(var(--primary-rgb),0.3)] flex items-center justify-center group/btn cursor-pointer"
               title="Ver em Tela Cheia"
             >
               <Maximize2 size={24} className="group-hover/btn:rotate-12 transition-transform" />
