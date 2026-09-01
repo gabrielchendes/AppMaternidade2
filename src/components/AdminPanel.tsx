@@ -4816,6 +4816,61 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     />
                                   </div>
 
+                                  {/* 6. Cor da Letra do Nome da Plataforma */}
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-black text-gray-500 uppercase tracking-widest">Cor da Letra do Nome da Plataforma</label>
+                                    <div className="flex flex-wrap items-center gap-3 p-3 bg-black/60 rounded-xl border border-white/10">
+                                      <div className="flex items-center gap-2">
+                                        <input 
+                                          type="color" 
+                                          value={draftCustomTexts['auth.title_color'] || settings.custom_texts?.['auth.title_color'] || '#ffffff'}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'auth.title_color': e.target.value })}
+                                          className="w-9 h-9 rounded-lg bg-transparent border border-white/20 cursor-pointer p-0.5"
+                                        />
+                                        <input 
+                                          type="text" 
+                                          value={draftCustomTexts['auth.title_color'] !== undefined ? draftCustomTexts['auth.title_color'] : (settings.custom_texts?.['auth.title_color'] || '#ffffff')}
+                                          onChange={(e) => setDraftCustomTexts({ ...draftCustomTexts, 'auth.title_color': e.target.value })}
+                                          placeholder="#ffffff"
+                                          className="w-24 bg-black border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white uppercase font-mono focus:border-blue-500 outline-none"
+                                        />
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-1.5 items-center ml-auto">
+                                        {[
+                                          { name: 'Branco', color: '#ffffff' },
+                                          { name: 'Dourado', color: '#f59e0b' },
+                                          { name: 'Rosa / Rose', color: '#f43f5e' },
+                                          { name: 'Prim√°ria', color: localSettings?.primary_color || settings.primary_color || '#ef4444' },
+                                          { name: 'Esmeralda', color: '#10b981' },
+                                          { name: 'Azul C√©u', color: '#38bdf8' },
+                                          { name: 'P√∫rpura', color: '#a855f7' },
+                                        ].map((preset) => {
+                                          const currentColor = (draftCustomTexts['auth.title_color'] || settings.custom_texts?.['auth.title_color'] || '#ffffff').toLowerCase();
+                                          const isSelected = currentColor === preset.color.toLowerCase();
+                                          return (
+                                            <button
+                                              key={preset.name + preset.color}
+                                              type="button"
+                                              title={preset.name}
+                                              onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'auth.title_color': preset.color })}
+                                              className={`w-6 h-6 rounded-md border transition-all cursor-pointer ${isSelected ? 'border-white scale-110 shadow-md ring-2 ring-white/30' : 'border-white/20 hover:scale-105 opacity-80 hover:opacity-100'}`}
+                                              style={{ backgroundColor: preset.color }}
+                                            />
+                                          );
+                                        })}
+                                        <button
+                                          type="button"
+                                          onClick={() => setDraftCustomTexts({ ...draftCustomTexts, 'auth.title_color': '#ffffff' })}
+                                          className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[10px] text-gray-400 hover:text-white transition-colors cursor-pointer"
+                                          title="Redefinir para Branco Padr√£o"
+                                        >
+                                          Padr√£o
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+
                                   {/* Reordered custom_texts fields */}
                                   {[
                                     { key: 'auth.subtitle', label: 'Subt√≠tulo do Login' },
@@ -4890,7 +4945,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                              />
                                            ) : null}
                                            {(localSettings?.login_display_type === 'title' || localSettings?.login_display_type === 'both') && (
-                                             <h2 className="text-lg font-black italic uppercase tracking-tighter" style={{ color: localSettings?.primary_color || settings.primary_color }}>
+                                             <h2 
+                                               className="text-lg font-black italic uppercase tracking-tighter transition-colors" 
+                                               style={{ 
+                                                 color: draftCustomTexts['auth.title_color'] || settings.custom_texts?.['auth.title_color'] || '#ffffff' 
+                                               }}
+                                             >
                                                {localSettings?.app_name || 'App Name'}
                                              </h2>
                                            )}
@@ -8006,5 +8066,89 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                   >
                     <option value="main_product">PRODUTO PRINCIPAL (Acesso Geral √† Plataforma)</option>
                     <option value="course">CURSO INDIVIDUAL PAGO</option>
-                    <option value="package">PACOTE DE CURSOS / OFERTA ESPECIAL</option>xúÏW›n‚FæœSq±ÄTC6MˆÇ¢[)“ÊG!Ÿ^¢¡>¡S∆wfÃœ≤<M/˙}Ç}±ˇ 	©"m*	l€ÁÃ|Á˚æN¿ÚiÀ»p¬îâ;∆á:iWÒ4\ÈˆÉÀÎﬁ˝√].{P{–.∏aû¨∑õŸ€›ì#RK„£™toÓÔn†	˝õ´€OØ>^ﬂ˜Óû ”njËöÚΩv”„”ÓI)æåîÙb◊¸*U–»œáf!t:®∫2V´Ó‘lı()∏Çi}Õ∂éòãŒ¬9´ò•`#≈7Œç3◊(C„å§ çå[8?ûûBE®\¶åbÓÑácg∆Ωõ>çL¬g∫± |€Õ4˜Å∫,÷{êcæÉ™êâ°ajåf»=¯˙™’’Å2Ï˚,Sñ÷°”çÊvõØ∂ÑF£Q(î+¥ ŸE#¨Íá  ú9è±0;#A ¡H*Ç'?83ülæ?%„–CœôàÊŒ9Doµ≤c˙(ı¡çu+õ#˙Ω†6»ÿ¢ +÷AŸÅ/ª“$≠†ÇÑ¥áÑÃ”⁄ ñf<‘çÄEµö€.Ròm§‹≠;¡EgÈ6∏∑Z˜9ΩË“¡p#pı\Ì˙Å.÷⁄Fm•T´ê5a„∑©¿[ÊJ¢Ãˇ¸/K0k‚ÒºÕôK1öå_,Fzß(«¸≤õû|IZü€èæ@fØ)±O<úÄá–˜—ùh/CèAÌ&J:»D˝†Í⁄<åbõ‡w…e„ëEän^}+qXÑ/`1Ôë“ãHaËÑ®:ﬂòH∑öÕà-æ4S¶· †Iul3{címÓ∑ÏmQÔLv∂ﬂ˛˙ˆ'Ìb3ß<äuI~¶êG-7˚Á◊dV!Ìø!V/îÜ—‘ˇFS‡1ßEYÀëB@MMOyÄlJŒtgyf+ı]y
-5ˇÚ ú|8@†Æ¿òE4ƒ»ÿi˙¥3•∂0ís¨‹ÎT‡á\ôk¯‘∫¶–€€P¨ﬂxäm“ñ◊=@±`yC˜üw¸Ï4kÍ∂ÉYcU"œmpFLÈÎ&ªhÂD2›–—‘çQ¯&4õ§6Ÿıç‘OÙxÏ◊∑≠æW,B 	=™ °F]‘ö)¿i◊âf∑™Ç)gé|)'uÀøY´˚X÷x≠Ï˝=÷Ü?.Z]∑‰=_˜≈ÏK≤4Àˆ(6FÜ•°fîŒnñ[C¥‹ùÎ÷§¯rñÔJzL‘ô–h·Sa‰	â'ú5.äVÒî˜üS}9E’*ÿ±1õﬂE~o ¢ı!‘<qTá	±?ïr”˚,tQ0UÍQÜ≈Î‡ÁqÕF"Q∫fSRGé\≠–§rO‡ÄMÒ‡≥ª»~xŸT¿á“ÏŸ\‰kın—ﬂÑQ≠g”í¥∆s≥ ïÔ¡vß=Ì”∞ô#∆Î≥M!rìÁõµ¸ÌOí—Ëœä`∞êÃ†£#V YE:À˜V‰/–Çv∫E›âñë]íaòù:’S2Åû†π‰Knï“U˚Ãcö&Ø‡6sÑ“Œ¿Œ§íÏv.sYmbıüNV'ˇ   ˇˇ Oû
+                    <option value="package">PACOTE DE CURSOS / OFERTA ESPECIAL</option>
+                    <option value="ai_subscription">ASSINATURA IA (Uso Ilimitado)</option>
+                  </select>
+                </div>
+
+                {(productForm.product_type === 'course' || productForm.product_type === 'package') && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                      {productForm.product_type === 'course' ? 'Curso Correspondente *' : 'Pacote de Cursos *'}
+                    </label>
+                    <select
+                      value={productForm.internal_target_id}
+                      onChange={(e) => setProductForm({ ...productForm, internal_target_id: e.target.value })}
+                      className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                    >
+                      <option value="">Selecione um curso...</option>
+                      {courses.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Link de Checkout da Hotmart (Opcional)</label>
+                <input
+                  type="text"
+                  value={productForm.checkout_url}
+                  onChange={(e) => setProductForm({ ...productForm, checkout_url: e.target.value })}
+                  placeholder="https://pay.hotmart.com/..."
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider">Descri√ß√£o / Observa√ß√µes Internas</label>
+                <input
+                  type="text"
+                  value={productForm.description}
+                  onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                  placeholder="Ex: Oferta de Black Friday"
+                  className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <input
+                  type="checkbox"
+                  id="prod_is_active"
+                  checked={productForm.is_active}
+                  onChange={(e) => setProductForm({ ...productForm, is_active: e.target.checked })}
+                  className="w-4 h-4 rounded bg-black border-white/20 text-amber-500 focus:ring-amber-500"
+                />
+                <label htmlFor="prod_is_active" className="text-xs text-gray-300 font-medium cursor-pointer">
+                  Mapeamento Ativo (processar eventos deste produto via Webhook)
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowProductModal(false)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={savingProduct}
+                onClick={handleSaveProduct}
+                className="px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-black bg-amber-400 hover:bg-amber-300 disabled:opacity-50 transition-all flex items-center gap-2 shadow-lg shadow-amber-400/20"
+              >
+                {savingProduct ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
+                {editingProduct ? 'Salvar Altera√ß√µes' : 'Cadastrar Produto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

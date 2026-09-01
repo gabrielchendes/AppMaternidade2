@@ -265,15 +265,15 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
       });
 
       if (targetState) {
-        showToast.success(t('course.lesson_completed') || 'Lesson completed!', {
-          description: t('course.progress_saved') || 'Your progress has been saved successfully.'
+        showToast.success('Lesson completed!', {
+          description: 'Your progress has been saved successfully.'
         });
       } else {
-        showToast.info(t('course.lesson_unmarked') || 'Lesson marked as incomplete');
+        showToast.info('Lesson marked as incomplete');
       }
     } catch (err) {
       console.error('Error toggling progress:', err);
-      showToast.error(t('course.progress_error') || 'Error updating progress');
+      showToast.error('Error updating progress');
     }
   };
 
@@ -300,8 +300,8 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
         return [...prev, { user_id: userId, chapter_id: chapterId, completed: true }];
       });
 
-      showToast.success(t('course.lesson_completed') || 'Aula concluída!', {
-        description: 'Seu progresso foi salvo com sucesso.'
+      showToast.success('Lesson completed!', {
+        description: 'Your progress has been saved successfully.'
       });
     } catch (err) {
       console.error('Error marking progress:', err);
