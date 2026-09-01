@@ -295,7 +295,7 @@ export default function Dashboard({ user }: DashboardProps) {
       const [coursesRes, purchasesByIdRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
         supabase
           .from('courses')
-          .select('id, title, subtitle, description, cover_url, premium_cover_url, price, old_price, checkout_url, is_free, is_bonus, is_package_exclusive_bonus, order_index, pdf_url, created_at, is_active, button_text, button_link')
+          .select('*')
           .eq('is_active', true)
           .order('order_index', { ascending: true }),
         supabase.from('purchases').select('product_id, created_at').eq('user_id', user.id),

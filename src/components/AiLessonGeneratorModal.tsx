@@ -21,11 +21,13 @@ import {
   Layers,
   Save,
   Image as ImageIcon,
-  Upload
+  Upload,
+  Camera
 } from 'lucide-react';
 import { Course, Module, LessonBlock, LessonBlockType, LessonBlockItem } from '../types/lms';
 import { BlockLessonViewer } from './BlockLessonViewer';
 import { toast } from 'sonner';
+import { AiImageSuggestionsModal } from './AiImageSuggestionsModal';
 
 interface AiLessonGeneratorModalProps {
   isOpen: boolean;
@@ -265,31 +267,47 @@ export const AiLessonGeneratorModal: React.FC<AiLessonGeneratorModalProps> = ({
     onClose();
   };
 
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
-      <div className="w-full max-w-5xl bg-zinc-950 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] text-left my-auto">
-        {/* Modal Header */}
-        <div className="p-5 sm:p-6 bg-gradient-to-r from-emerald-950/80 via-zinc-900 to-zinc-900 border-b border-white/10 flex items-center justify-between gap-4 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
-              <Sparkles size={22} />
+    <>
+      <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
+        <div className="w-full max-w-5xl bg-zinc-950 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] text-left my-auto">
+          {/* Modal Header */}
+          <div className="p-5 sm:p-6 bg-gradient-to-r from-emerald-950/80 via-zinc-900 to-zinc-900 border-b border-white/10 flex items-center justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                <Sparkles size={22} />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-black text-white italic uppercase tracking-tight">
+                  Criar Aula Interativa com IA
+                </h2>
+                <p className="text-xs text-gray-400">
+                  A IA analisa o seu objetivo e projeta aulas com blocos interativos e salvamento de progresso.
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-black text-white italic uppercase tracking-tight">
-                Criar Aula Interativa com IA
-              </h2>
-              <p className="text-xs text-gray-400">
-                A IA analisa o seu objetivo e projeta aulas com blocos interativos e salvamento de progresso.
-              </p>
+            
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsImageModalOpen(true)}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/20 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Sugerir Imagens e Prompts de IA para a Aula"
+              >
+                <Camera size={14} className="text-cyan-400" />
+                <span className="hidden sm:inline">Ideias Visuais</span>
+              </button>
+
+              <button
+                onClick={onClose}
+                className="p-2.5 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer"
+              >
+                <X size={20} />
+              </button>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2.5 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all"
-          >
-            <X size={20} />
-          </button>
-        </div>
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
@@ -738,5 +756,14 @@ export const AiLessonGeneratorModal: React.FC<AiLessonGeneratorModalProps> = ({
         </div>
       </div>
     </div>
-  );
+
+    {/* AI Image Suggestions Modal */}
+    <AiImageSuggestionsModal
+      isOpen={isImageModalOpen}
+      onClose={() => setIsImageModalOpen(false)}
+      initialTopic={lessonTitle || lessonGoal || 'Aula Interativa'}
+      contextType="lesson_illustration"
+    />
+  </>
+);
 };
