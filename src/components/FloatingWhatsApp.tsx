@@ -11,7 +11,12 @@ export default function FloatingWhatsApp({ page }: FloatingWhatsAppProps) {
   const { settings } = useSettings();
 
   const isEnabled = () => {
-    if (page === 'login') return true;
+    if (page === 'login') {
+      if (settings.custom_texts?.['config.support_whatsapp_login_floating'] !== undefined) {
+        return settings.custom_texts['config.support_whatsapp_login_floating'] === 'true';
+      }
+      return settings.support_whatsapp_login_floating !== false;
+    }
     
     if (page === 'home') return settings.support_whatsapp_floating_enabled;
     if (page === 'community') return settings.support_whatsapp_floating_community_enabled;

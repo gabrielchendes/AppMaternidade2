@@ -134,6 +134,7 @@ export const AiLessonGeneratorModal: React.FC<AiLessonGeneratorModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('preview');
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -169,10 +170,16 @@ export const AiLessonGeneratorModal: React.FC<AiLessonGeneratorModalProps> = ({
         })
       });
 
-      const data = await response.json();
+      let data: any = null;
+      const rawText = await response.text();
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error(rawText?.trim() || `Falha de comunicação com o servidor de IA (HTTP ${response.status})`);
+      }
 
-      if (!response.ok || !data.success || !data.lesson) {
-        throw new Error(data.error || 'Falha ao gerar aula com IA');
+      if (!response.ok || !data?.success || !data?.lesson) {
+        throw new Error(data?.error || 'Falha ao gerar aula com IA');
       }
 
       setGeneratedLesson(data.lesson);
@@ -266,8 +273,6 @@ export const AiLessonGeneratorModal: React.FC<AiLessonGeneratorModalProps> = ({
     toast.success(initialChapterId ? 'Aula atualizada com sucesso!' : 'Aula criada e adicionada com sucesso!');
     onClose();
   };
-
-  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   return (
     <>

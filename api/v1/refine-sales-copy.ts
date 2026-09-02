@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { safeParseAiJson } from '../utils/parseAiJson';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -74,7 +75,7 @@ ${currentHtml || '<div class="space-y-6 text-gray-200"><h3>Mastery Transformatio
 
 Apply the user's instruction precisely, keeping the overall structure cohesive, luxurious, and ultra-high-converting.`;
 
-    const candidateModels = ['gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let textResult = '';
     let lastError: any = null;
 
@@ -85,7 +86,7 @@ Apply the user's instruction precisely, keeping the overall structure cohesive, 
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: {
             systemInstruction,
-            temperature: 0.7,
+            temperature: 0.6,
             responseMimeType: 'application/json'
           }
         });
@@ -96,6 +97,7 @@ Apply the user's instruction precisely, keeping the overall structure cohesive, 
       } catch (err: any) {
         lastError = err;
         console.warn(`[refine-sales-copy] Error with model ${modelName}:`, err?.message || err);
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -103,17 +105,32 @@ Apply the user's instruction precisely, keeping the overall structure cohesive, 
       throw lastError || new Error('Unable to refine sales page copy with AI.');
     }
 
-    const cleanJson = textResult
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(cleanJson);
+    const parsed = safeParseAiJson(textResult);
 
     return res.status(200).json({ success: true, data: parsed });
   } catch (error: any) {
     console.error('[refine-sales-copy] Error:', error);
-    return res.status(500).json({ error: error.message || 'Error refining sales copy with AI' });
+
+    const errMsg = error?.message || '';
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
+    return res.status(500).json({ error: cleanError || 'Error refining sales copy with AI' });
   }
 }

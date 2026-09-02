@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { safeParseAiJson } from '../utils/parseAiJson';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -89,7 +90,7 @@ Visual Style: "${stylePreference}"
 
 Generate output in strict JSON format.`;
 
-    const candidateModels = ['gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let textResult = '';
     let lastError: any = null;
 
@@ -100,7 +101,7 @@ Generate output in strict JSON format.`;
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: {
             systemInstruction,
-            temperature: 0.7,
+            temperature: 0.6,
             responseMimeType: 'application/json'
           }
         });
@@ -111,6 +112,7 @@ Generate output in strict JSON format.`;
       } catch (err: any) {
         lastError = err;
         console.warn(`[suggest-images] Error with model ${modelName}:`, err?.message || err);
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -118,13 +120,7 @@ Generate output in strict JSON format.`;
       throw lastError || new Error('Unable to generate image suggestions with available AI models.');
     }
 
-    const cleanJson = textResult
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(cleanJson);
+    const parsed = safeParseAiJson(textResult);
 
     // Ensure links are safely encoded
     const primaryQuery = parsed.stockSearchKeywords?.[0] || topic;
@@ -137,6 +133,27 @@ Generate output in strict JSON format.`;
     return res.status(200).json({ success: true, data: parsed });
   } catch (error: any) {
     console.error('[suggest-images] Error:', error);
-    return res.status(500).json({ error: error.message || 'Error generating image suggestions with AI' });
+
+    const errMsg = error?.message || '';
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
+    return res.status(500).json({ error: cleanError || 'Error generating image suggestions with AI' });
   }
 }

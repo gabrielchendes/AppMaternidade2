@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { safeParseAiJson } from '../utils/parseAiJson';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -76,7 +77,7 @@ CRITICAL DIRECTIVES:
    - Blend genuine empathy and inspiration with undeniable authority, prestige, and practical relief.
 
 4. STRUCTURED OUTPUT FORMAT:
-   You MUST return ONLY a valid JSON object strictly matching this schema:
+   You MUST return ONLY a raw valid JSON object strictly matching this schema with NO markdown code fences and NO commentary before or after:
    {
      "title": "Short, memorable, impactful course name in English",
      "subtitle": "Magnetic sub-headline with core promise/transformation in English",
@@ -145,7 +146,7 @@ ${existingCourse ? `Existing Course Data to Enhance:\n${JSON.stringify(existingC
 
 Generate the complete high-converting copy in valid JSON. All text must be in American English.`;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-pro-preview'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let textResult = '';
     let lastError: any = null;
 
@@ -156,7 +157,7 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
           contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
           config: {
             systemInstruction,
-            temperature: 0.7,
+            temperature: 0.6,
             responseMimeType: 'application/json'
           }
         });
@@ -167,6 +168,7 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
       } catch (err: any) {
         lastError = err;
         console.warn(`[generate-course-copy] Failed with model ${modelName}:`, err?.message || err);
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -174,13 +176,7 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
       throw lastError || new Error('Não foi possível gerar a copy do curso com os modelos de IA disponíveis.');
     }
 
-    const cleanJson = textResult
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(cleanJson);
+    const parsed = safeParseAiJson(textResult);
 
     if (!includeOldPrice) {
       parsed.old_price = 0;
@@ -191,12 +187,13 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
   } catch (error: any) {
     console.error('[generate-course-copy] Error:', error);
 
+    const errMsg = error?.message || '';
     const isQuotaError = error.status === 'RESOURCE_EXHAUSTED' || 
                          error.status === 429 || 
                          error.statusCode === 429 ||
-                         error.message?.includes('429') || 
-                         error.message?.includes('quota') || 
-                         error.message?.includes('RESOURCE_EXHAUSTED');
+                         errMsg.includes('429') || 
+                         errMsg.includes('quota') || 
+                         errMsg.includes('RESOURCE_EXHAUSTED');
 
     if (isQuotaError) {
       return res.status(429).json({
@@ -204,6 +201,25 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
       });
     }
 
-    return res.status(500).json({ error: error.message || 'Erro interno ao gerar a copy com IA' });
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
+    return res.status(500).json({ error: cleanError || 'Erro interno ao gerar a copy com IA' });
   }
 }

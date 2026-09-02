@@ -36,18 +36,23 @@ export default function ChapterQuestions({ chapterId, userId: initialUserId, use
 
   useEffect(() => {
     async function getRealProfile() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).maybeSingle();
-        setUserData({
-          id: user.id,
-          name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Aluno',
-          avatar: profile?.avatar_url || user.user_metadata?.avatar_url || initialAvatar
-        });
+      try {
+        const { data } = await supabase.auth.getUser();
+        const user = data?.user;
+        if (user) {
+          const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).maybeSingle();
+          setUserData({
+            id: user.id,
+            name: profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || initialUserName || 'Aluno',
+            avatar: profile?.avatar_url || user.user_metadata?.avatar_url || initialAvatar
+          });
+        }
+      } catch (err) {
+        console.warn('Silent note: Could not load user profile in ChapterQuestions, using props fallback', err);
       }
     }
     getRealProfile();
-  }, [initialUserId]);
+  }, [initialUserId, initialUserName, initialAvatar]);
 
   useEffect(() => {
     fetchQuestions();

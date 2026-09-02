@@ -54,7 +54,19 @@ export default function Dashboard({ user }: DashboardProps) {
   // Instant synchronous cache retrieval for 0ms initial render
   const cacheKey = `dashboard_data_${user?.id}`;
   const initialCached = useMemo(() => {
-    return user?.id ? dataCache.getSync(cacheKey, null) : null;
+    const userCached = user?.id ? dataCache.getSync(cacheKey, null) : null;
+    if (userCached?.courses?.length) return userCached;
+    const globalCatalog = dataCache.getSync('global_public_courses_catalog', null);
+    if (globalCatalog && Array.isArray(globalCatalog) && globalCatalog.length > 0) {
+      return {
+        courses: globalCatalog,
+        purchases: [],
+        userProgress: [],
+        courseStats: {},
+        courseChapters: {}
+      };
+    }
+    return null;
   }, [user?.id, cacheKey]);
 
   const [courses, setCourses] = useState<Course[]>(() => initialCached?.courses || []);
@@ -156,9 +168,9 @@ export default function Dashboard({ user }: DashboardProps) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
     
-    // If switching back to home, refresh progress silently in background
-    if (activeTab === 'home' && courses.length > 0) {
-       fetchData(false);
+    // If switching back to home, refresh progress or fetch courses if missing
+    if (activeTab === 'home') {
+       fetchData(courses.length === 0);
     }
 
     // Always scroll to top when changing tabs
@@ -202,6 +214,19 @@ export default function Dashboard({ user }: DashboardProps) {
 
     init();
 
+    // Auto-retry watchdog: ensures courses show up quickly even if first network/auth call hesitated
+    const retryWatchdog = setTimeout(() => {
+      if (mounted) {
+        setCourses(currentCourses => {
+          if (currentCourses.length === 0) {
+            console.log('[Dashboard] Auto-retry watchdog: courses not populated, refetching...');
+            fetchData(true);
+          }
+          return currentCourses;
+        });
+      }
+    }, 1800);
+
     // Subscribe to real-time progress updates
     const channel = supabase
       .channel(`user_progress_dashboard_${user.id}`)
@@ -233,10 +258,11 @@ export default function Dashboard({ user }: DashboardProps) {
     
     const safetyTimeout = setTimeout(() => {
       if (mounted) setLoading(false);
-    }, 8000);
+    }, 4500);
     
     return () => {
       mounted = false;
+      clearTimeout(retryWatchdog);
       clearTimeout(safetyTimeout);
       supabase.removeChannel(channel);
     };
@@ -291,26 +317,57 @@ export default function Dashboard({ user }: DashboardProps) {
       const isUUID = (str?: string) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str || '');
 
-      // Execute primary queries safely with optimized parallel requests
-      const [coursesRes, purchasesByIdRes, progressRes, packagesRes, chaptersRes] = await Promise.all([
-        supabase
+      // 1. Fetch Courses First & Resiliently (Decoupled from user progress/chapters)
+      let fetchedCoursesData: Course[] = [];
+      try {
+        let coursesRes = await supabase
           .from('courses')
           .select('*')
-          .eq('is_active', true)
-          .order('order_index', { ascending: true }),
+          .order('order_index', { ascending: true });
+
+        if (coursesRes.error && (coursesRes.error.code === '42703' || coursesRes.error.message?.includes('order_index'))) {
+          coursesRes = await supabase
+            .from('courses')
+            .select('*')
+            .order('created_at', { ascending: true });
+        }
+
+        if (coursesRes.data && coursesRes.data.length > 0) {
+          fetchedCoursesData = coursesRes.data.filter((c: any) => c.is_active !== false);
+        } else if (coursesRes.error) {
+          console.warn('First courses fetch warning, trying fallback select:', coursesRes.error);
+          const fallbackRes = await supabase.from('courses').select('*');
+          if (fallbackRes.data && fallbackRes.data.length > 0) {
+            fetchedCoursesData = fallbackRes.data.filter((c: any) => c.is_active !== false);
+          }
+        }
+      } catch (err) {
+        console.warn('Courses query error:', err);
+      }
+
+      // If fetched courses is still empty, attempt catalog cache fallback
+      if (fetchedCoursesData.length === 0) {
+        const globalCatalog = dataCache.get('global_public_courses_catalog', true);
+        if (globalCatalog && Array.isArray(globalCatalog) && globalCatalog.length > 0) {
+          fetchedCoursesData = globalCatalog;
+        }
+      }
+
+      // 2. Fetch User-Dependent Data with Promise.allSettled (Never blocks courses display!)
+      const [purchasesByIdResult, progressResult, packagesResult, chaptersResult, profileResult] = await Promise.allSettled([
         supabase.from('purchases').select('product_id, created_at').eq('user_id', user.id),
         supabase.from('user_progress').select('chapter_id, completed, user_id').eq('user_id', user.id),
         supabase.from('course_packages').select('id, hotmart_product_id, hotmart_checkout_url, package_courses(course_id)'),
         supabase.from('chapters').select('id, content_type, modules!inner(course_id)'),
+        isUUID(user.id) ? supabase.from('profiles').select('has_access, has_unlimited_ai, is_admin').eq('id', user.id).maybeSingle() : Promise.resolve({ data: null, error: null } as any)
       ]);
 
-      if (coursesRes.error) throw coursesRes.error;
-      if (purchasesByIdRes.error) throw purchasesByIdRes.error;
-      if (progressRes.error) throw progressRes.error;
-      if (chaptersRes.error) throw chaptersRes.error;
+      let basePurchases: { product_id: string; created_at: any }[] = [];
+      if (purchasesByIdResult.status === 'fulfilled' && (purchasesByIdResult.value as any)?.data) {
+        basePurchases = (purchasesByIdResult.value as any).data;
+      }
 
-      // Handle purchases by email if applicable (only if user.id is not a UUID or if table supports string user_id)
-      let basePurchases = purchasesByIdRes.data || [];
+      // Handle purchases by email if applicable
       if (user.email && user.email.toLowerCase() !== user.id && !isUUID(user.id)) {
         try {
           const { data: emailPurchases, error: emailPurErr } = await supabase
@@ -333,61 +390,60 @@ export default function Dashboard({ user }: DashboardProps) {
 
       // Handle profile safely
       let profileData = null;
-      if (isUUID(user.id)) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('has_access, has_unlimited_ai, is_admin')
-          .eq('id', user.id)
-          .maybeSingle();
-        profileData = data;
+      if (profileResult.status === 'fulfilled' && (profileResult.value as any)?.data) {
+        profileData = (profileResult.value as any).data;
       }
       if (!profileData && user.email) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('has_access, has_unlimited_ai, is_admin')
-          .eq('email', user.email.toLowerCase())
-          .maybeSingle();
-        profileData = data;
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('has_access, has_unlimited_ai, is_admin')
+            .eq('email', user.email.toLowerCase())
+            .maybeSingle();
+          profileData = data;
+        } catch {}
       }
 
       if (profileData) {
         setUserProfile(profileData);
       }
+
       const purchasedIds = basePurchases.map(p => p.product_id);
-      
       const unlockedByPackages = new Set<string>();
       const packageUnlockDates: Record<string, string> = {}; 
       const courseToPackageCheckout: Record<string, string> = {};
 
-      packagesRes.data?.forEach(pkg => {
-        if (pkg.hotmart_checkout_url) {
-          pkg.package_courses?.forEach((pc: any) => {
-            if (!courseToPackageCheckout[pc.course_id]) {
-              courseToPackageCheckout[pc.course_id] = pkg.hotmart_checkout_url!;
-            }
-          });
-        }
+      if (packagesResult.status === 'fulfilled' && (packagesResult.value as any)?.data) {
+        ((packagesResult.value as any).data as any[]).forEach(pkg => {
+          if (pkg.hotmart_checkout_url) {
+            pkg.package_courses?.forEach((pc: any) => {
+              if (!courseToPackageCheckout[pc.course_id]) {
+                courseToPackageCheckout[pc.course_id] = pkg.hotmart_checkout_url!;
+              }
+            });
+          }
 
-        const purchase = basePurchases.find(p => p.product_id === pkg.hotmart_product_id || p.product_id === pkg.id);
-        if (purchase) {
-          pkg.package_courses?.forEach((pc: any) => {
-            unlockedByPackages.add(pc.course_id);
-            packageUnlockDates[pc.course_id] = purchase.created_at;
-          });
-        }
-      });
+          const purchase = basePurchases.find(p => p.product_id === pkg.hotmart_product_id || p.product_id === pkg.id);
+          if (purchase) {
+            pkg.package_courses?.forEach((pc: any) => {
+              unlockedByPackages.add(pc.course_id);
+              packageUnlockDates[pc.course_id] = purchase.created_at;
+            });
+          }
+        });
+      }
 
       const mainPrice = parseFloat(settings?.custom_texts?.['main_price'] || '0') || 0;
       const mainCheckoutUrl = settings?.custom_texts?.['main_checkout_url'] || '';
 
-      const processedCourses = coursesRes.data?.map(c => {
+      const processedCourses = fetchedCoursesData.map(c => {
         const isMainCourse = !!c.is_free && !c.is_bonus;
         return {
           ...c,
           price: isMainCourse ? mainPrice : c.price,
           checkout_url: isMainCourse ? mainCheckoutUrl : (courseToPackageCheckout[c.id] || c.checkout_url)
         };
-      }) || [];
+      });
       
       // Combine base purchases with package-unlocked courses
       const allPurchases = [...basePurchases];
@@ -400,8 +456,8 @@ export default function Dashboard({ user }: DashboardProps) {
       let stats: Record<string, { lessons: number, materials: number }> = {};
       let chapterMap: Record<string, string[]> = {};
 
-      if (chaptersRes.data) {
-        chaptersRes.data.forEach((ch: any) => {
+      if (chaptersResult.status === 'fulfilled' && (chaptersResult.value as any)?.data) {
+        ((chaptersResult.value as any).data as any[]).forEach((ch: any) => {
           const courseId = ch.modules?.course_id;
           if (courseId) {
             if (!stats[courseId]) stats[courseId] = { lessons: 0, materials: 0 };
@@ -414,23 +470,33 @@ export default function Dashboard({ user }: DashboardProps) {
         });
       }
 
-      setCourses(processedCourses);
+      const progData = (progressResult.status === 'fulfilled' && (progressResult.value as any)?.data) 
+        ? (progressResult.value as any).data 
+        : [];
+
+      if (processedCourses.length > 0) {
+        setCourses(processedCourses);
+        // Persist global catalog cache (10 minutes) for 0ms loads
+        dataCache.set('global_public_courses_catalog', processedCourses, 600000);
+      }
       setPurchases(allPurchases);
-      setUserProgress(progressRes.data || []);
+      setUserProgress(progData);
       setCourseStats(stats);
       setCourseChapters(chapterMap);
 
-      // Save to persistent cache (5 minutes TTL with SWR)
-      dataCache.set(cacheKey, {
-        courses: processedCourses,
-        purchases: allPurchases,
-        userProgress: progressRes.data || [],
-        courseStats: stats,
-        courseChapters: chapterMap
-      }, 300000);
+      if (processedCourses.length > 0) {
+        // Save to persistent user cache (5 minutes TTL with SWR)
+        dataCache.set(cacheKey, {
+          courses: processedCourses,
+          purchases: allPurchases,
+          userProgress: progData,
+          courseStats: stats,
+          courseChapters: chapterMap
+        }, 300000);
+      }
 
     } catch (error: any) {
-      console.error('Error fetching data:', error);
+      console.error('Notice during data fetch:', error);
       if (error && error.message?.includes('Refresh Token Not Found')) {
         console.warn('Session expired during usage, clearing...');
         localStorage.removeItem('maternidade_premium_auth');
@@ -438,7 +504,6 @@ export default function Dashboard({ user }: DashboardProps) {
         window.location.reload();
         return;
       }
-      toast.error(t('dashboard.loading_error') || 'Erro ao carregar conteúdos');
     } finally {
       setLoading(false);
     }

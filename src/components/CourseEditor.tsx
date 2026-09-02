@@ -1326,14 +1326,21 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                             setCropperAspect(16/9);
                             setCropperOpen(true);
                           }}
-                          className="aspect-video rounded-xl bg-zinc-900 overflow-hidden relative border border-white/5 cursor-pointer group/premiumcover"
+                          className="aspect-video rounded-xl bg-zinc-900 overflow-hidden relative border border-white/5 cursor-pointer group/premiumcover flex items-center justify-center"
                         >
-                          <img 
-                            src={course.premium_cover_url || course.cover_url} 
-                            className="w-full h-full object-cover transition-transform group-hover/premiumcover:scale-105" 
-                            referrerPolicy="no-referrer"
-                            onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x225?text=Preview')}
-                          />
+                          {(course.premium_cover_url?.trim() || course.cover_url?.trim()) ? (
+                            <img 
+                              src={course.premium_cover_url?.trim() || course.cover_url?.trim()} 
+                              className="w-full h-full object-cover transition-transform group-hover/premiumcover:scale-105" 
+                              referrerPolicy="no-referrer"
+                              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x225?text=Preview')}
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-gray-600 p-2 text-center">
+                              <ImageIcon size={20} className="opacity-30 mb-1" />
+                              <span className="text-[8px] font-black uppercase text-gray-500">Sem Capa</span>
+                            </div>
+                          )}
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/premiumcover:opacity-100 flex items-center justify-center transition-opacity text-[8px] font-black text-white uppercase tracking-widest text-center px-1">
                             Ajustar
                           </div>
@@ -2333,8 +2340,19 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                               >
                                 <div className="flex items-center gap-6 flex-1 min-w-0">
                                   <div className="relative w-24 h-14 rounded-xl bg-black/60 border border-white/15 overflow-hidden shrink-0 shadow-md">
-                                    <img src={ch.cover_url || course.cover_url} className="w-full h-full object-cover opacity-90 group-hover/item:scale-105 group-hover/item:opacity-100 transition-all duration-500" referrerPolicy="no-referrer" />
-                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                                    {(ch.cover_url?.trim() || course.cover_url?.trim()) ? (
+                                      <img 
+                                        src={ch.cover_url?.trim() || course.cover_url?.trim()} 
+                                        className="w-full h-full object-cover opacity-90 group-hover/item:scale-105 group-hover/item:opacity-100 transition-all duration-500" 
+                                        referrerPolicy="no-referrer" 
+                                        alt={ch.title || 'Aula'}
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-gray-600">
+                                        <ImageIcon size={18} className="opacity-40" />
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center pointer-events-none">
                                       {ch.content_type === 'video' ? <Video size={16} className="text-white drop-shadow-md" /> : ch.content_type === 'checklist' ? <CheckSquare size={16} className="text-emerald-400 drop-shadow-md" /> : <FileText size={16} className="text-white drop-shadow-md" />}
                                     </div>
                                     <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/75 backdrop-blur-md rounded-md border border-white/10">

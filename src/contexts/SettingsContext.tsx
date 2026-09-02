@@ -30,6 +30,7 @@ export interface AppSettings {
   support_email_profile_enabled: boolean;
   support_whatsapp_login_enabled: boolean;
   support_email_login_enabled: boolean;
+  support_whatsapp_login_floating?: boolean;
   support_whatsapp_app_enabled: boolean;
   support_email_app_enabled: boolean;
   support_whatsapp_course_enabled: boolean;
@@ -84,6 +85,7 @@ const defaultSettings: AppSettings = {
   support_email_profile_enabled: true,
   support_whatsapp_login_enabled: true,
   support_email_login_enabled: true,
+  support_whatsapp_login_floating: true,
   support_whatsapp_app_enabled: true,
   support_email_app_enabled: true,
   support_whatsapp_course_enabled: true,
@@ -206,6 +208,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           }
           if (data.custom_texts['config.show_course_titles_home'] !== undefined) {
             data.show_course_titles_home = data.custom_texts['config.show_course_titles_home'] === 'true';
+          }
+          if (data.custom_texts['config.support_whatsapp_login_floating'] !== undefined) {
+            data.support_whatsapp_login_floating = data.custom_texts['config.support_whatsapp_login_floating'] === 'true';
           }
         }
         setSettings(data);

@@ -266,7 +266,13 @@ export default function PackageEditor({ packageId, onClose, onSave, courses }: P
                     }`}
                   >
                     <div className="w-12 h-16 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
-                      <img src={course.cover_url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      {course.cover_url?.trim() ? (
+                        <img src={course.cover_url.trim()} className="w-full h-full object-cover" referrerPolicy="no-referrer" alt={course.title} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-500">
+                          <Lock size={16} />
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className={`text-xs font-bold leading-tight ${isSelected ? 'text-white' : 'text-gray-400'}`}>

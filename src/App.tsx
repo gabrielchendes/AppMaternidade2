@@ -41,23 +41,12 @@ export default function App() {
         errorMsg.includes('refresh_token_not_found');
 
       if (isAuthError) {
-        console.warn('Caught unhandled auth rejection smoothly, cleaning up auth state...', errorMsg);
+        console.warn('⚠️ Caught background auth rejection gracefully (preventing unhandled crash):', errorMsg);
         try {
           event.preventDefault();
         } catch (e) {}
-        try {
-          localStorage.removeItem('maternidade_premium_auth');
-          for (const key in localStorage) {
-            if (key.includes('supabase') || key.includes('-auth-token') || key.includes('maternidade_premium')) {
-              localStorage.removeItem(key);
-            }
-          }
-        } catch (e) {}
-        if (isSupabaseConfigured && supabase) {
-          supabase.auth.signOut().catch(() => {});
-        }
-        setUser(null);
-        setAuthLoading(false);
+        // Do NOT aggressively wipe session or force logout on transient API hiccups.
+        // Let supabase.auth manage token lifecycle quietly.
       } else if (
         errorMsg.includes('NetworkError') ||
         errorMsg.includes('fetch resource') ||
@@ -112,18 +101,12 @@ export default function App() {
         
         if (error) {
           console.warn('Session check note:', error.message);
-          // If we have a refresh token error, we need to clear local state
-          if (error.message.includes('Refresh Token') || error.message.includes('invalid_grant') || error.message.includes('Invalid Refresh Token') || error.message.includes('AuthApiError')) {
-            console.warn('Handling stale session cleanly...');
+          // Only clear if the refresh token is explicitly dead and cannot be recovered
+          if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid_grant')) {
+            console.warn('Handling expired refresh token cleanly...');
             try {
               localStorage.removeItem('maternidade_premium_auth');
-              for (const key in localStorage) {
-                if (key.includes('supabase') || key.includes('-auth-token') || key.includes('maternidade_premium')) {
-                  localStorage.removeItem(key);
-                }
-              }
             } catch (e) {}
-            await supabase.auth.signOut().catch(() => {});
           }
           setUser(null);
           setAuthLoading(false);

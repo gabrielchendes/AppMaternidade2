@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { safeParseAiJson } from '../utils/parseAiJson';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -187,7 +188,7 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
     }
     contents.push(promptText);
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-pro-preview'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let responseText: string | undefined = undefined;
     let lastError: any = null;
 
@@ -209,6 +210,8 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
       } catch (mErr: any) {
         lastError = mErr;
         console.log(`[Generate Lesson API] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
+        // Small delay if temporary high-demand / rate limit before next candidate
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -218,14 +221,7 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
 
     let parsedData: any = null;
     try {
-      // Remove any potential markdown code blocks if model returned markdown syntax
-      const cleanJson = responseText
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
-      parsedData = JSON.parse(cleanJson);
+      parsedData = safeParseAiJson(responseText);
     } catch (parseErr) {
       console.error('[Generate Lesson API] Failed to parse JSON:', responseText);
       return res.status(500).json({
@@ -362,21 +358,41 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
   } catch (err: any) {
     console.error('[Generate Lesson API Error]:', err);
 
+    const errMsg = err?.message || '';
     const isQuotaError = err.status === 'RESOURCE_EXHAUSTED' || 
                          err.status === 429 || 
                          err.statusCode === 429 ||
-                         err.message?.includes('429') || 
-                         err.message?.includes('quota') || 
-                         err.message?.includes('RESOURCE_EXHAUSTED');
+                         errMsg.includes('429') || 
+                         errMsg.includes('quota') || 
+                         errMsg.includes('RESOURCE_EXHAUSTED');
 
     if (isQuotaError) {
       return res.status(429).json({
-        error: 'The AI request limit was temporarily reached. Please wait 30 seconds and try again.'
+        error: 'O limite de requisições de IA foi temporariamente atingido. Aguarde 30 segundos e tente novamente.'
       });
     }
 
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
     return res.status(500).json({
-      error: 'Erro ao gerar aula com IA: ' + (err.message || 'Erro desconhecido')
+      error: 'Erro ao gerar aula com IA: ' + (cleanError || 'Erro desconhecido')
     });
   }
 }

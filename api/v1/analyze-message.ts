@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
+import { safeParseAiJson } from '../utils/parseAiJson';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -82,7 +83,7 @@ Critérios Específicos do Curso: ${analysisCriteria || 'Interpretação de inte
 Mensagem enviada pela aluna para analisar:
 "${messageText}"`;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-pro-preview'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let responseText: string | undefined = undefined;
     let lastError: any = null;
 
@@ -104,6 +105,7 @@ Mensagem enviada pela aluna para analisar:
       } catch (mErr: any) {
         lastError = mErr;
         console.log(`[Analyze Message API] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -113,13 +115,7 @@ Mensagem enviada pela aluna para analisar:
 
     let parsedData: any = null;
     try {
-      const cleanJson = responseText
-        .replace(/^```json\s*/i, '')
-        .replace(/^```\s*/i, '')
-        .replace(/\s*```$/i, '')
-        .trim();
-
-      parsedData = JSON.parse(cleanJson);
+      parsedData = safeParseAiJson(responseText);
     } catch (parseErr) {
       console.error('[Analyze Message API] JSON parse error:', responseText);
       return res.status(500).json({ error: 'Falha ao formatar análise da mensagem em JSON.' });
@@ -132,12 +128,13 @@ Mensagem enviada pela aluna para analisar:
   } catch (err: any) {
     console.error('[Analyze Message API Error]:', err);
 
+    const errMsg = err?.message || '';
     const isQuotaError = err.status === 'RESOURCE_EXHAUSTED' || 
                          err.status === 429 || 
                          err.statusCode === 429 ||
-                         err.message?.includes('429') || 
-                         err.message?.includes('quota') || 
-                         err.message?.includes('RESOURCE_EXHAUSTED');
+                         errMsg.includes('429') || 
+                         errMsg.includes('quota') || 
+                         errMsg.includes('RESOURCE_EXHAUSTED');
 
     if (isQuotaError) {
       return res.status(429).json({
@@ -145,8 +142,27 @@ Mensagem enviada pela aluna para analisar:
       });
     }
 
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
     return res.status(500).json({
-      error: 'Erro ao analisar mensagem: ' + (err.message || 'Erro desconhecido')
+      error: 'Erro ao analisar mensagem: ' + (cleanError || 'Erro desconhecido')
     });
   }
 }

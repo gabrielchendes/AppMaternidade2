@@ -333,24 +333,31 @@ export default function ImageCropperModal({
                     }}
                     className="rounded-3xl border border-white/10 overflow-hidden relative bg-black cursor-move select-none shadow-2xl group"
                   >
-                    <img
-                      ref={imageRef}
-                      src={imageSrc}
-                      alt="Preview"
-                      draggable="false"
-                      style={{
-                        position: 'absolute',
-                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom}) rotate(${rotation}deg)`,
-                        transformOrigin: 'center center',
-                        transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                        maxWidth: 'none',
-                        // Calculate base sizing equivalent to cover
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                      }}
-                      referrerPolicy="no-referrer"
-                    />
+                    {imageSrc && imageSrc.trim() ? (
+                      <img
+                        ref={imageRef}
+                        src={imageSrc.trim()}
+                        alt="Preview"
+                        draggable="false"
+                        style={{
+                          position: 'absolute',
+                          transform: `translate(${position.x}px, ${position.y}px) scale(${zoom}) rotate(${rotation}deg)`,
+                          transformOrigin: 'center center',
+                          transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                          maxWidth: 'none',
+                          // Calculate base sizing equivalent to cover
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover'
+                        }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 p-4 text-center">
+                        <Upload size={32} className="opacity-30 mb-2" />
+                        <span className="text-xs font-bold uppercase tracking-wider opacity-60">Nenhuma imagem carregada</span>
+                      </div>
+                    )}
 
                     {/* Viewport Overlay bounds guide */}
                     <div className="absolute inset-0 border-[3px] border-blue-500/30 rounded-3xl pointer-events-none group-hover:border-blue-500/60 transition-colors" />

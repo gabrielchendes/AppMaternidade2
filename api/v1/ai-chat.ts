@@ -161,7 +161,7 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       ? `${customSystemPrompt.trim()}\n\nIMPORTANT FORMATTING RULE: Do NOT use markdown bold stars (**text**) or asterisks in output. Write in natural plain text.\n\n${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`
       : defaultSystemInstruction;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.1-pro-preview'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let responseText: string | undefined = undefined;
     let lastError: any = null;
 
@@ -182,6 +182,7 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       } catch (mErr: any) {
         lastError = mErr;
         console.log(`[AI Chat] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
+        await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
 
@@ -199,7 +200,9 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
   } catch (err: any) {
     console.error('[AI Chat API Error]:', err);
 
-    if (err.message?.includes('GEMINI_API_KEY environment variable is missing')) {
+    const errMsg = err?.message || '';
+
+    if (errMsg.includes('GEMINI_API_KEY environment variable is missing')) {
       return res.status(503).json({
         error: 'Gemini API key not configured on the server (GEMINI_API_KEY).',
         missingKey: true
@@ -208,9 +211,9 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
 
     const isQuotaError = err.status === 'RESOURCE_EXHAUSTED' || 
                          err.status === 429 || 
-                         err.message?.includes('429') || 
-                         err.message?.includes('quota') || 
-                         err.message?.includes('RESOURCE_EXHAUSTED');
+                         errMsg.includes('429') || 
+                         errMsg.includes('quota') || 
+                         errMsg.includes('RESOURCE_EXHAUSTED');
 
     if (isQuotaError) {
       return res.status(429).json({
@@ -218,8 +221,27 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       });
     }
 
+    if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
+      return res.status(503).json({
+        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+      });
+    }
+
+    let cleanError = errMsg;
+    try {
+      if (errMsg.includes('{') && errMsg.includes('}')) {
+        const jsonStart = errMsg.indexOf('{');
+        const jsonEnd = errMsg.lastIndexOf('}');
+        const candidateJson = errMsg.slice(jsonStart, jsonEnd + 1);
+        const parsed = JSON.parse(candidateJson);
+        if (parsed.error?.message) {
+          cleanError = parsed.error.message;
+        }
+      }
+    } catch (_) {}
+
     return res.status(500).json({
-      error: 'Erro de comunicação com a IA Expert: ' + (err.message || 'Erro desconhecido')
+      error: 'Erro de comunicação com a IA Expert: ' + (cleanError || 'Erro desconhecido')
     });
   }
 }

@@ -97,15 +97,17 @@ import { dataCache } from '../lib/cache';
 const RotatingBannerPreview = ({ images, interval = 5000 }: { images: string[], interval?: number }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  const validImages = (images || []).filter(img => Boolean(img && img.trim()));
+
   useEffect(() => {
-    if (!images || images.length <= 1) return;
+    if (!validImages || validImages.length <= 1) return;
     const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % images.length);
+      setCurrentIndex((prev) => (prev + 1) % validImages.length);
     }, interval);
     return () => clearInterval(timer);
-  }, [images, interval]);
+  }, [validImages.length, interval]);
 
-  if (!images || images.length === 0) {
+  if (!validImages || validImages.length === 0) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center text-gray-700 bg-black/40">
         <Layout size={48} className="mb-2 opacity-20" />
@@ -119,7 +121,7 @@ const RotatingBannerPreview = ({ images, interval = 5000 }: { images: string[], 
       <AnimatePresence mode="wait">
         <motion.img
           key={currentIndex}
-          src={images[currentIndex]}
+          src={validImages[currentIndex]}
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -20 }}
@@ -129,7 +131,7 @@ const RotatingBannerPreview = ({ images, interval = 5000 }: { images: string[], 
         />
       </AnimatePresence>
       <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5">
-        {images.map((_, i) => (
+        {validImages.map((_, i) => (
           <div 
             key={i} 
             className={`h-1 rounded-full transition-all ${i === currentIndex ? 'w-4 bg-blue-500' : 'w-1 bg-white/20'}`} 
@@ -540,9 +542,9 @@ export default function AdminPanel({ user }: AdminPanelProps) {
    const CourseAdminCard = ({ course, courseStats, setViewingCourseId, setEditingCourseId, setShowCourseEditor, onDelete, onMove }: any) => (
     <div className="bg-zinc-900 border border-white/5 rounded-xl overflow-hidden group hover:border-blue-500/50 transition-all flex flex-col w-36 sm:w-44 shrink-0 shadow-2xl">
       <div className="relative aspect-[2/3] overflow-hidden shrink-0">
-        {course.cover_url ? (
+        {course.cover_url?.trim() ? (
           <img 
-            src={course.cover_url} 
+            src={course.cover_url.trim()} 
             alt={course.title} 
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
             referrerPolicy="no-referrer" 
@@ -634,6 +636,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
       initialLocal.support_whatsapp_preview_enabled = settings.custom_texts?.['config.support_whatsapp_preview_enabled'] !== 'false';
       initialLocal.support_email_preview_enabled = settings.custom_texts?.['config.support_email_preview_enabled'] !== 'false';
       initialLocal.support_whatsapp_preview_floating = settings.custom_texts?.['config.support_whatsapp_preview_floating'] !== 'false';
+
+      // Configurações da página de login
+      initialLocal.support_whatsapp_login_floating = settings.custom_texts?.['config.support_whatsapp_login_floating'] !== undefined
+        ? settings.custom_texts['config.support_whatsapp_login_floating'] === 'true'
+        : (settings.support_whatsapp_login_floating ?? true);
+      initialLocal.support_whatsapp_login_enabled = settings.support_whatsapp_login_enabled ?? true;
+      initialLocal.support_email_login_enabled = settings.support_email_login_enabled ?? true;
 
       // Fallbacks para valores que podem estar nulos no banco mas que a UI espera como booleanos
       initialLocal.support_whatsapp_home_enabled = settings.support_whatsapp_home_enabled ?? true;
@@ -2462,7 +2471,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     <div key={course.id} className="bg-black/40 rounded-2xl border border-white/5 p-4 flex items-center justify-between group hover:border-white/10 transition-all">
                                       <div className="flex items-center gap-3">
                                         <div className="w-10 h-14 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
-                                          <img src={course.cover_url} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" />
+                                          {course.cover_url?.trim() ? (
+                                            <img src={course.cover_url.trim()} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" alt={course.title} />
+                                          ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-500">
+                                              <BookOpen size={14} />
+                                            </div>
+                                          )}
                                         </div>
                                         <div className="min-w-0">
                                           <h5 className="text-xs font-bold text-white truncate max-w-[150px]">{course.title}</h5>
@@ -2507,7 +2522,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     <div key={course.id} className="bg-black/40 rounded-2xl border border-white/5 p-4 flex items-center justify-between group hover:border-white/10 transition-all">
                                       <div className="flex items-center gap-3">
                                         <div className="w-10 h-14 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
-                                          <img src={course.cover_url} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" />
+                                          {course.cover_url?.trim() ? (
+                                            <img src={course.cover_url.trim()} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" alt={course.title} />
+                                          ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-500">
+                                              <BookOpen size={14} />
+                                            </div>
+                                          )}
                                         </div>
                                         <div className="min-w-0">
                                           <h5 className="text-xs font-bold text-white truncate max-w-[150px]">{course.title}</h5>
@@ -2543,7 +2564,13 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                     <div key={course.id} className="bg-black/40 rounded-2xl border border-white/5 p-4 flex items-center justify-between group hover:border-white/10 transition-all">
                                       <div className="flex items-center gap-3">
                                         <div className="w-10 h-14 rounded-lg overflow-hidden bg-zinc-800 shrink-0">
-                                          <img src={course.cover_url} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" />
+                                          {course.cover_url?.trim() ? (
+                                            <img src={course.cover_url.trim()} className="w-full h-full object-cover opacity-50" referrerPolicy="no-referrer" alt={course.title} />
+                                          ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-500">
+                                              <BookOpen size={14} />
+                                            </div>
+                                          )}
                                         </div>
                                         <div className="min-w-0">
                                           <h5 className="text-xs font-bold text-white truncate max-w-[150px]">{course.title}</h5>
@@ -4056,7 +4083,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                         <div className="flex flex-col md:flex-row items-center gap-4">
                           <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-black border-2 border-pink-500/40 shrink-0 shadow-lg">
                             <img
-                              src={draftCustomTexts['ai_expert.avatar_url'] ?? settings.custom_texts?.['ai_expert.avatar_url'] ?? 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png'}
+                              src={draftCustomTexts['ai_expert.avatar_url']?.trim() || settings.custom_texts?.['ai_expert.avatar_url']?.trim() || 'https://fhnmpltilhongdofnzbj.supabase.co/storage/v1/object/public/contents/Victoria.png'}
                               alt="Preview da Expert"
                               className="w-full h-full object-cover"
                               onError={(e) => {
@@ -4697,6 +4724,12 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               updates.custom_texts['config.support_whatsapp_preview_enabled'] = localSettings.support_whatsapp_preview_enabled ? 'true' : 'false';
                               updates.custom_texts['config.support_email_preview_enabled'] = localSettings.support_email_preview_enabled ? 'true' : 'false';
                               updates.custom_texts['config.support_whatsapp_preview_floating'] = localSettings.support_whatsapp_preview_floating ? 'true' : 'false';
+
+                              // Configurações da página de Login
+                              updates.support_whatsapp_login_enabled = !!localSettings.support_whatsapp_login_enabled;
+                              updates.support_email_login_enabled = !!localSettings.support_email_login_enabled;
+                              updates.show_support_login = !!(localSettings.support_whatsapp_login_enabled || localSettings.support_email_login_enabled);
+                              updates.custom_texts['config.support_whatsapp_login_floating'] = localSettings.support_whatsapp_login_floating ? 'true' : 'false';
                             }
 
                             await updateSettings(updates);
@@ -5921,6 +5954,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                                 
                                 <div className="grid grid-cols-1 gap-3">
                                   {[
+                                    { id: 'login', label: 'Página de Login' },
                                     { id: 'home', label: 'Página de Início' },
                                     { id: 'course', label: 'Página de Cursos' },
                                     { id: 'lesson', label: 'Página de Aula' },
