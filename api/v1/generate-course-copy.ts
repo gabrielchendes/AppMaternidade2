@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { safeParseAiJson } from '../utils/parseAiJson';
+import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -146,35 +147,23 @@ ${existingCourse ? `Existing Course Data to Enhance:\n${JSON.stringify(existingC
 
 Generate the complete high-converting copy in valid JSON. All text must be in American English.`;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
-    let textResult = '';
-    let lastError: any = null;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          config: {
-            systemInstruction,
-            temperature: 0.6,
-            responseMimeType: 'application/json'
-          }
-        });
-        if (response && response.text) {
-          textResult = response.text;
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[generate-course-copy] Failed with model ${modelName}:`, err?.message || err);
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    const result = await generateContentWithRetry({
+      ai,
+      candidateModels,
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      config: {
+        systemInstruction,
+        temperature: 0.6,
+        responseMimeType: 'application/json'
+      },
+      maxAttemptsPerModel: 2,
+      baseDelayMs: 1200,
+      logPrefix: '[generate-course-copy]'
+    });
 
-    if (!textResult) {
-      throw lastError || new Error('Não foi possível gerar a copy do curso com os modelos de IA disponíveis.');
-    }
+    const textResult = result.text;
 
     const parsed = safeParseAiJson(textResult);
 

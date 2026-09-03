@@ -33,7 +33,9 @@ import {
   Link,
   Lock,
   AlertTriangle,
-  CheckSquare
+  CheckSquare,
+  Wand2,
+  Puzzle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Course, Module, Chapter, Checklist } from '../types/lms';
@@ -41,9 +43,13 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import CoursePreviewViewer from './CoursePreviewViewer';
 import { AdminChecklistEditor } from './AdminChecklistEditor';
+import { AdminHtmlAppEditor } from './AdminHtmlAppEditor';
 import { AiLessonGeneratorModal } from './AiLessonGeneratorModal';
 import { AiCourseGeneratorModal } from './AiCourseGeneratorModal';
+import { AiCourseEditModal } from './AiCourseEditModal';
+import { AiCourseFactoryModal } from './AiCourseFactoryModal';
 import { fetchChecklistByChapterId, saveChecklistToDatabase } from '../services/checklistService';
+import { formatHtmlAppContent, fromDbChapter, isHtmlAppChapter } from '../utils/htmlAppHelper';
 import ImageCropperModal from './ImageCropperModal';
 import { dataCache } from '../lib/cache';
 
@@ -128,6 +134,7 @@ const getButtonStyle = (color: string, style: string): React.CSSProperties => {
 
 const isAiCreatedLesson = (ch: Chapter | null | undefined): boolean => {
   if (!ch) return false;
+  if (ch.content_type === 'html_app' || isHtmlAppChapter(ch)) return false;
   if (ch.content_type === 'interactive' && ch.rich_text) {
     try {
       const parsed = typeof ch.rich_text === 'string' ? JSON.parse(ch.rich_text) : ch.rich_text;
@@ -145,9 +152,17 @@ interface CourseEditorProps {
   courseId?: string;
   onClose: () => void;
   packages?: any[];
+  initialCourseData?: Partial<Course>;
+  initialModulesData?: any[];
 }
 
-export default function CourseEditor({ courseId: initialCourseId, onClose, packages: externalPackages }: CourseEditorProps) {
+export default function CourseEditor({
+  courseId: initialCourseId,
+  onClose,
+  packages: externalPackages,
+  initialCourseData,
+  initialModulesData
+}: CourseEditorProps) {
   const [courseId, setCourseId] = useState<string | undefined>(initialCourseId);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -158,6 +173,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
   const [showMissingHotmartModal, setShowMissingHotmartModal] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isAiCourseModalOpen, setIsAiCourseModalOpen] = useState(false);
+  const [isAiFactoryModalOpen, setIsAiFactoryModalOpen] = useState(false);
+  const [aiEditTarget, setAiEditTarget] = useState<{
+    scope: 'course' | 'module' | 'chapter' | 'element';
+    targetTitle?: string;
+    currentData: any;
+    parentContext?: any;
+    onApply?: (data: any) => Promise<void> | void;
+  } | null>(null);
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -441,9 +464,56 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
     if (courseId) {
       fetchCourseData();
     } else {
+      if (initialCourseData) {
+        setCourse(prev => ({
+          ...prev,
+          ...initialCourseData
+        }));
+      }
+      if (initialModulesData && Array.isArray(initialModulesData) && initialModulesData.length > 0) {
+        const loadedModules: Module[] = [];
+        const loadedChapters: Chapter[] = [];
+
+        initialModulesData.forEach((mod: any, mIdx: number) => {
+          const modId = mod.id || `mod-temp-${mIdx}-${Date.now()}`;
+          loadedModules.push({
+            id: modId,
+            course_id: '',
+            title: mod.title || `Módulo ${mIdx + 1}`,
+            order_index: mod.order_index ?? mIdx,
+            description: mod.description || '',
+            created_at: new Date().toISOString()
+          });
+
+          if (Array.isArray(mod.chapters)) {
+            mod.chapters.forEach((ch: any, chIdx: number) => {
+              const chId = ch.id || `ch-temp-${mIdx}-${chIdx}-${Date.now()}`;
+              loadedChapters.push({
+                id: chId,
+                course_id: '',
+                module_id: modId,
+                title: ch.title,
+                description: ch.description || '',
+                order_index: ch.order_index ?? chIdx,
+                content_type: ch.content_type || 'rich_text',
+                video_url: ch.video_url || '',
+                rich_text: typeof ch.rich_text === 'object' ? JSON.stringify(ch.rich_text) : (ch.rich_text || ''),
+                cover_url: ch.cover_url || '',
+                is_free: Boolean(ch.is_free),
+                is_preview: Boolean(ch.is_preview),
+                duration_minutes: ch.duration_minutes || 10,
+                created_at: new Date().toISOString()
+              });
+            });
+          }
+        });
+
+        setModules(loadedModules);
+        setChapters(loadedChapters);
+      }
       setLoading(false);
     }
-  }, [courseId, externalPackages]);
+  }, [courseId, externalPackages, initialCourseData, initialModulesData]);
 
   const fetchPackages = async () => {
     try {
@@ -500,7 +570,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         .order('order_index');
       
       if (chaptersError) throw chaptersError;
-      const chaptersList = chaptersData || [];
+      const chaptersList = (chaptersData || []).map(fromDbChapter);
       setChapters(chaptersList);
       
       setExpandedChapters([]);
@@ -810,18 +880,19 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         setModules([newMod]);
       }
 
+      const isHtml = editingChapter.content_type === 'html_app';
       const lessonData = {
         module_id: targetModuleId,
         title: editingChapter.title,
         description: editingChapter.description,
-        content_type: editingChapter.content_type,
+        content_type: isHtml ? 'interactive' : editingChapter.content_type,
         video_url: editingChapter.video_url,
         pdf_url: editingChapter.pdf_url,
         button_link_text: editingChapter.button_link_text,
         button_link_url: editingChapter.button_link_url,
         button_link_color: editingChapter.button_link_color,
         cover_url: editingChapter.cover_url,
-        rich_text: editingChapter.rich_text,
+        rich_text: isHtml ? formatHtmlAppContent(editingChapter.rich_text || '') : editingChapter.rich_text,
         duration_minutes: editingChapter.duration_minutes,
         order_index: editingChapter.id ? editingChapter.order_index : chapters.length
       };
@@ -839,7 +910,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         if (editingChapter.content_type === 'checklist' && newChapter) {
           await saveChecklistToDatabase(newChapter.id, newChecklist);
         }
-        setChapters([...chapters, newChapter]);
+        setChapters([...chapters, fromDbChapter(newChapter)]);
         toast.success('Aula adicionada!');
       }
       
@@ -872,19 +943,20 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
 
     try {
       setSaving(true);
+      const isHtml = editingExistingChapter.content_type === 'html_app';
       const { error } = await supabase
         .from('chapters')
         .update({
           title: editingExistingChapter.title,
           description: editingExistingChapter.description || '',
-          content_type: editingExistingChapter.content_type,
+          content_type: isHtml ? 'interactive' : editingExistingChapter.content_type,
           video_url: editingExistingChapter.video_url || '',
           pdf_url: editingExistingChapter.pdf_url || '',
           button_link_text: editingExistingChapter.button_link_text || '',
           button_link_url: editingExistingChapter.button_link_url || '',
           button_link_color: editingExistingChapter.button_link_color || '#10b981',
           cover_url: editingExistingChapter.cover_url || '',
-          rich_text: editingExistingChapter.rich_text || '',
+          rich_text: isHtml ? formatHtmlAppContent(editingExistingChapter.rich_text || '') : (editingExistingChapter.rich_text || ''),
           duration_minutes: editingExistingChapter.duration_minutes || 0,
           module_id: editingExistingChapter.module_id || null
         })
@@ -933,6 +1005,33 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsAiFactoryModalOpen(true)}
+            className="bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 hover:brightness-110 text-white px-3 sm:px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-lg shadow-pink-600/20 active:scale-95 cursor-pointer"
+          >
+            <Sparkles size={16} className="text-amber-200" />
+            <span className="hidden sm:inline">FÁBRICA DE CURSO COMPLETO (IA)</span>
+            <span className="sm:hidden">FÁBRICA IA</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAiEditTarget({
+                scope: 'course',
+                targetTitle: course.title || 'Curso Completo',
+                currentData: course,
+                onApply: (modified) => {
+                  setCourse(prev => ({ ...prev, ...modified }));
+                }
+              });
+            }}
+            className="bg-white/10 hover:bg-white/20 text-white px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 active:scale-95 cursor-pointer"
+          >
+            <Wand2 size={14} className="text-primary" />
+            <span className="hidden sm:inline">EDITAR CURSO COM IA</span>
+            <span className="sm:hidden">EDITAR IA</span>
+          </button>
           <button
             type="button"
             onClick={() => setIsAiCourseModalOpen(true)}
@@ -2037,14 +2136,14 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo da Aula</label>
                             <div className="flex p-1 bg-black/60 rounded-xl border border-white/5 overflow-x-auto">
-                              {['video', 'pdf', 'link', 'checklist', 'interactive'].map((type) => (
+                              {['video', 'pdf', 'link', 'checklist', 'interactive', 'html_app'].map((type) => (
                                 <button 
                                   key={type}
                                   type="button"
                                   onClick={() => setEditingChapter({...editingChapter, content_type: type as any})}
                                   className={`flex-1 py-3 px-2 rounded-lg text-[9px] sm:text-[10px] font-black transition-all uppercase whitespace-nowrap ${editingChapter.content_type === type ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-600 hover:text-gray-400'}`}
                                 >
-                                  {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type}
+                                  {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type === 'html_app' ? '🧩 MINI APP' : type}
                                 </button>
                               ))}
                             </div>
@@ -2068,6 +2167,13 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                               onChange={setNewChecklist}
                             />
                           </div>
+                        ) : editingChapter.content_type === 'html_app' ? (
+                          <AdminHtmlAppEditor
+                            htmlContent={editingChapter.rich_text || ''}
+                            onChange={(val) => setEditingChapter({ ...editingChapter, rich_text: val })}
+                            chapterTitle={editingChapter.title}
+                            themeColor="emerald"
+                          />
                         ) : editingChapter.content_type !== 'link' ? (
                           <div className="space-y-2">
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
@@ -2321,6 +2427,37 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                           <Layers size={14} />
                         </div>
                         <h4 className="text-sm font-black uppercase tracking-widest text-white italic">{module.title === 'Conteúdo' ? 'CONTEÚDO PRINCIPAL' : module.title}</h4>
+                        
+                        {module.id !== 'none' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAiEditTarget({
+                                scope: 'module',
+                                targetTitle: module.title,
+                                currentData: {
+                                  title: module.title,
+                                  description: module.description || '',
+                                  lessonsCount: moduleChapters.length
+                                },
+                                onApply: async (modified) => {
+                                  if (modified.title) {
+                                    setModules(prev => prev.map(m => m.id === module.id ? { ...m, title: modified.title, description: modified.description || m.description } : m));
+                                    if (courseId && !module.id.startsWith('mod-temp-')) {
+                                      await supabase.from('modules').update({ title: modified.title, description: modified.description || '' }).eq('id', module.id);
+                                    }
+                                  }
+                                }
+                              });
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-[10px] font-bold text-gray-300 hover:text-white flex items-center gap-1.5 transition-all border border-white/5 cursor-pointer"
+                            title="Ajustar módulo com IA"
+                          >
+                            <Sparkles size={11} className="text-amber-400" />
+                            <span>Ajustar Módulo (IA)</span>
+                          </button>
+                        )}
+
                         <span className="text-[10px] font-bold text-gray-500 ml-auto">{moduleChapters.length} AULAS</span>
                       </div>
 
@@ -2353,7 +2490,15 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                       </div>
                                     )}
                                     <div className="absolute inset-0 bg-black/20 flex items-center justify-center pointer-events-none">
-                                      {ch.content_type === 'video' ? <Video size={16} className="text-white drop-shadow-md" /> : ch.content_type === 'checklist' ? <CheckSquare size={16} className="text-emerald-400 drop-shadow-md" /> : <FileText size={16} className="text-white drop-shadow-md" />}
+                                      {ch.content_type === 'video' ? (
+                                        <Video size={16} className="text-white drop-shadow-md" />
+                                      ) : ch.content_type === 'checklist' ? (
+                                        <CheckSquare size={16} className="text-emerald-400 drop-shadow-md" />
+                                      ) : ch.content_type === 'html_app' || isHtmlAppChapter(ch) ? (
+                                        <Puzzle size={16} className="text-purple-400 drop-shadow-md" />
+                                      ) : (
+                                        <FileText size={16} className="text-white drop-shadow-md" />
+                                      )}
                                     </div>
                                     <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/75 backdrop-blur-md rounded-md border border-white/10">
                                       <span className="text-[8px] font-black text-white">{idx + 1}</span>
@@ -2366,7 +2511,7 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                     </h4>
                                     <div className="flex items-center gap-4 mt-1">
                                       <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
-                                        {ch.content_type === 'video' ? <Video size={10} /> : <FileText size={10} />} {ch.content_type.toUpperCase()}
+                                        {ch.content_type === 'video' ? <Video size={10} /> : ch.content_type === 'html_app' || isHtmlAppChapter(ch) ? <Puzzle size={10} className="text-purple-400" /> : <FileText size={10} />} {ch.content_type === 'html_app' || isHtmlAppChapter(ch) ? 'MINI APP' : ch.content_type.toUpperCase()}
                                       </span>
                                       <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
                                         <Clock size={10} /> {ch.duration_minutes || 0} MIN
@@ -2376,6 +2521,36 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                 </div>
 
                                 <div className="flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAiEditTarget({
+                                        scope: 'chapter',
+                                        targetTitle: ch.title,
+                                        currentData: ch,
+                                        parentContext: {
+                                          courseTitle: course.title,
+                                          moduleTitle: module.title
+                                        },
+                                        onApply: async (modified) => {
+                                          setChapters(prev => prev.map(c => c.id === ch.id ? { ...c, ...modified } : c));
+                                          if (courseId && !ch.id.startsWith('ch-temp-')) {
+                                            await supabase.from('chapters').update({
+                                              title: modified.title ?? ch.title,
+                                              description: modified.description ?? ch.description,
+                                              rich_text: modified.rich_text ? (typeof modified.rich_text === 'object' ? JSON.stringify(modified.rich_text) : modified.rich_text) : ch.rich_text
+                                            }).eq('id', ch.id);
+                                          }
+                                        }
+                                      });
+                                    }}
+                                    className="p-2 text-gray-500 hover:text-amber-300 hover:bg-amber-500/10 rounded-xl transition-all cursor-pointer"
+                                    title="Ajustar aula com IA cirúrgica"
+                                  >
+                                    <Wand2 size={16} />
+                                  </button>
+
                                   {isAiCreatedLesson(ch) && (
                                     <button
                                       type="button"
@@ -2535,15 +2710,15 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                               </div>
                                               <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Tipo de Conteúdo</label>
-                                                <div className="flex p-1 bg-black/60 rounded-xl border border-white/5">
-                                                  {['video', 'pdf', 'link', 'checklist', 'interactive'].map((type) => (
+                                                <div className="flex p-1 bg-black/60 rounded-xl border border-white/5 overflow-x-auto">
+                                                  {['video', 'pdf', 'link', 'checklist', 'interactive', 'html_app'].map((type) => (
                                                     <button 
                                                       key={type}
                                                       type="button"
-                                                      onClick={() => setEditingExistingChapter(prev => prev ? ({ ...prev, content_type: type as any }) : null)}
-                                                      className={`flex-1 py-2 text-[8px] font-black rounded-lg transition-all uppercase ${draft.content_type === type ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+                                                      onClick={() => setEditingExistingChapter(prev => prev ? ({ ...prev, content_type: type as any }) : ({ ...ch, content_type: type as any }))}
+                                                      className={`flex-1 py-2 px-2 text-[8px] font-black rounded-lg transition-all uppercase whitespace-nowrap ${draft.content_type === type ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
                                                     >
-                                                      {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type}
+                                                      {type === 'link' ? 'BOTAO' : type === 'interactive' ? 'IA' : type === 'html_app' ? '🧩 MINI APP' : type}
                                                     </button>
                                                   ))}
                                                 </div>
@@ -2562,6 +2737,13 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
                                                   onChange={setEditingChecklist}
                                                 />
                                               </div>
+                                            ) : draft.content_type === 'html_app' ? (
+                                              <AdminHtmlAppEditor
+                                                htmlContent={draft.rich_text || ''}
+                                                onChange={(val) => setEditingExistingChapter(prev => prev ? ({ ...prev, rich_text: val }) : ({ ...ch, rich_text: val }))}
+                                                chapterTitle={draft.title}
+                                                themeColor="blue"
+                                              />
                                             ) : draft.content_type !== 'link' ? (
                                               <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">
@@ -3115,6 +3297,83 @@ export default function CourseEditor({ courseId: initialCourseId, onClose, packa
       initialCourse={course}
       onApplyCourse={handleApplyAiCourse}
     />
+
+    {/* AI Course Factory Modal (Full Architecture Generator) */}
+    <AiCourseFactoryModal
+      isOpen={isAiFactoryModalOpen}
+      onClose={() => setIsAiFactoryModalOpen(false)}
+      packages={packages}
+      onCourseCreated={(newCourseId) => {
+        setCourseId(newCourseId);
+        fetchCourseData();
+      }}
+      onOpenManualEditor={(data) => {
+        setCourse(prev => ({
+          ...prev,
+          ...data.course
+        }));
+
+        if (Array.isArray(data.modules)) {
+          const loadedModules: Module[] = [];
+          const loadedChapters: Chapter[] = [];
+
+          data.modules.forEach((mod: any, mIdx: number) => {
+            const modId = `mod-temp-${mIdx}-${Date.now()}`;
+            loadedModules.push({
+              id: modId,
+              course_id: courseId || '',
+              title: mod.title || `Módulo ${mIdx + 1}`,
+              order_index: mod.order_index ?? mIdx,
+              description: mod.description || '',
+              created_at: new Date().toISOString()
+            });
+
+            if (Array.isArray(mod.chapters)) {
+              mod.chapters.forEach((ch: any, chIdx: number) => {
+                const chId = `ch-temp-${mIdx}-${chIdx}-${Date.now()}`;
+                loadedChapters.push({
+                  id: chId,
+                  course_id: courseId || '',
+                  module_id: modId,
+                  title: ch.title,
+                  description: ch.description || '',
+                  order_index: ch.order_index ?? chIdx,
+                  content_type: ch.content_type || 'rich_text',
+                  video_url: ch.video_url || '',
+                  rich_text: typeof ch.rich_text === 'object' ? JSON.stringify(ch.rich_text) : (ch.rich_text || ''),
+                  cover_url: ch.cover_url || '',
+                  is_free: Boolean(ch.is_free),
+                  is_preview: Boolean(ch.is_preview),
+                  duration_minutes: ch.duration_minutes || 10,
+                  created_at: new Date().toISOString()
+                });
+              });
+            }
+          });
+
+          setModules(loadedModules);
+          setChapters(loadedChapters);
+        }
+        setIsAiFactoryModalOpen(false);
+      }}
+    />
+
+    {/* AI Surgical Course/Module/Chapter Editor Modal */}
+    {aiEditTarget && (
+      <AiCourseEditModal
+        isOpen={Boolean(aiEditTarget)}
+        onClose={() => setAiEditTarget(null)}
+        scope={aiEditTarget.scope}
+        targetTitle={aiEditTarget.targetTitle}
+        currentData={aiEditTarget.currentData}
+        parentContext={aiEditTarget.parentContext}
+        onApplyChanges={async (modifiedData) => {
+          if (aiEditTarget.onApply) {
+            await aiEditTarget.onApply(modifiedData);
+          }
+        }}
+      />
+    )}
   </div>
 );
 }

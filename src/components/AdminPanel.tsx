@@ -93,6 +93,8 @@ import CourseViewer from './CourseViewer';
 import Community from './Community';
 import PackageEditor from './PackageEditor';
 import { dataCache } from '../lib/cache';
+import { AiCourseFactoryModal } from './AiCourseFactoryModal';
+import { AiCourseEditModal } from './AiCourseEditModal';
 
 const RotatingBannerPreview = ({ images, interval = 5000 }: { images: string[], interval?: number }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -214,6 +216,10 @@ export default function AdminPanel({ user }: AdminPanelProps) {
   // Editor states
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [showCourseEditor, setShowCourseEditor] = useState(false);
+  const [manualEditorInitialCourse, setManualEditorInitialCourse] = useState<any | null>(null);
+  const [manualEditorInitialModules, setManualEditorInitialModules] = useState<any[] | null>(null);
+  const [showAiCourseFactoryModal, setShowAiCourseFactoryModal] = useState(false);
+  const [aiEditTargetCourse, setAiEditTargetCourse] = useState<any | null>(null);
   const [showPackageEditor, setShowPackageEditor] = useState(false);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
@@ -539,7 +545,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
     }
   };
 
-   const CourseAdminCard = ({ course, courseStats, setViewingCourseId, setEditingCourseId, setShowCourseEditor, onDelete, onMove }: any) => (
+   const CourseAdminCard = ({ course, courseStats, setViewingCourseId, setEditingCourseId, setShowCourseEditor, onDelete, onMove, onAiEdit }: any) => (
     <div className="bg-zinc-900 border border-white/5 rounded-xl overflow-hidden group hover:border-blue-500/50 transition-all flex flex-col w-36 sm:w-44 shrink-0 shadow-2xl">
       <div className="relative aspect-[2/3] overflow-hidden shrink-0">
         {course.cover_url?.trim() ? (
@@ -571,7 +577,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         </div>
 
         {/* Admin floating controls */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button 
+            onClick={() => onAiEdit?.(course)}
+            className="p-1.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:brightness-110 text-white rounded-lg backdrop-blur-md transition-all shadow-lg"
+            title="Editar com IA"
+          >
+            <Sparkles size={14} />
+          </button>
           <button 
             onClick={() => setViewingCourseId(course.id)}
             className="p-1.5 bg-white/20 hover:bg-white text-white hover:text-black rounded-lg backdrop-blur-md transition-all shadow-lg"
@@ -2613,14 +2626,14 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               <span>{loadingCourses ? 'Atualizando...' : 'Atualizar'}</span>
                             </button>
                             <button
-                              onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
-                              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-black px-4 sm:px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20 active:scale-95 cursor-pointer"
+                              onClick={() => setShowAiCourseFactoryModal(true)}
+                              className="flex items-center gap-2 bg-gradient-to-r from-amber-400 via-rose-500 to-indigo-600 hover:brightness-110 text-white px-4 sm:px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-rose-500/20 active:scale-95 cursor-pointer"
                             >
                               <Sparkles size={16} />
-                              <span>Criar com IA</span>
+                              <span>Criar Curso com IA</span>
                             </button>
                             <button 
-                              onClick={() => { setEditingCourseId(null); setShowCourseEditor(true); }}
+                              onClick={() => { setEditingCourseId(null); setManualEditorInitialCourse(null); setManualEditorInitialModules(null); setShowCourseEditor(true); }}
                               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-blue-600/20 active:scale-95 cursor-pointer"
                             >
                               <Plus size={18} /> Criar Curso
@@ -2657,7 +2670,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
                             })
                             .map((course) => (
-                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} onAiEdit={setAiEditTargetCourse} />
                             ))}
                         </div>
                       </div>
@@ -2678,7 +2691,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
                             })
                             .map((course) => (
-                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} onAiEdit={setAiEditTargetCourse} />
                             ))}
                         </div>
                       </div>
@@ -2699,7 +2712,7 @@ export default function AdminPanel({ user }: AdminPanelProps) {
                               return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
                             })
                             .map((course) => (
-                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} />
+                              <CourseAdminCard key={course.id} course={course} courseStats={courseStats} setViewingCourseId={setViewingCourseId} setEditingCourseId={setEditingCourseId} setShowCourseEditor={setShowCourseEditor} onDelete={handleDeleteCourse} onMove={handleMoveCourse} onAiEdit={setAiEditTargetCourse} />
                             ))}
                         </div>
                       </div>
@@ -7658,12 +7671,66 @@ export default function AdminPanel({ user }: AdminPanelProps) {
         <CourseEditor 
           courseId={editingCourseId || undefined} 
           packages={coursePackages}
+          initialCourseData={manualEditorInitialCourse || undefined}
+          initialModulesData={manualEditorInitialModules || undefined}
           onClose={() => {
             setShowCourseEditor(false);
             setEditingCourseId(null);
+            setManualEditorInitialCourse(null);
+            setManualEditorInitialModules(null);
             fetchCourses(false);
             fetchData();
           }} 
+        />
+      )}
+
+      {/* AI Course Factory Modal */}
+      <AiCourseFactoryModal
+        isOpen={showAiCourseFactoryModal}
+        onClose={() => setShowAiCourseFactoryModal(false)}
+        packages={coursePackages}
+        onCourseCreated={(_newCourseId) => {
+          fetchCourses(true);
+          fetchData();
+        }}
+        onOpenManualEditor={(data) => {
+          setEditingCourseId(null);
+          setManualEditorInitialCourse(data.course);
+          setManualEditorInitialModules(data.modules);
+          setShowCourseEditor(true);
+        }}
+      />
+
+      {/* AI Surgical Course Edit Modal */}
+      {aiEditTargetCourse && (
+        <AiCourseEditModal
+          isOpen={Boolean(aiEditTargetCourse)}
+          onClose={() => setAiEditTargetCourse(null)}
+          scope="course"
+          targetTitle={aiEditTargetCourse?.title}
+          currentData={aiEditTargetCourse}
+          onApplyChanges={async (modifiedData) => {
+            if (!aiEditTargetCourse?.id) return;
+            const updatePayload: any = {};
+            if (modifiedData.title !== undefined) updatePayload.title = modifiedData.title;
+            if (modifiedData.subtitle !== undefined) updatePayload.subtitle = modifiedData.subtitle;
+            if (modifiedData.description !== undefined) updatePayload.description = modifiedData.description;
+            if (modifiedData.benefits !== undefined) updatePayload.benefits = modifiedData.benefits;
+            if (modifiedData.preview_title !== undefined) updatePayload.preview_title = modifiedData.preview_title;
+            if (modifiedData.preview_subtitle !== undefined) updatePayload.preview_subtitle = modifiedData.preview_subtitle;
+            if (modifiedData.preview_rich_text !== undefined) updatePayload.preview_rich_text = modifiedData.preview_rich_text;
+            if (modifiedData.category !== undefined) updatePayload.category = modifiedData.category;
+
+            const { error } = await supabase
+              .from('courses')
+              .update(updatePayload)
+              .eq('id', aiEditTargetCourse.id);
+
+            if (error) throw error;
+            dataCache.invalidate('courses_list');
+            dataCache.invalidate('admin_courses');
+            fetchCourses(true);
+          }}
         />
       )}
 

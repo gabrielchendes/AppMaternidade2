@@ -29,14 +29,12 @@ import {
   Code,
   Sparkle,
   Send,
-  Camera,
   Bold,
   Heading1,
   ListPlus
 } from 'lucide-react';
 import { Course } from '../types/lms';
 import { showToast } from '../lib/customToast';
-import { AiImageSuggestionsModal } from './AiImageSuggestionsModal';
 
 interface SuggestedChapter {
   title: string;
@@ -128,9 +126,6 @@ export const AiCourseGeneratorModal: React.FC<AiCourseGeneratorModalProps> = ({
   const [salesPageMode, setSalesPageMode] = useState<'visual' | 'manual' | 'ai'>('visual');
   const [aiSalesPrompt, setAiSalesPrompt] = useState('');
   const [refiningSalesPage, setRefiningSalesPage] = useState(false);
-
-  // AI Image Suggestion Modal State
-  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   useEffect(() => {
     if (isOpen && initialCourse) {
@@ -435,16 +430,6 @@ export const AiCourseGeneratorModal: React.FC<AiCourseGeneratorModalProps> = ({
             </div>
             
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsImageModalOpen(true)}
-                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/20 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Sugerir Imagens e Prompts de IA"
-              >
-                <Camera size={14} className="text-cyan-400" />
-                <span className="hidden sm:inline">Visual Ideas</span>
-              </button>
-
               <button
                 onClick={onClose}
                 className="p-2.5 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer"
@@ -1249,14 +1234,6 @@ export const AiCourseGeneratorModal: React.FC<AiCourseGeneratorModalProps> = ({
           </div>
         </div>
       </div>
-
-      {/* AI Image Suggestions Modal */}
-      <AiImageSuggestionsModal
-        isOpen={isImageModalOpen}
-        onClose={() => setIsImageModalOpen(false)}
-        initialTopic={topicOrTitle || initialCourse?.title || ''}
-        contextType="course_cover"
-      />
     </>
   );
 };

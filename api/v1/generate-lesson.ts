@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { safeParseAiJson } from '../utils/parseAiJson';
+import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -188,36 +189,23 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
     }
     contents.push(promptText);
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
-    let responseText: string | undefined = undefined;
-    let lastError: any = null;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-            responseMimeType: 'application/json',
-          },
-        });
-        if (response.text) {
-          responseText = response.text;
-          break;
-        }
-      } catch (mErr: any) {
-        lastError = mErr;
-        console.log(`[Generate Lesson API] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
-        // Small delay if temporary high-demand / rate limit before next candidate
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    const result = await generateContentWithRetry({
+      ai,
+      candidateModels,
+      contents,
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+        responseMimeType: 'application/json',
+      },
+      maxAttemptsPerModel: 2,
+      baseDelayMs: 1200,
+      logPrefix: '[Generate Lesson API]'
+    });
 
-    if (!responseText) {
-      throw lastError || new Error('Não foi possível gerar a aula com os modelos de IA.');
-    }
+    const responseText = result.text;
 
     let parsedData: any = null;
     try {

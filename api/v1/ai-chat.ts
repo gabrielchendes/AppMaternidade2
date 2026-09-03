@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
@@ -161,34 +162,22 @@ ${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`;
       ? `${customSystemPrompt.trim()}\n\nIMPORTANT FORMATTING RULE: Do NOT use markdown bold stars (**text**) or asterisks in output. Write in natural plain text.\n\n${userContext?.userName ? `User's Name: ${userContext.userName}` : ''}`
       : defaultSystemInstruction;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
-    let responseText: string | undefined = undefined;
-    let lastError: any = null;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-          },
-        });
-        if (response.text) {
-          responseText = response.text;
-          break;
-        }
-      } catch (mErr: any) {
-        lastError = mErr;
-        console.log(`[AI Chat] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    const result = await generateContentWithRetry({
+      ai,
+      candidateModels,
+      contents,
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+      },
+      maxAttemptsPerModel: 2,
+      baseDelayMs: 1200,
+      logPrefix: '[AI Chat]'
+    });
 
-    if (!responseText) {
-      throw lastError || new Error('No response generated from AI models.');
-    }
+    const responseText = result.text;
 
     const rawReply = responseText || 'Desculpe, não consegui processar uma resposta no momento. Por favor, tente novamente em instantes.';
     const reply = rawReply.replace(/\*\*/g, '');

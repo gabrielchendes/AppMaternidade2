@@ -65,15 +65,17 @@ export interface Module {
   course_id: string;
   title: string;
   order_index: number;
+  description?: string;
   created_at: string;
 }
 
 export interface Chapter {
   id: string;
   module_id: string;
+  course_id?: string;
   title: string;
   description: string;
-  content_type: 'video' | 'pdf' | 'text' | 'link' | 'checklist' | 'interactive';
+  content_type: 'video' | 'pdf' | 'text' | 'link' | 'checklist' | 'interactive' | 'html_app';
   video_url?: string;
   pdf_url?: string;
   cover_url?: string;
@@ -84,6 +86,7 @@ export interface Chapter {
   duration_minutes?: number;
   order_index: number;
   is_preview: boolean;
+  is_free?: boolean;
   created_at: string;
 }
 

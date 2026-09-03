@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { safeParseAiJson } from '../utils/parseAiJson';
+import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -83,35 +84,23 @@ Critérios Específicos do Curso: ${analysisCriteria || 'Interpretação de inte
 Mensagem enviada pela aluna para analisar:
 "${messageText}"`;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
-    let responseText: string | undefined = undefined;
-    let lastError: any = null;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            systemInstruction,
-            temperature: 0.5,
-            responseMimeType: 'application/json',
-          },
-        });
-        if (response.text) {
-          responseText = response.text;
-          break;
-        }
-      } catch (mErr: any) {
-        lastError = mErr;
-        console.log(`[Analyze Message API] Model ${modelName} candidate fallback note:`, mErr?.message || mErr);
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    const result = await generateContentWithRetry({
+      ai,
+      candidateModels,
+      contents: prompt,
+      config: {
+        systemInstruction,
+        temperature: 0.5,
+        responseMimeType: 'application/json',
+      },
+      maxAttemptsPerModel: 2,
+      baseDelayMs: 1200,
+      logPrefix: '[Analyze Message API]'
+    });
 
-    if (!responseText) {
-      throw lastError || new Error('Não foi possível analisar a mensagem.');
-    }
+    const responseText = result.text;
 
     let parsedData: any = null;
     try {

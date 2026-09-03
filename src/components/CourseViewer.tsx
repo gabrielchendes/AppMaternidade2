@@ -19,7 +19,8 @@ import {
   Play,
   AlertCircle,
   ExternalLink,
-  CheckSquare
+  CheckSquare,
+  Puzzle
 } from 'lucide-react';
 import WhatsAppIcon from './WhatsAppIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -36,6 +37,8 @@ import SupportSection from './SupportSection';
 import PullToRefresh from './PullToRefresh';
 import { InteractiveChecklist } from './InteractiveChecklist';
 import { BlockLessonViewer } from './BlockLessonViewer';
+import HtmlAppViewer from './HtmlAppViewer';
+import { fromDbChapter, isHtmlAppChapter, extractHtmlAppContent } from '../utils/htmlAppHelper';
 
 import { dataCache } from '../lib/cache';
 
@@ -178,7 +181,7 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
           .in('module_id', moduleIds)
           .order('order_index');
 
-        finalChapters = chaptersData || [];
+        finalChapters = (chaptersData || []).map(fromDbChapter);
       }
 
       // If course has direct pdf_url and no chapters created yet, synthesize a PDF lesson
@@ -821,6 +824,7 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 sm:gap-x-8 sm:gap-y-12">
                         {moduleChapters.map((chapter, idx) => {
                           const isCompleted = progress.find(p => p.chapter_id === chapter.id)?.completed;
+                          const isChapterHtmlApp = chapter.content_type === 'html_app' || isHtmlAppChapter(chapter);
                           
                           return (
                             <motion.button
@@ -861,7 +865,11 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                                 />
                               ) : (
                                 <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-white/30 group-hover:text-primary transition-colors">
-                                  <PlayCircle className="w-10 h-10 sm:w-12 sm:h-12" />
+                                  {isChapterHtmlApp ? (
+                                    <Puzzle className="w-10 h-10 sm:w-12 sm:h-12 text-purple-400/80" />
+                                  ) : (
+                                    <PlayCircle className="w-10 h-10 sm:w-12 sm:h-12" />
+                                  )}
                                 </div>
                               )}
                               
@@ -872,10 +880,14 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                                 <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-2xl border flex items-center justify-center transition-all duration-500 shadow-xl backdrop-blur-md ${
                                   isCompleted 
                                     ? 'bg-emerald-500/90 border-emerald-400 text-white scale-90 shadow-[0_0_15px_rgba(16,185,129,0.5)]' 
+                                    : isChapterHtmlApp
+                                    ? 'bg-purple-950/70 border-purple-500/40 text-purple-300 group-hover:bg-purple-600 group-hover:border-purple-400 group-hover:text-white group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(168,85,247,0.6)]'
                                     : 'bg-black/50 border-white/30 text-white group-hover:bg-primary group-hover:border-primary group-hover:scale-110 group-hover:shadow-[0_0_20px_rgba(244,63,94,0.6)]'
                                 }`}>
                                   {isCompleted ? (
                                     <CheckCircle2 className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
+                                  ) : isChapterHtmlApp ? (
+                                    <Puzzle className="w-5 h-5 sm:w-6 sm:h-6 text-white drop-shadow-md" />
                                   ) : (
                                     <Play className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-white ml-0.5 sm:ml-1 drop-shadow-md" />
                                   )}
@@ -897,7 +909,7 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                             <div className="space-y-0.5 px-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em] italic leading-none">
-                                  {chapter.content_type === 'video' ? '' : chapter.content_type === 'pdf' ? '' : (t('course.reading') || 'Leitura')}
+                                  {chapter.content_type === 'video' ? '' : chapter.content_type === 'pdf' ? '' : isChapterHtmlApp ? 'Mini App' : (t('course.reading') || 'Leitura')}
                                 </span>
                                 {isCompleted && <div className="w-1 h-1 rounded-full bg-green-500" />}
                               </div>
@@ -942,45 +954,60 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
               </div>
 
               {/* Media Player Section with Elegant Frame */}
-              <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'checklist' || activeChapter?.content_type === 'interactive' || activeChapter?.content_type === 'text' ? 'max-w-4xl' : activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
-                {activeChapter?.content_type === 'interactive' || (activeChapter?.content_type === 'text' && activeChapter.rich_text?.startsWith('{')) ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="w-full"
-                  >
-                    {(() => {
-                      let parsedBlocks = [];
-                      try {
-                        if (activeChapter.rich_text) {
-                          const parsed = JSON.parse(activeChapter.rich_text);
-                          parsedBlocks = parsed.blocks || [];
-                        }
-                      } catch (e) {
-                        console.error('Failed to parse lesson blocks:', e);
-                      }
-
-                      return (
-                        <BlockLessonViewer
-                          chapterId={activeChapter.id}
-                          userId={userId}
-                          blocks={parsedBlocks}
-                          title={activeChapter.title}
-                          description={activeChapter.description}
-                          onLessonComplete={() => {
-                            if (activeChapter) {
-                              const currentProgress = progress.find(p => p.chapter_id === activeChapter.id);
-                              if (!currentProgress?.completed) {
-                                toggleCompletion(activeChapter.id);
-                              }
-                            }
-                          }}
+              {(() => {
+                const isCurrentHtmlApp = activeChapter?.content_type === 'html_app' || isHtmlAppChapter(activeChapter);
+                return (
+                  <div className={`mx-auto w-full px-4 sm:px-6 relative flex justify-center ${activeChapter?.content_type === 'checklist' || activeChapter?.content_type === 'interactive' || activeChapter?.content_type === 'text' || isCurrentHtmlApp ? 'max-w-5xl' : activeChapter?.content_type === 'pdf' ? 'max-w-3xl' : 'max-w-5xl'}`}>
+                    {isCurrentHtmlApp ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="w-full"
+                      >
+                        <HtmlAppViewer
+                          htmlContent={extractHtmlAppContent(activeChapter?.rich_text)}
+                          title={activeChapter?.title}
                         />
-                      );
-                    })()}
-                  </motion.div>
-                ) : activeChapter?.content_type === 'text' ? (
+                      </motion.div>
+                    ) : activeChapter?.content_type === 'interactive' || (activeChapter?.content_type === 'text' && activeChapter.rich_text?.startsWith('{')) ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="w-full"
+                      >
+                        {(() => {
+                          let parsedBlocks = [];
+                          try {
+                            if (activeChapter.rich_text) {
+                              const parsed = JSON.parse(activeChapter.rich_text);
+                              parsedBlocks = parsed.blocks || [];
+                            }
+                          } catch (e) {
+                            console.error('Failed to parse lesson blocks:', e);
+                          }
+
+                          return (
+                            <BlockLessonViewer
+                              chapterId={activeChapter.id}
+                              userId={userId}
+                              blocks={parsedBlocks}
+                              title={activeChapter.title}
+                              description={activeChapter.description}
+                              onLessonComplete={() => {
+                                if (activeChapter) {
+                                  const currentProgress = progress.find(p => p.chapter_id === activeChapter.id);
+                                  if (!currentProgress?.completed) {
+                                    toggleCompletion(activeChapter.id);
+                                  }
+                                }
+                              }}
+                            />
+                          );
+                        })()}
+                      </motion.div>
+                    ) : activeChapter?.content_type === 'text' ? (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1062,6 +1089,8 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                   </motion.div>
                 )}
               </div>
+            );
+          })()}
 
               {/* Action Area */}
               <div className="max-w-4xl mx-auto w-full px-6 py-16 space-y-12">

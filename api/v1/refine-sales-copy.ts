@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 import { safeParseAiJson } from '../utils/parseAiJson';
+import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -75,35 +76,23 @@ ${currentHtml || '<div class="space-y-6 text-gray-200"><h3>Mastery Transformatio
 
 Apply the user's instruction precisely, keeping the overall structure cohesive, luxurious, and ultra-high-converting.`;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
-    let textResult = '';
-    let lastError: any = null;
+    const candidateModels = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
 
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          config: {
-            systemInstruction,
-            temperature: 0.6,
-            responseMimeType: 'application/json'
-          }
-        });
-        if (response && response.text) {
-          textResult = response.text;
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[refine-sales-copy] Error with model ${modelName}:`, err?.message || err);
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
-    }
+    const result = await generateContentWithRetry({
+      ai,
+      candidateModels,
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      config: {
+        systemInstruction,
+        temperature: 0.6,
+        responseMimeType: 'application/json'
+      },
+      maxAttemptsPerModel: 2,
+      baseDelayMs: 1200,
+      logPrefix: '[refine-sales-copy]'
+    });
 
-    if (!textResult) {
-      throw lastError || new Error('Unable to refine sales page copy with AI.');
-    }
+    const textResult = result.text;
 
     const parsed = safeParseAiJson(textResult);
 
