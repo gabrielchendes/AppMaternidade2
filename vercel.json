@@ -76,7 +76,7 @@
       "destination": "/api/v1/admin?action=generate-permanent-link"
     },
     {
-      "source": "/((?!api/|manifest\\.json|sw\\.js|favicon\\.svg|.*\\.).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

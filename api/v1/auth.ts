@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { initNodeWarningHandler } from '../utils/nodeWarningHandler';
+import { initNodeWarningHandler } from '../_utils/nodeWarningHandler';
 
 initNodeWarningHandler();
 
