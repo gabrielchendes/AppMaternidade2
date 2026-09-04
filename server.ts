@@ -3,10 +3,15 @@ import { createServer as createViteServer, loadEnv } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import DOMException from 'node-domexception';
 
+// Ensure DOMException is available globally
 if (typeof (globalThis as any).DOMException === 'undefined') {
-  (globalThis as any).DOMException = DOMException;
+  (globalThis as any).DOMException = class DOMException extends Error {
+    constructor(message?: string, name?: string) {
+      super(message);
+      this.name = name || 'DOMException';
+    }
+  };
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

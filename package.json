@@ -26,7 +26,6 @@
     "i18next": "^26.0.3",
     "lucide-react": "^0.546.0",
     "motion": "^12.38.0",
-    "node-domexception": "^1.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^17.0.2",

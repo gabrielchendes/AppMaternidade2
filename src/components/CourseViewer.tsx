@@ -963,11 +963,12 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.2 }}
-                        className="w-full"
+                        className="w-full max-w-4xl mx-auto flex flex-col items-center justify-center"
                       >
                         <HtmlAppViewer
                           htmlContent={extractHtmlAppContent(activeChapter?.rich_text)}
                           title={activeChapter?.title}
+                          className="w-full flex flex-col items-center justify-center"
                         />
                       </motion.div>
                     ) : activeChapter?.content_type === 'interactive' || (activeChapter?.content_type === 'text' && activeChapter.rich_text?.startsWith('{')) ? (

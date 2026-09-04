@@ -177,7 +177,7 @@ export const SAMPLE_HTML_APP = `<!DOCTYPE html>
 function prepareNativeHtml(rawHtml: string, frameId: string): string {
   const injection = `
 <style id="pwa-mini-app-runtime-style">
-  /* Garante integração nativa e impede expansão descontrolada contra o viewport do iframe */
+  /* Garante integração nativa, centralização perfeita e impede expansão descontrolada contra o viewport do iframe */
   html {
     margin: 0 !important;
     padding: 0 !important;
@@ -187,9 +187,13 @@ function prepareNativeHtml(rawHtml: string, frameId: string): string {
     overflow: hidden !important;
     box-sizing: border-box;
     -webkit-font-smoothing: antialiased;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    width: 100% !important;
   }
   body {
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     height: auto !important;
     min-height: 0 !important;
@@ -197,18 +201,31 @@ function prepareNativeHtml(rawHtml: string, frameId: string): string {
     overflow: hidden !important;
     box-sizing: border-box;
     -webkit-font-smoothing: antialiased;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    width: 100% !important;
   }
   *, *:before, *:after {
     box-sizing: border-box;
   }
   #pwa-mini-app-root {
-    display: flow-root !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
     width: 100% !important;
+    max-width: 100% !important;
     min-height: 0 !important;
     height: auto !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     box-sizing: border-box !important;
+  }
+  #pwa-mini-app-root > * {
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
   img, video, canvas {
     max-width: 100%;
@@ -380,6 +397,7 @@ export default function HtmlAppViewer({
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [hasLoadError, setHasLoadError] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
+  const hasMeasuredRef = useRef<boolean>(false);
 
   // Proteção rígida contra loops de expansão
   const loopGuardRef = useRef<{ count: number; lastTime: number }>({ count: 0, lastTime: 0 });
@@ -390,6 +408,7 @@ export default function HtmlAppViewer({
   useEffect(() => {
     setHasLoadError(false);
     setIsLoaded(false);
+    hasMeasuredRef.current = false;
     loopGuardRef.current = { count: 0, lastTime: 0 };
   }, [trimmedHtml, reloadKey]);
 
@@ -422,6 +441,7 @@ export default function HtmlAppViewer({
 
           // Limite de segurança saudável (entre 60px e 3200px) impedindo expansão descontrolada
           const safeHeight = Math.max(60, Math.min(reportedHeight, 3200));
+          hasMeasuredRef.current = true;
           setHeight(prev => (Math.abs(prev - safeHeight) >= 2 ? safeHeight : prev));
           setIsLoaded(true);
         }
@@ -435,7 +455,7 @@ export default function HtmlAppViewer({
   // Se não houver código HTML configurado, mensagem discreta integrada
   if (!trimmedHtml) {
     return (
-      <div className={`w-full py-12 px-6 flex flex-col items-center justify-center text-center ${className}`}>
+      <div className={`w-full max-w-3xl mx-auto py-12 px-6 flex flex-col items-center justify-center text-center ${className}`}>
         <p className="text-sm text-gray-500 font-medium">
           Esta experiência interativa ainda não possui conteúdo configurado.
         </p>
@@ -446,7 +466,7 @@ export default function HtmlAppViewer({
   // Se houver erro de carregamento, estado discreto e amigável
   if (hasLoadError) {
     return (
-      <div className={`w-full py-12 px-6 flex flex-col items-center justify-center text-center ${className}`}>
+      <div className={`w-full max-w-3xl mx-auto py-12 px-6 flex flex-col items-center justify-center text-center ${className}`}>
         <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-gray-400 mb-3">
           <AlertCircle size={22} className="text-amber-400/80" />
         </div>
@@ -474,18 +494,18 @@ export default function HtmlAppViewer({
   const preparedHtml = prepareNativeHtml(trimmedHtml, frameIdRef.current);
 
   return (
-    <div className={`w-full relative ${className}`}>
-      {/* Indicador discreto sem forçar medidas verticais desnecessárias */}
+    <div className={`w-full max-w-4xl mx-auto flex flex-col items-center justify-center relative ${className}`}>
+      {/* Indicador discreto perfeitamente centralizado sem forçar medidas */}
       {!isLoaded && (
-        <div className="w-full py-10 flex items-center justify-center">
+        <div className="w-full py-12 flex items-center justify-center">
           <div className="w-2.5 h-2.5 rounded-full bg-primary/40 animate-ping" />
         </div>
       )}
 
       {/* 
-        Iframe nativo perfeitamente integrado:
-        - Largura 100% fluida
-        - Altura exata sincronizada com o conteúdo real
+        Iframe nativo perfeitamente centralizado e integrado:
+        - Largura fluida e centralizada (mx-auto)
+        - Transição suave sem pulo de altura
         - Sem scroll interno e sem loop de crescimento
       */}
       <iframe
@@ -494,7 +514,7 @@ export default function HtmlAppViewer({
         title={title || "Experiência Interativa"}
         sandbox="allow-scripts allow-forms"
         scrolling="no"
-        className={`w-full border-0 block bg-transparent transition-opacity duration-250 ${
+        className={`w-full max-w-3xl mx-auto border-0 block bg-transparent transition-opacity duration-300 ${
           isLoaded ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
         }`}
         style={{
@@ -504,7 +524,11 @@ export default function HtmlAppViewer({
           display: 'block'
         }}
         onLoad={() => {
-          setTimeout(() => setIsLoaded(true), 150);
+          setTimeout(() => {
+            if (!hasMeasuredRef.current) {
+              setIsLoaded(true);
+            }
+          }, 750);
         }}
         onError={() => setHasLoadError(true)}
       />

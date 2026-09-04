@@ -95,13 +95,19 @@ export default defineConfig(({mode}) => {
       target: 'esnext',
       minify: 'esbuild',
       cssMinify: true,
-      chunkSizeWarningLimit: 1200,
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom')) {
-                return 'vendor-react';
+              if (id.includes('react-quill-new') || id.includes('quill')) {
+                return 'vendor-quill';
+              }
+              if (id.includes('recharts')) {
+                return 'vendor-charts';
+              }
+              if (id.includes('firebase') || id.includes('@firebase')) {
+                return 'vendor-firebase';
               }
               if (id.includes('motion')) {
                 return 'vendor-motion';
@@ -111,6 +117,13 @@ export default defineConfig(({mode}) => {
               }
               if (id.includes('@supabase')) {
                 return 'vendor-supabase';
+              }
+              if (
+                id.includes('/node_modules/react/') ||
+                id.includes('/node_modules/react-dom/') ||
+                id.includes('/node_modules/scheduler/')
+              ) {
+                return 'vendor-react';
               }
             }
           }

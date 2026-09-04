@@ -1,5 +1,6 @@
 {
-  "version": 2,
+  "framework": "vite",
+  "outputDirectory": "dist",
   "cleanUrls": true,
   "rewrites": [
     {
@@ -73,10 +74,6 @@
     {
       "source": "/api/v1/generate-permanent-link",
       "destination": "/api/v1/admin?action=generate-permanent-link"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "/api/:path*"
     },
     {
       "source": "/((?!api/|manifest\\.json|sw\\.js|favicon\\.svg|.*\\.).*)",

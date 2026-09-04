@@ -3,11 +3,19 @@ import { VercelRequest, VercelResponse } from '@vercel/node';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { randomUUID } from 'crypto';
-import DOMException from 'node-domexception';
+import { initNodeWarningHandler } from '../utils/nodeWarningHandler';
+
+// Suppress false-positive deprecation warnings in Vercel logs
+initNodeWarningHandler();
 
 // Ensure DOMException is available globally for fetch-blob and google auth requests
 if (typeof (globalThis as any).DOMException === 'undefined') {
-  (globalThis as any).DOMException = DOMException;
+  (globalThis as any).DOMException = class DOMException extends Error {
+    constructor(message?: string, name?: string) {
+      super(message);
+      this.name = name || 'DOMException';
+    }
+  };
 }
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
