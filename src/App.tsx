@@ -200,7 +200,7 @@ export default function App() {
       console.log(`Auth Event: ${event}`);
       
       if (session?.user) {
-        setUser(session.user);
+        setUser(prev => (prev?.id === session.user.id && prev?.email === session.user.email ? prev : session.user));
         setAuthLoading(false);
         clearTimeout(forceStopLoading);
       } else if (event === 'SIGNED_OUT' || (event as any) === 'USER_DELETED') {

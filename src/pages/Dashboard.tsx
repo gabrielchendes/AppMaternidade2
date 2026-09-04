@@ -56,16 +56,6 @@ export default function Dashboard({ user }: DashboardProps) {
   const initialCached = useMemo(() => {
     const userCached = user?.id ? dataCache.getSync(cacheKey, null) : null;
     if (userCached?.courses?.length) return userCached;
-    const globalCatalog = dataCache.getSync('global_public_courses_catalog', null);
-    if (globalCatalog && Array.isArray(globalCatalog) && globalCatalog.length > 0) {
-      return {
-        courses: globalCatalog,
-        purchases: [],
-        userProgress: [],
-        courseStats: {},
-        courseChapters: {}
-      };
-    }
     return null;
   }, [user?.id, cacheKey]);
 
@@ -83,6 +73,11 @@ export default function Dashboard({ user }: DashboardProps) {
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+
+  // Lifecycles and deduplication refs
+  const fetchInProgressRef = useRef(false);
+  const hasFetchedOnceRef = useRef(false);
+  const prevViewingCourseIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Preload CourseViewer chunk during browser idle time so initial home rendering is 100% fluid
@@ -148,32 +143,36 @@ export default function Dashboard({ user }: DashboardProps) {
 
   const handleGlobalRefresh = async () => {
     if (activeTab === 'home') {
-      await fetchData(true); // Force refresh from DB when switching to home
+      await fetchData(true); // User explicitly triggered pull-to-refresh
     }
     setRefreshKey(prev => prev + 1);
-    // Give a little extra feedback time
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 600));
   };
 
-  // Refresh data when closing course viewer silently in background
+  // Silently sync progress when user closes CourseViewer, WITHOUT fetching courses
   useEffect(() => {
-    if (!viewingCourseId && courses.length > 0) {
-      fetchData(false);
+    if (prevViewingCourseIdRef.current && !viewingCourseId && user?.id) {
+      supabase
+        .from('user_progress')
+        .select('chapter_id, completed, user_id')
+        .eq('user_id', user.id)
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setUserProgress(data);
+          }
+        })
+        .catch(() => {});
     }
-  }, [viewingCourseId]);
+    prevViewingCourseIdRef.current = viewingCourseId;
+  }, [viewingCourseId, user?.id]);
 
   useEffect(() => {
     // Only update hash if it's not already correct to avoid unnecessary history changes
     if (window.location.hash !== `#${activeTab}`) {
       window.history.replaceState(null, '', `#${activeTab}`);
     }
-    
-    // If switching back to home, refresh progress or fetch courses if missing
-    if (activeTab === 'home') {
-       fetchData(courses.length === 0);
-    }
 
-    // Always scroll to top when changing tabs
+    // Always scroll to top when changing tabs (NO refetch on tab switch)
     window.scrollTo(0, 0);
   }, [activeTab]);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -206,28 +205,13 @@ export default function Dashboard({ user }: DashboardProps) {
   useEffect(() => {
     let mounted = true;
     
-    const init = async () => {
-      if (mounted) {
-        await fetchData();
-      }
-    };
+    // Single, stable initial load of courses on login/mount
+    if (!hasFetchedOnceRef.current && user?.id) {
+      hasFetchedOnceRef.current = true;
+      fetchData(false);
+    }
 
-    init();
-
-    // Auto-retry watchdog: ensures courses show up quickly even if first network/auth call hesitated
-    const retryWatchdog = setTimeout(() => {
-      if (mounted) {
-        setCourses(currentCourses => {
-          if (currentCourses.length === 0) {
-            console.log('[Dashboard] Auto-retry watchdog: courses not populated, refetching...');
-            fetchData(true);
-          }
-          return currentCourses;
-        });
-      }
-    }, 1800);
-
-    // Subscribe to real-time progress updates
+    // Subscribe to real-time progress updates silently without wiping cache
     const channel = supabase
       .channel(`user_progress_dashboard_${user.id}`)
       .on(
@@ -239,14 +223,9 @@ export default function Dashboard({ user }: DashboardProps) {
           filter: `user_id=eq.${user.id}`
         },
         async () => {
-          console.log('Real-time progress update detected');
-          // Invalidate cache and fetch only progress
-          const cacheKey = `dashboard_data_${user.id}`;
-          dataCache.invalidate(cacheKey);
-          
           const { data: progressData } = await supabase
             .from('user_progress')
-            .select('*')
+            .select('chapter_id, completed, user_id')
             .eq('user_id', user.id);
             
           if (mounted && progressData) {
@@ -256,14 +235,8 @@ export default function Dashboard({ user }: DashboardProps) {
       )
       .subscribe();
     
-    const safetyTimeout = setTimeout(() => {
-      if (mounted) setLoading(false);
-    }, 4500);
-    
     return () => {
       mounted = false;
-      clearTimeout(retryWatchdog);
-      clearTimeout(safetyTimeout);
       supabase.removeChannel(channel);
     };
   }, [user.id]);
@@ -301,6 +274,10 @@ export default function Dashboard({ user }: DashboardProps) {
   const fetchData = async (forceNoCache = false) => {
     if (!user?.id) return;
     
+    // Guard against simultaneous overlapping fetches
+    if (fetchInProgressRef.current) return;
+    fetchInProgressRef.current = true;
+
     const cacheKey = `dashboard_data_${user.id}`;
     const cachedData = forceNoCache ? null : dataCache.get(cacheKey, true);
     
@@ -345,11 +322,15 @@ export default function Dashboard({ user }: DashboardProps) {
         console.warn('Courses query error:', err);
       }
 
-      // If fetched courses is still empty, attempt catalog cache fallback
+      // If fetched courses is still empty, keep current courses or attempt catalog cache fallback
       if (fetchedCoursesData.length === 0) {
-        const globalCatalog = dataCache.get('global_public_courses_catalog', true);
-        if (globalCatalog && Array.isArray(globalCatalog) && globalCatalog.length > 0) {
-          fetchedCoursesData = globalCatalog;
+        if (courses.length > 0) {
+          fetchedCoursesData = courses;
+        } else {
+          const globalCatalog = dataCache.get('global_public_courses_catalog', true);
+          if (globalCatalog && Array.isArray(globalCatalog) && globalCatalog.length > 0) {
+            fetchedCoursesData = globalCatalog;
+          }
         }
       }
 
@@ -506,6 +487,7 @@ export default function Dashboard({ user }: DashboardProps) {
       }
     } finally {
       setLoading(false);
+      fetchInProgressRef.current = false;
     }
   };
 
