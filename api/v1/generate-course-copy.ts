@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { safeParseAiJson } from '../utils/parseAiJson';
-import { generateContentWithRetry } from '../utils/geminiCallWithRetry';
+import { safeParseAiJson } from '../../src/serverUtils/parseAiJson';
+import { generateContentWithRetry } from '../../src/serverUtils/geminiCallWithRetry';
 
 let aiInstance: GoogleGenAI | null = null;
 
