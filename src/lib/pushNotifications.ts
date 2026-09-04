@@ -76,11 +76,18 @@ export async function requestNotificationPermission(userId: string) {
  */
 export async function setupPushInBackground(userId: string, messaging: any): Promise<{ success: boolean; token?: string; error?: string }> {
   try {
-    // Register service worker with explicit root scope
+    // Safely retrieve or register service worker for push notifications without conflicting with main PWA SW
     let registration: ServiceWorkerRegistration | undefined;
     try {
       if ('serviceWorker' in navigator) {
-        registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        const existingReg = await navigator.serviceWorker.getRegistration();
+        if (existingReg) {
+          registration = existingReg;
+        } else {
+          registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { 
+            scope: '/firebase-cloud-messaging-push-scope' 
+          });
+        }
         await navigator.serviceWorker.ready;
       }
     } catch (swError: any) {

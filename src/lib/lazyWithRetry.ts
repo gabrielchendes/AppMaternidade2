@@ -26,24 +26,23 @@ export function lazyWithRetry<T extends ComponentType<any>>(
         const errorMessage = error?.message || '';
         const errorName = error?.name || '';
 
+        // Strictly match actual chunk/module network fetching failures
         const isChunkOrNetworkError = 
           errorMessage.includes('Failed to fetch dynamically imported module') ||
           errorMessage.includes('NetworkError') ||
           errorMessage.includes('fetch resource') ||
           errorMessage.includes('Failed to fetch') ||
           errorMessage.includes('Loading chunk') ||
-          errorMessage.includes('dynamic') ||
-          errorMessage.includes('Script error') ||
-          errorName === 'TypeError' ||
-          errorName === 'ChunkLoadError' ||
-          errorName === 'Script error' ||
-          !errorMessage;
+          errorName === 'ChunkLoadError';
 
-        if (isChunkOrNetworkError) {
-          const hasReloaded = sessionStorage.getItem('chunk-failed-reload');
-          if (!hasReloaded) {
-            sessionStorage.setItem('chunk-failed-reload', 'true');
-            console.warn('⚠️ Dynamic import chunk or network error detected. Force reloading page to fetch latest build...');
+        if (isChunkOrNetworkError && typeof window !== 'undefined') {
+          const reloadKey = 'chunk-failed-reload-ts';
+          const lastReload = sessionStorage.getItem(reloadKey);
+          const now = Date.now();
+          // Never reload more than once every 30 seconds to strictly prevent infinite reload loops
+          if (!lastReload || now - parseInt(lastReload, 10) > 30000) {
+            sessionStorage.setItem(reloadKey, now.toString());
+            console.warn('⚠️ Dynamic import chunk or network error detected. Reloading page to fetch latest build...');
             window.location.reload();
             return new Promise<{ default: T }>(() => {}); // Keep pending while reload triggers
           }

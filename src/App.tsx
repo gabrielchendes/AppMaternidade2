@@ -22,11 +22,6 @@ export default function App() {
   const { settings, loading: settingsLoading } = useSettings();
 
   useEffect(() => {
-    // Clear chunk-failed-reload flag since the app is mounting successfully
-    try {
-      sessionStorage.removeItem('chunk-failed-reload');
-    } catch (e) {}
-
     // Global listener for unhandled token refresh/Supabase API rejections and transient network errors
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;

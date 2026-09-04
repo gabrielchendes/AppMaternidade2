@@ -481,8 +481,7 @@ export default function Dashboard({ user }: DashboardProps) {
       if (error && error.message?.includes('Refresh Token Not Found')) {
         console.warn('Session expired during usage, clearing...');
         localStorage.removeItem('maternidade_premium_auth');
-        await supabase.auth.signOut();
-        window.location.reload();
+        await supabase.auth.signOut().catch(() => {});
         return;
       }
     } finally {

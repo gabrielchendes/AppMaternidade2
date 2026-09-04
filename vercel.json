@@ -1,7 +1,6 @@
 {
   "framework": "vite",
   "outputDirectory": "dist",
-  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/api/v1/auth/:path*",

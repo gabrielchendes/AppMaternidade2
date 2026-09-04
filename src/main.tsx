@@ -14,16 +14,8 @@ import { registerSW } from 'virtual:pwa-register';
 const isIframe = typeof window !== 'undefined' && window.self !== window.top;
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !isIframe) {
   try {
-    const updateSW = registerSW({
+    registerSW({
       immediate: true,
-      onNeedRefresh() {
-        console.log('Update found, reloading...');
-        try {
-          updateSW(true);
-        } catch (e) {
-          console.error('Failed to trigger SW update:', e);
-        }
-      },
       onOfflineReady() {
         console.log('App ready for offline use');
       }
