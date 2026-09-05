@@ -8,6 +8,7 @@ import {
   FileText,
   Save,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   ChevronLeft,
   Clock,
@@ -479,7 +480,7 @@ export default function CourseEditor({
           loadedModules.push({
             id: modId,
             course_id: '',
-            title: mod.title || `Módulo ${mIdx + 1}`,
+            title: typeof mod.title === 'string' ? mod.title : (mod.title ?? ''),
             order_index: mod.order_index ?? mIdx,
             description: mod.description || '',
             created_at: new Date().toISOString()
@@ -914,6 +915,11 @@ export default function CourseEditor({
         toast.success('Aula adicionada!');
       }
       
+      if (currentCourseId) {
+        dataCache.invalidate('course_full_' + currentCourseId);
+      }
+      dataCache.invalidate();
+
       setIsDirty(false);
       fetchCourseData();
       setSelectedChapterId(null);
@@ -958,7 +964,8 @@ export default function CourseEditor({
           cover_url: editingExistingChapter.cover_url || '',
           rich_text: isHtml ? formatHtmlAppContent(editingExistingChapter.rich_text || '') : (editingExistingChapter.rich_text || ''),
           duration_minutes: editingExistingChapter.duration_minutes || 0,
-          module_id: editingExistingChapter.module_id || null
+          module_id: editingExistingChapter.module_id || null,
+          order_index: typeof editingExistingChapter.order_index === 'number' ? editingExistingChapter.order_index : 0
         })
         .eq('id', editingExistingChapter.id);
 
@@ -966,6 +973,10 @@ export default function CourseEditor({
       if (editingExistingChapter.content_type === 'checklist' && editingChecklist) {
         await saveChecklistToDatabase(editingExistingChapter.id, editingChecklist);
       }
+      if (courseId) {
+        dataCache.invalidate('course_full_' + courseId);
+      }
+      dataCache.invalidate();
       toast.success('Aula atualizada com sucesso!');
       setIsDirty(false);
       setSelectedChapterId(null);
@@ -975,6 +986,50 @@ export default function CourseEditor({
       toast.error('Erro ao salvar aula: ' + err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMoveChapter = async (modChapters: Chapter[], currentIdx: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+    if (targetIdx < 0 || targetIdx >= modChapters.length) return;
+
+    const currentCh = modChapters[currentIdx];
+    const targetCh = modChapters[targetIdx];
+
+    const currentOrder = currentCh.order_index ?? currentIdx;
+    const targetOrder = targetCh.order_index ?? targetIdx;
+
+    let newCurrentOrder = targetOrder;
+    let newTargetOrder = currentOrder;
+
+    if (newCurrentOrder === newTargetOrder) {
+      newCurrentOrder = direction === 'up' ? targetOrder - 1 : targetOrder + 1;
+    }
+
+    // Optimistically update chapters list
+    setChapters(prev => prev.map(c => {
+      if (c.id === currentCh.id) return { ...c, order_index: newCurrentOrder };
+      if (c.id === targetCh.id) return { ...c, order_index: newTargetOrder };
+      return c;
+    }));
+
+    if (courseId) {
+      dataCache.invalidate('course_full_' + courseId);
+    }
+    dataCache.invalidate();
+
+    try {
+      if (!currentCh.id.startsWith('ch-temp-')) {
+        await supabase.from('chapters').update({ order_index: newCurrentOrder }).eq('id', currentCh.id);
+      }
+      if (!targetCh.id.startsWith('ch-temp-')) {
+        await supabase.from('chapters').update({ order_index: newTargetOrder }).eq('id', targetCh.id);
+      }
+      toast.success('Ordem da aula atualizada!');
+    } catch (err: any) {
+      console.error('Error updating chapter order:', err);
+      toast.error('Erro ao salvar nova ordem: ' + (err.message || ''));
+      fetchCourseData();
     }
   };
 
@@ -1938,9 +1993,12 @@ export default function CourseEditor({
                                <input 
                                  type="text" 
                                  defaultValue={mod.title}
+                                 placeholder="Nome do Módulo (ou deixe vazio para ocultar)"
                                  onBlur={async (e) => {
                                    if (e.target.value !== mod.title) {
                                       await supabase.from('modules').update({ title: e.target.value }).eq('id', mod.id);
+                                      if (courseId) dataCache.invalidate('course_full_' + courseId);
+                                      dataCache.invalidate();
                                       fetchCourseData();
                                       toast.success('Módulo atualizado');
                                    }
@@ -2417,16 +2475,43 @@ export default function CourseEditor({
               {/* Modules & Chapters List */}
               <div className="space-y-16">
                 {(modules.length > 0 ? modules : [{ id: 'none', title: 'Aulas Globais' }]).map((module, mIdx) => {
-                  const moduleChapters = chapters.filter(c => module.id === 'none' ? !c.module_id : c.module_id === module.id);
+                  const moduleChapters = chapters
+                    .filter(c => module.id === 'none' ? !c.module_id : c.module_id === module.id)
+                    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0));
                   if (moduleChapters.length === 0 && module.id === 'none' && modules.length > 0) return null;
 
                   return (
                     <div key={module.id} className="space-y-6">
                       <div className="flex items-center gap-4 border-b border-white/5 pb-4">
-                        <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center text-blue-500">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center text-blue-500 shrink-0">
                           <Layers size={14} />
                         </div>
-                        <h4 className="text-sm font-black uppercase tracking-widest text-white italic">{module.title === 'Conteúdo' ? 'CONTEÚDO PRINCIPAL' : module.title}</h4>
+                        {module.id !== 'none' ? (
+                          <div className="flex items-center gap-3 flex-1 min-w-0 max-w-md">
+                            <input
+                              type="text"
+                              value={module.title ?? ''}
+                              placeholder="Nome do Módulo (em branco para ocultar)"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setModules(prev => prev.map(m => m.id === module.id ? { ...m, title: val } : m));
+                              }}
+                              onBlur={async (e) => {
+                                const val = e.target.value;
+                                if (courseId && !module.id.startsWith('mod-temp-')) {
+                                  await supabase.from('modules').update({ title: val }).eq('id', module.id);
+                                  dataCache.invalidate('course_full_' + courseId);
+                                  dataCache.invalidate();
+                                  toast.success('Nome do módulo salvo');
+                                }
+                              }}
+                              className="bg-black/40 border border-white/10 hover:border-white/20 focus:border-blue-500 rounded-xl px-3 py-1.5 text-xs font-bold text-white outline-none transition-all w-full"
+                              title="Altere o nome do módulo ou deixe em branco para não exibir no curso"
+                            />
+                          </div>
+                        ) : (
+                          <h4 className="text-sm font-black uppercase tracking-widest text-white italic">Aulas Globais</h4>
+                        )}
                         
                         {module.id !== 'none' && (
                           <button
@@ -2565,6 +2650,27 @@ export default function CourseEditor({
                                     </button>
                                   )}
 
+                                  <div className="flex items-center gap-0.5 bg-black/50 border border-white/10 rounded-xl p-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveChapter(moduleChapters, idx, 'up')}
+                                      className={`p-1.5 rounded-lg transition-all ${idx === 0 ? 'text-gray-700 cursor-not-allowed opacity-20' : 'text-gray-400 hover:text-white hover:bg-white/10 cursor-pointer'}`}
+                                      title="Mover aula para cima"
+                                    >
+                                      <ChevronUp size={15} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === moduleChapters.length - 1}
+                                      onClick={() => handleMoveChapter(moduleChapters, idx, 'down')}
+                                      className={`p-1.5 rounded-lg transition-all ${idx === moduleChapters.length - 1 ? 'text-gray-700 cursor-not-allowed opacity-20' : 'text-gray-400 hover:text-white hover:bg-white/10 cursor-pointer'}`}
+                                      title="Mover aula para baixo"
+                                    >
+                                      <ChevronDown size={15} />
+                                    </button>
+                                  </div>
+
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2574,6 +2680,8 @@ export default function CourseEditor({
                                         message: `Tem certeza que deseja excluir a aula "${ch.title}" permanentemente?`,
                                         onConfirm: () => {
                                           supabase.from('chapters').delete().eq('id', ch.id).then(() => {
+                                            if (courseId) dataCache.invalidate('course_full_' + courseId);
+                                            dataCache.invalidate();
                                             toast.success('Aula excluída');
                                             fetchCourseData();
                                           });
@@ -2698,7 +2806,7 @@ export default function CourseEditor({
                                               </div>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-6">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                                               <div className="space-y-2">
                                                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Duração (Min)</label>
                                                  <input 
@@ -2706,6 +2814,16 @@ export default function CourseEditor({
                                                   value={draft.duration_minutes || ''}
                                                   onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, duration_minutes: parseInt(e.target.value) || 0 }) : null)}
                                                   className="w-full bg-black/40 border border-white/10 rounded-xl px-6 py-3.5 text-white focus:border-blue-500 outline-none transition-all font-bold"
+                                                />
+                                              </div>
+                                              <div className="space-y-2">
+                                                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Ordem / Posição</label>
+                                                 <input 
+                                                  type="number" 
+                                                  value={draft.order_index ?? idx}
+                                                  onChange={e => setEditingExistingChapter(prev => prev ? ({ ...prev, order_index: parseInt(e.target.value) || 0 }) : null)}
+                                                  className="w-full bg-black/40 border border-white/10 rounded-xl px-6 py-3.5 text-white focus:border-blue-500 outline-none transition-all font-bold"
+                                                  placeholder="0"
                                                 />
                                               </div>
                                               <div className="space-y-2">
@@ -3322,7 +3440,7 @@ export default function CourseEditor({
             loadedModules.push({
               id: modId,
               course_id: courseId || '',
-              title: mod.title || `Módulo ${mIdx + 1}`,
+              title: typeof mod.title === 'string' ? mod.title : (mod.title ?? ''),
               order_index: mod.order_index ?? mIdx,
               description: mod.description || '',
               created_at: new Date().toISOString()

@@ -16,6 +16,26 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey || supaba
   }
 });
 
+function parseBody(req: VercelRequest): Record<string, any> {
+  let body = req.body;
+  if (!body) return {};
+  if (typeof body === 'string') {
+    try {
+      return JSON.parse(body);
+    } catch {
+      return {};
+    }
+  }
+  if (Buffer.isBuffer(body)) {
+    try {
+      return JSON.parse(body.toString('utf8'));
+    } catch {
+      return {};
+    }
+  }
+  return typeof body === 'object' ? body : {};
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
@@ -52,8 +72,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isFetchError = error?.message?.includes('fetch failed') || error?.message?.includes('ENOTFOUND');
     const statusCode = isFetchError ? 503 : 500;
     const errorMessage = isFetchError
-      ? 'Não foi possível conectar ao banco de dados Supabase. Verifique se as variáveis SUPABASE_URL e VITE_SUPABASE_URL estão corretas.'
-      : ((error as any)?.message || 'Erro interno no servidor de autenticação');
+      ? 'Could not connect to Supabase database. Please check your SUPABASE_URL and VITE_SUPABASE_URL configuration.'
+      : ((error as any)?.message || 'Internal authentication server error');
 
     return res.status(statusCode).json({ 
       error: errorMessage,
@@ -63,15 +83,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'E-mail obrigatório' });
+  const body = parseBody(req);
+  const email = body.email || (req.query?.email as string);
+  if (!email) return res.status(400).json({ error: 'Email is required' });
 
-  const emailLower = email.toLowerCase();
+  const emailLower = email.toLowerCase().trim();
 
   // Try to find profile
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, email')
+    .select('id, email, full_name')
     .eq('email', emailLower)
     .maybeSingle();
 
@@ -79,7 +100,7 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
     console.error('[Auth API] Profile fetch error:', profileError);
     if (profileError.message?.includes('fetch failed') || profileError.message?.includes('ENOTFOUND')) {
       return res.status(503).json({
-        error: 'Serviço do Supabase temporariamente indisponível ou URL inválida. Verifique a conexão com o Supabase.',
+        error: 'Supabase service temporarily unavailable or invalid URL. Please check database connection.',
         details: profileError.message
       });
     }
@@ -92,8 +113,6 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
     const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
     if (listError) {
       console.error('[Auth API] Auth list error:', listError);
-      // If service role is invalid, we can't do auto-admin-creation, but maybe we can proceed if it's just a regular user?
-      // Actually regular users should already have a profile if they were created via standard signup.
     }
     const users = listData?.users || [];
     const user = users.find((u: any) => u.email?.toLowerCase() === emailLower);
@@ -112,7 +131,7 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
       let masterEmail = 'gabrielchendes@gmail.com';
       try {
         const { data: settings, error: sError } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
-        if (!sError && settings?.admin_email) masterEmail = settings.admin_email.toLowerCase();
+        if (!sError && settings?.admin_email) masterEmail = settings.admin_email.toLowerCase().trim();
       } catch (settingsErr) {
         console.warn('[Auth API] Could not fetch master email from settings, using hardcoded default');
       }
@@ -137,7 +156,7 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
         
         if (neoError) {
           console.error('[Auth API] Failed to create Super Admin:', neoError);
-          return res.status(404).json({ error: 'Usuário não encontrado. O banco de dados Supabase pode não estar configurado corretamente (RLS ou tabelas ausentes). Verifique o console do servidor.' });
+          return res.status(404).json({ error: 'User not found. Database configuration check required.' });
         }
         
         authUserId = neo.user?.id;
@@ -150,7 +169,7 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
           });
         }
       } else {
-        return res.status(404).json({ error: 'Usuário não encontrado.' });
+        return res.status(404).json({ error: 'User not found.' });
       }
     }
   }
@@ -159,20 +178,40 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
   let masterEmail = 'gabrielchendes@gmail.com';
   try {
     const { data: settings } = await supabaseAdmin.from('app_settings').select('admin_email').eq('id', 1).single();
-    if (settings?.admin_email) masterEmail = settings.admin_email.toLowerCase();
+    if (settings?.admin_email) masterEmail = settings.admin_email.toLowerCase().trim();
   } catch (e) {}
   
   const isMasterAdmin = emailLower === masterEmail || emailLower === 'gabrielchendes@gmail.com';
 
   // Only reset password to '123456' if NOT the master admin
-  // This allows the master admin to use the custom password they set in the panel
   const tempPassword = '123456';
   
   if (!isMasterAdmin) {
+    if (!supabaseServiceRoleKey) {
+      console.error('[Auth API] SUPABASE_SERVICE_ROLE_KEY is missing in environment variables!');
+      return res.status(500).json({
+        error: 'Missing SUPABASE_SERVICE_ROLE_KEY in environment variables. Please check your Vercel Project Settings.'
+      });
+    }
+
     try {
       const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(authUserId, { password: tempPassword });
       if (updateError) {
-        console.error(`[Auth API] Error updating password for ${emailLower}:`, updateError);
+        console.warn(`[Auth API] Error updating password for ${emailLower}:`, updateError.message);
+        // If the user does not exist in auth.users yet (e.g. was only created in profiles table), create them now
+        if (updateError.message?.toLowerCase().includes('not found') || updateError.message?.toLowerCase().includes('user not found')) {
+          console.log(`[Auth API] User ${emailLower} not found in auth.users, creating auth record...`);
+          const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+            id: authUserId,
+            email: emailLower,
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: { full_name: profile?.full_name || 'Aluno' }
+          });
+          if (createError) {
+            console.error(`[Auth API] Failed to create auth user for ${emailLower}:`, createError);
+          }
+        }
       }
     } catch (err) {
       console.error(`[Auth API] Exception updating password for ${emailLower}:`, err);
@@ -182,13 +221,14 @@ async function handleLoginVerify(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({ 
     success: true, 
     tempPassword: isMasterAdmin ? undefined : tempPassword, 
-    message: isMasterAdmin ? 'Admin verificado' : 'Usuário verificado e senha padrão configurada' 
+    message: isMasterAdmin ? 'Admin verified' : 'User verified and access configured' 
   });
 }
 
 async function handleMagicLink(req: VercelRequest, res: VercelResponse) {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'E-mail é obrigatório' });
+  const body = parseBody(req);
+  const email = body.email || (req.query?.email as string);
+  if (!email) return res.status(400).json({ error: 'Email is required' });
 
   // Determine dynamic base URL for redirection after login
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -213,7 +253,7 @@ async function handleMagicLink(req: VercelRequest, res: VercelResponse) {
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
 
   // Generate robust, custom Base64 magic link
-  const encodedEmail = Buffer.from(email.toLowerCase()).toString('base64');
+  const encodedEmail = Buffer.from(email.toLowerCase().trim()).toString('base64');
   const customMagicLink = `${cleanBaseUrl}/?magic=${encodedEmail}`;
 
   return res.status(200).json({ success: true, link: customMagicLink });
@@ -234,13 +274,14 @@ async function handlePasswordSet(req: VercelRequest, res: VercelResponse) {
         token_preview: token.substring(0, 10) + '...'
       });
     }
-    return res.status(401).json({ error: 'Falha na autenticação' });
+    return res.status(401).json({ error: 'Authentication failed' });
   }
 
-  const { password, newPassword } = req.body;
+  const body = parseBody(req);
+  const { password, newPassword } = body;
   const targetPassword = password || newPassword;
   
-  if (!targetPassword) return res.status(400).json({ error: 'Senha é obrigatória' });
+  if (!targetPassword) return res.status(400).json({ error: 'Password is required' });
 
   const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password: targetPassword });
   if (error) throw error;

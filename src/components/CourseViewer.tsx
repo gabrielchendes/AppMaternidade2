@@ -63,6 +63,17 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
+  const activeChapterRef = React.useRef<Chapter | null>(null);
+  const viewModeRef = React.useRef<'grid' | 'player'>('grid');
+
+  useEffect(() => {
+    activeChapterRef.current = activeChapter;
+  }, [activeChapter]);
+
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+
   useEffect(() => {
     if (courseId) {
       fetchCourseData();
@@ -212,29 +223,35 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
         progress: progressData
       }, 300000);
 
-      // Setup initial view
-      if (finalChapters.length === 1) {
-        setActiveChapter(finalChapters[0]);
-        setViewMode('player');
-      } else if (finalChapters.length > 1) {
-        const lastViewedStr = localStorage.getItem(`last_viewed_${userId}`);
-        if (lastViewedStr) {
-          try {
-            const lastViewed = JSON.parse(lastViewedStr);
-            if (lastViewed.courseId === courseId) {
-              const chapter = finalChapters.find(ch => ch.id === lastViewed.chapterId);
-              if (chapter && !progressData.find(p => p.chapter_id === chapter.id)?.completed) {
-                setActiveChapter(chapter);
-                setViewMode('player');
+      // Setup initial view without overwriting an active chapter or kicking user out of player mode
+      if (activeChapterRef.current) {
+        const freshActive = finalChapters.find(ch => ch.id === activeChapterRef.current?.id);
+        if (freshActive) {
+          setActiveChapter(freshActive);
+        }
+      } else if (viewModeRef.current === 'player') {
+        // Preserving player mode
+      } else {
+        if (finalChapters.length === 1) {
+          setActiveChapter(finalChapters[0]);
+          setViewMode('player');
+        } else if (finalChapters.length > 1) {
+          const lastViewedStr = localStorage.getItem(`last_viewed_${userId}`);
+          if (lastViewedStr) {
+            try {
+              const lastViewed = JSON.parse(lastViewedStr);
+              if (lastViewed.courseId === courseId) {
+                const chapter = finalChapters.find(ch => ch.id === lastViewed.chapterId);
+                if (chapter && !progressData.find(p => p.chapter_id === chapter.id)?.completed) {
+                  setActiveChapter(chapter);
+                  setViewMode('player');
+                }
               }
+            } catch (e) {
+              console.warn('Error parsing last viewed:', e);
             }
-          } catch (e) {
-            console.warn('Error parsing last viewed:', e);
           }
         }
-        if (!activeChapter) setViewMode('grid');
-      } else {
-        setViewMode('grid');
       }
     } catch (err: any) {
       console.error('❌ Error in CourseViewer fetch:', err);
@@ -333,6 +350,10 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
     const completed = moduleChapters.filter(ch => progress.find(p => p.chapter_id === ch.id)?.completed).length;
     return Math.round((completed / moduleChapters.length) * 100);
   };
+
+  const currentProgressPercent = calculateProgress();
+  const isCourseCompleted = chapters.length > 0 && currentProgressPercent === 100;
+  const isCurrentChapterCompleted = activeChapter ? !!progress.find(p => p.chapter_id === activeChapter.id)?.completed : false;
 
   const adjustColorBrightness = (hex: string, percent: number) => {
     try {
@@ -673,7 +694,12 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
 
   return (
     <div className="fixed inset-0 bg-bg-main z-[200] flex flex-col text-white font-sans overflow-hidden">
-      <header className="h-14 sm:h-20 border-b border-white/5 flex items-center justify-between px-4 sm:px-6 bg-black/80 backdrop-blur-2xl shrink-0 z-50">
+      <header className="h-14 sm:h-20 border-b border-white/5 flex items-center justify-between px-4 sm:px-6 bg-black/80 backdrop-blur-2xl shrink-0 z-50 relative">
+        {/* Subtle glowing ambient green edge when active lesson is completed */}
+        {viewMode === 'player' && isCurrentChapterCompleted && (
+          <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-500/80 to-transparent shadow-[0_0_12px_rgba(16,185,129,0.8)] pointer-events-none transition-opacity duration-500" />
+        )}
+
         <div className="flex items-center">
           <button 
             onClick={viewMode === 'player' && chapters.length > 1 ? () => setViewMode('grid') : onClose} 
@@ -689,24 +715,45 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
              <span className="text-[9px] sm:text-[10px] font-black text-white/40 uppercase tracking-widest leading-none">
                 {completedChaptersCount} / {chapters.length} {t('course.lessons') || 'Lessons'}
               </span>
-              <span className={`text-[10px] sm:text-xs font-black italic leading-none ${
-                calculateProgress() === 100 ? 'text-green-500' : 
-                calculateProgress() === 0 ? 'text-yellow-500' : 'text-blue-500'
-              }`}>{calculateProgress()}%</span>
+              <span className={`text-[10px] sm:text-xs font-black italic leading-none flex items-center gap-1 transition-colors duration-500 ${
+                isCourseCompleted ? 'text-emerald-400' : 
+                currentProgressPercent === 0 ? 'text-white/40' : 'text-blue-500'
+              }`}>
+                {isCourseCompleted && <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />}
+                {currentProgressPercent}%
+              </span>
           </div>
           <div className="h-1 sm:h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
             <motion.div 
                initial={{ width: 0 }}
-               animate={{ width: `${calculateProgress()}%` }}
+               animate={{ width: `${currentProgressPercent}%` }}
                className={`h-full shadow-lg transition-all duration-1000 ${
-                 calculateProgress() === 100 ? 'bg-green-500 shadow-green-500/20' : 
-                 calculateProgress() === 0 ? 'bg-yellow-500 shadow-yellow-500/20' : 'bg-blue-700 shadow-blue-700/20'
+                 isCourseCompleted 
+                   ? 'bg-gradient-to-r from-emerald-500 to-green-400 shadow-[0_0_14px_rgba(16,185,129,0.7)]' 
+                   : currentProgressPercent === 0 
+                     ? 'bg-white/20' 
+                     : 'bg-gradient-to-r from-blue-600 to-blue-500 shadow-blue-700/20'
                }`}
             />
           </div>
         </div>
 
-        <div className="w-[44px] sm:w-[50px]" /> {/* Spacer to balance back button */}
+        {/* Right side: Elegant Minimalist Status indicator for active lesson or balanced spacer */}
+        <div className="flex items-center justify-end min-w-[44px] sm:min-w-[110px]">
+          {viewMode === 'player' && isCurrentChapterCompleted ? (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[9px] sm:text-[11px] font-black tracking-wider uppercase backdrop-blur-md shadow-[0_0_12px_rgba(16,185,129,0.15)]"
+              title={t('course.completed') || 'Aula Concluída'}
+            >
+              <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+              <span className="hidden xs:inline">{t('course.completed') || 'Concluída'}</span>
+            </motion.div>
+          ) : (
+            <div className="w-[44px] sm:w-[50px]" />
+          )}
+        </div>
       </header>
 
       <div 
@@ -785,29 +832,24 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
 
                       return (
                         <div key={module.id || 'global'} className="space-y-10 group/module">
-                      {!module.title || module.title === 'Conteúdo' ? (
-                        <div className="flex flex-col items-center gap-4 border-b border-white/5 pb-10">
-                          <div className="flex items-center gap-4">
-                            <div className="h-px w-20 bg-gradient-to-r from-transparent to-primary/40" />
-                            <span className="text-[12px] font-black text-primary uppercase tracking-[0.5em] italic">
-                              {t('course.content') || 'CONTEÚDO'}
-                            </span>
-                            <div className="h-px w-20 bg-gradient-to-l from-transparent to-primary/40" />
-                          </div>
-                        </div>
-                      ) : (
+                      {!module.title || module.title.trim() === '' ? null : (
                         <div className="border-b border-white/5 pb-6">
                            <div className="flex items-end gap-6 mb-4">
                              <span className="text-6xl font-black text-white/5 italic leading-none select-none">{(mIdx + 1).toString().padStart(2, '0')}</span>
                              <div className="flex-1 flex flex-col gap-1">
                                <span className="text-[10px] font-black text-primary uppercase tracking-widest italic">
-                                 {t('course.module') || 'MÓDULO'} {mIdx + 1}
+                                 {module.title.toLowerCase().startsWith('módulo') || module.title.toLowerCase().startsWith('module')
+                                   ? module.title
+                                   : `${t('course.module') || 'MÓDULO'} ${mIdx + 1}`}
                                </span>
                                <div className="flex items-center justify-between gap-4">
                                   <h3 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
                                     {module.title}
                                   </h3>
-                                  <span className="text-xs font-black text-primary italic">{moduleProgress}% {t('course.completed_lowercase') || 'concluído'}</span>
+                                  <span className={`text-xs font-black italic flex items-center gap-1 transition-colors duration-500 ${moduleProgress === 100 ? 'text-emerald-400' : 'text-primary'}`}>
+                                    {moduleProgress === 100 && <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />}
+                                    {moduleProgress}% {t('course.completed_lowercase') || 'concluído'}
+                                  </span>
                                </div>
                              </div>
                            </div>
@@ -815,7 +857,11 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                               <motion.div 
                                 initial={{ width: 0 }}
                                 animate={{ width: `${moduleProgress}%` }}
-                                className="h-full bg-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]"
+                                className={`h-full transition-all duration-700 ${
+                                  moduleProgress === 100 
+                                    ? 'bg-gradient-to-r from-emerald-500 to-green-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]' 
+                                    : 'bg-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.5)]'
+                                }`}
                               />
                            </div>
                         </div>
@@ -1103,16 +1149,16 @@ export default function CourseViewer({ courseId, userId, onClose, initialCourse,
                     transition={{ delay: 0.3 }}
                     onClick={() => activeChapter && toggleCompletion(activeChapter.id)}
                     className={`
-                      px-12 py-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all active:scale-[0.98] uppercase tracking-widest text-sm
-                      ${progress.find(p => p.chapter_id === activeChapter?.id)?.completed 
-                        ? 'bg-zinc-800 text-green-500 border border-green-500/30' 
+                      px-12 py-5 rounded-2xl font-black flex items-center justify-center gap-3 transition-all active:scale-[0.98] uppercase tracking-widest text-sm cursor-pointer
+                      ${isCurrentChapterCompleted 
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 shadow-[0_0_25px_rgba(16,185,129,0.2)] hover:bg-emerald-500/25' 
                         : 'bg-white text-black hover:bg-gray-100 shadow-[0_20px_40px_-15px_rgba(255,255,255,0.2)]'}
                     `}
                   >
-                    {progress.find(p => p.chapter_id === activeChapter?.id)?.completed ? (
-                      <><CheckCircle2 size={20} /> {t('course.lesson_completed_btn') || 'LESSON COMPLETED'}</>
+                    {isCurrentChapterCompleted ? (
+                      <><CheckCircle2 size={20} className="text-emerald-400 shrink-0" /> {t('course.lesson_completed_btn') || 'AULA CONCLUÍDA'}</>
                     ) : (
-                      t('course.complete_lesson_btn') || 'COMPLETE LESSON'
+                      t('course.complete_lesson_btn') || 'CONCLUIR AULA'
                     )}
                   </motion.button>
                 </div>

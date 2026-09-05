@@ -52,12 +52,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error: authError } = await supabaseAdmin.auth.getUser(token);
       if (authError || !data?.user) {
         console.warn('[Admin API] auth.getUser warning:', authError?.message);
-        return res.status(401).json({ error: 'Sessão expirada ou token inválido. Faça login novamente.' });
+        return res.status(401).json({ error: 'Session expired or invalid token. Please log in again.' });
       }
       user = data.user;
     } catch (authErr: any) {
       console.error('[Admin API] auth error:', authErr);
-      return res.status(401).json({ error: 'Erro de validação de autenticação: ' + (authErr.message || '') });
+      return res.status(401).json({ error: 'Authentication validation error: ' + (authErr.message || '') });
     }
 
     // Admin Verification (Double Check)
@@ -278,7 +278,7 @@ async function handleUserCreate(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true, user: data.user });
   } catch (err: any) {
     console.error('[Admin API] Unexpected error in user creation:', err);
-    return res.status(500).json({ error: 'Erro interno ao criar usuário: ' + (err.message || 'Erro desconhecido') });
+    return res.status(500).json({ error: 'Internal error creating user: ' + (err.message || 'Unknown error') });
   }
 }
 
@@ -608,7 +608,7 @@ async function handleAccessToggle(req: VercelRequest, res: VercelResponse) {
       }
 
       if (targetCourseIds.length === 0 && !isUUID) {
-        return res.status(400).json({ error: 'Produto não encontrado ou ID inválido' });
+        return res.status(400).json({ error: 'Product not found or invalid ID' });
       } else if (targetCourseIds.length === 0 && isUUID) {
         targetCourseIds = [courseId];
       }
@@ -756,7 +756,7 @@ async function handleAccessToggle(req: VercelRequest, res: VercelResponse) {
       context: { userId, courseId, action }
     });
     return res.status(500).json({ 
-      error: err.message || 'Erro interno ao alterar acesso',
+      error: err.message || 'Internal error changing access',
       details: err.details || null
     });
   }
@@ -852,14 +852,14 @@ async function handlePurchases(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(enriched);
   } catch (err: any) {
     console.error('[Admin API] All purchase list retrieval routines failed:', err);
-    return res.status(500).json({ error: err.message || 'Erro ao carregar lista de vendas' });
+    return res.status(500).json({ error: err.message || 'Error loading sales list' });
   }
 }
 
 async function handleCommentLike(req: VercelRequest, res: VercelResponse) {
   const { commentId, likesCount } = req.body;
   if (!commentId || typeof likesCount !== 'number') {
-    return res.status(400).json({ error: 'Parâmetros inválidos' });
+    return res.status(400).json({ error: 'Invalid parameters' });
   }
 
   try {
@@ -871,7 +871,7 @@ async function handleCommentLike(req: VercelRequest, res: VercelResponse) {
       .single();
 
     if (fetchError || !comment) {
-      return res.status(404).json({ error: 'Comentário não encontrado' });
+      return res.status(404).json({ error: 'Comment not found' });
     }
 
     // 2. Parse existing content and clean text, and format with the new likesCount
@@ -890,20 +890,20 @@ async function handleCommentLike(req: VercelRequest, res: VercelResponse) {
 
     if (updateError) {
       console.error('[Admin API] Error updating comment content:', updateError);
-      return res.status(500).json({ error: 'Erro ao atualizar comentário' });
+      return res.status(500).json({ error: 'Error updating comment' });
     }
 
     return res.status(200).json(updatedComment);
   } catch (err: any) {
     console.error('[Admin API] handleCommentLike failed:', err);
-    return res.status(500).json({ error: err.message || 'Erro ao curtir comentário' });
+    return res.status(500).json({ error: err.message || 'Error liking comment' });
   }
 }
 
 async function handlePostLikesUpdate(req: VercelRequest, res: VercelResponse) {
   const { postId, likesCount } = req.body;
   if (!postId || typeof likesCount !== 'number') {
-    return res.status(400).json({ error: 'Parâmetros inválidos' });
+    return res.status(400).json({ error: 'Invalid parameters' });
   }
 
   try {
@@ -916,19 +916,19 @@ async function handlePostLikesUpdate(req: VercelRequest, res: VercelResponse) {
 
     if (updateError) {
       console.error('[Admin API] Error updating post likes:', updateError);
-      return res.status(500).json({ error: 'Erro ao atualizar curtidas do post' });
+      return res.status(500).json({ error: 'Error updating post likes' });
     }
 
     return res.status(200).json(updatedPost);
   } catch (err: any) {
     console.error('[Admin API] handlePostLikesUpdate failed:', err);
-    return res.status(500).json({ error: err.message || 'Erro ao curtir post' });
+    return res.status(500).json({ error: err.message || 'Error liking post' });
   }
 }
 
 async function handleUpdateSettings(req: VercelRequest, res: VercelResponse) {
   const { settings: newSettings, adminPassword } = req.body;
-  if (!newSettings) return res.status(400).json({ error: 'Configurações não fornecidas' });
+  if (!newSettings) return res.status(400).json({ error: 'Settings not provided' });
 
   const payload = { ...newSettings };
   if ('support_type' in payload) {
@@ -1261,13 +1261,13 @@ async function handleProductSave(req: VercelRequest, res: VercelResponse) {
     const { id, hotmart_product_id, name, product_type, internal_target_id, checkout_url, is_active, description } = req.body;
     
     if (!name || !product_type) {
-      return res.status(400).json({ error: 'Campos obrigatórios: Nome e Tipo do Produto.' });
+      return res.status(400).json({ error: 'Required fields: Product Name and Product Type.' });
     }
 
     const cleanHotmartId = hotmart_product_id ? String(hotmart_product_id).trim() : '';
 
     if (!name || !String(name).trim()) {
-      return res.status(400).json({ error: 'Nome do produto é obrigatório.' });
+      return res.status(400).json({ error: 'Product name is required.' });
     }
 
     const { data: settings } = await supabaseAdmin
@@ -1288,14 +1288,14 @@ async function handleProductSave(req: VercelRequest, res: VercelResponse) {
           .maybeSingle();
 
         if (existingProd && existingProd.id !== id) {
-          return res.status(400).json({ error: `O ID Hotmart '${cleanHotmartId}' já está cadastrado no produto "${existingProd.name}".` });
+          return res.status(400).json({ error: `The Hotmart ID '${cleanHotmartId}' is already registered for product "${existingProd.name}".` });
         }
       } catch (e) {}
 
       // 2. Check uniqueness in app_settings fallback catalog
       const existingFallback = catalog.find(p => p.hotmart_product_id && String(p.hotmart_product_id).trim() === cleanHotmartId && p.id !== id);
       if (existingFallback) {
-        return res.status(400).json({ error: `O ID Hotmart '${cleanHotmartId}' já está cadastrado no produto "${existingFallback.name}".` });
+        return res.status(400).json({ error: `The Hotmart ID '${cleanHotmartId}' is already registered for product "${existingFallback.name}".` });
       }
     }
 
@@ -1392,7 +1392,7 @@ async function handleProductSave(req: VercelRequest, res: VercelResponse) {
 async function handleProductDelete(req: VercelRequest, res: VercelResponse) {
   try {
     const { id } = req.body;
-    if (!id) return res.status(400).json({ error: 'ID do produto é obrigatório.' });
+    if (!id) return res.status(400).json({ error: 'Product ID is required.' });
 
     // Prevent deleting main_product
     const { data: settings } = await supabaseAdmin
@@ -1405,7 +1405,7 @@ async function handleProductDelete(req: VercelRequest, res: VercelResponse) {
     const targetProd = catalog.find(p => p.id === id || p.hotmart_product_id === id);
 
     if (targetProd?.product_type === 'main_product') {
-      return res.status(400).json({ error: 'O Produto Principal é obrigatório e não pode ser excluído.' });
+      return res.status(400).json({ error: 'The Main Product is mandatory and cannot be deleted.' });
     }
 
     try {
@@ -1458,7 +1458,7 @@ async function handleWebhookSimulate(req: VercelRequest, res: VercelResponse) {
   try {
     const { buyer_email, hotmart_product_id, event_type } = req.body;
     if (!buyer_email || !event_type) {
-      return res.status(400).json({ error: 'E-mail do comprador e tipo de evento são obrigatórios.' });
+      return res.status(400).json({ error: 'Buyer email and event type are required.' });
     }
 
     const { data: settings } = await supabaseAdmin
@@ -1717,11 +1717,11 @@ async function handleWebhookSimulate(req: VercelRequest, res: VercelResponse) {
         target_url: targetWebhookUrl,
         sent_hottok: configuredToken,
         sent_payload: mockPayload,
-        error: 'Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".',
+        error: 'Failed to connect to URL: NetworkError when attempting to fetch resource. Please check the "Webhook Endpoint URL (Hotmart)".',
         result: {
-          error: 'Falha ao conectar na URL: NetworkError when attempting to fetch resource. Por favor, verifique a "URL do Endpoint do Webhook (Hotmart)".',
+          error: 'Failed to connect to URL: NetworkError when attempting to fetch resource. Please check the "Webhook Endpoint URL (Hotmart)".',
           details: edgeFetchError,
-          tip: 'Atenção: Por favor, verifique se a "URL do Endpoint do Webhook (Hotmart)" informada no painel está correta, ativa e acessível.'
+          tip: 'Attention: Please ensure the "Webhook Endpoint URL (Hotmart)" entered in the settings is correct, active, and reachable.'
         }
       });
     }

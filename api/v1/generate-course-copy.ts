@@ -209,6 +209,6 @@ Generate the complete high-converting copy in valid JSON. All text must be in Am
       }
     } catch (_) {}
 
-    return res.status(500).json({ error: cleanError || 'Erro interno ao gerar a copy com IA' });
+    return res.status(500).json({ error: cleanError || 'Internal error generating course copy with AI' });
   }
 }

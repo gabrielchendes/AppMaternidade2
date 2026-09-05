@@ -31,9 +31,9 @@ export async function safeFetch(url: string, options: RequestInit = {}) {
     if (!response.ok) {
       try {
         const errorJson = JSON.parse(text);
-        return { error: errorJson.error || `Erro ${response.status}: ${text.substring(0, 50)}`, status: response.status };
+        return { error: errorJson.error || `API Error ${response.status}: ${text.substring(0, 50)}`, status: response.status };
       } catch (e) {
-        return { error: `Erro ${response.status} na API`, status: response.status };
+        return { error: `API Error ${response.status}`, status: response.status };
       }
     }
 
@@ -44,11 +44,11 @@ export async function safeFetch(url: string, options: RequestInit = {}) {
     try {
       return JSON.parse(text);
     } catch (err) {
-      console.error('🚨 Erro ao parsear JSON:', text);
-      return { error: 'Resposta do servidor não é um JSON válido' };
+      console.error('🚨 Error parsing JSON:', text);
+      return { error: 'Server response is not valid JSON' };
     }
   } catch (err: any) {
-    console.error('🚨 Erro na requisição fetch:', url, err);
-    return { error: 'Erro de conexão com o servidor: ' + err.message };
+    console.error('🚨 Fetch request error:', url, err);
+    return { error: 'Server connection error: ' + err.message };
   }
 }

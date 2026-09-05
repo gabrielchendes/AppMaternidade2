@@ -3,20 +3,16 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/v1/auth/:path*",
-      "destination": "/api/v1/auth"
+      "source": "/api/v1/auth/:action",
+      "destination": "/api/v1/auth?action=:action"
     },
     {
-      "source": "/api/v1/admin/:path*",
-      "destination": "/api/v1/admin"
+      "source": "/api/v1/admin/:action",
+      "destination": "/api/v1/admin?action=:action"
     },
     {
-      "source": "/api/v1/notifications/:path*",
-      "destination": "/api/v1/notifications"
-    },
-    {
-      "source": "/api/v1/hotmart-webhook",
-      "destination": "/api/v1/hotmart-webhook"
+      "source": "/api/v1/notifications/:action",
+      "destination": "/api/v1/notifications?action=:action"
     },
     {
       "source": "/api/v1/webhooks/hotmart",

@@ -486,7 +486,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err: any) {
     console.error('[Hotmart Webhook API Error]:', err);
     return res.status(500).json({
-      error: 'Erro interno ao processar webhook Hotmart',
+      error: 'Internal error processing Hotmart webhook',
       details: err.message
     });
   }

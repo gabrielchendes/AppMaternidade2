@@ -213,7 +213,7 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
     } catch (parseErr) {
       console.error('[Generate Lesson API] Failed to parse JSON:', responseText);
       return res.status(500).json({
-        error: 'A IA gerou uma resposta, mas não foi possível formatá-la como JSON estruturado.',
+        error: 'The AI generated a response, but it could not be formatted as structured JSON.',
         rawText: responseText
       });
     }
@@ -356,13 +356,13 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
 
     if (isQuotaError) {
       return res.status(429).json({
-        error: 'O limite de requisições de IA foi temporariamente atingido. Aguarde 30 segundos e tente novamente.'
+        error: 'AI request limit temporarily reached. Please wait 30 seconds and try again.'
       });
     }
 
     if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
       return res.status(503).json({
-        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+        error: 'AI servers are experiencing temporary high demand. Please wait a few seconds and try again.'
       });
     }
 
@@ -380,7 +380,7 @@ Additional Instructions: ${aiInstructions || 'Make it interactive and engaging'}
     } catch (_) {}
 
     return res.status(500).json({
-      error: 'Erro ao gerar aula com IA: ' + (cleanError || 'Erro desconhecido')
+      error: 'Error generating lesson with AI: ' + (cleanError || 'Unknown error')
     });
   }
 }

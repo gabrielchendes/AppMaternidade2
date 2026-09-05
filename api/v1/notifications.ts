@@ -912,7 +912,7 @@ async function handleClear(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ success: true });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Erro ao limpar histórico' });
+    return res.status(500).json({ error: err?.message || 'Error clearing history' });
   }
 }
 

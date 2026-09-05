@@ -35,7 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { messageText, lessonContext, analysisCriteria, lessonLanguage = 'en' } = req.body || {};
 
     if (!messageText || !messageText.trim()) {
-      return res.status(400).json({ error: 'Nenhum texto informado para análise.' });
+      return res.status(400).json({ error: 'No text provided for analysis.' });
     }
 
     const ai = getAiClient();
@@ -107,7 +107,7 @@ Mensagem enviada pela aluna para analisar:
       parsedData = safeParseAiJson(responseText);
     } catch (parseErr) {
       console.error('[Analyze Message API] JSON parse error:', responseText);
-      return res.status(500).json({ error: 'Falha ao formatar análise da mensagem em JSON.' });
+      return res.status(500).json({ error: 'Failed to format message analysis in JSON.' });
     }
 
     return res.status(200).json({
@@ -127,13 +127,13 @@ Mensagem enviada pela aluna para analisar:
 
     if (isQuotaError) {
       return res.status(429).json({
-        error: 'O limite de requisições por minuto da IA foi atingido. Por favor, aguarde 30 segundos e tente novamente.'
+        error: 'AI request rate limit reached. Please wait 30 seconds and try again.'
       });
     }
 
     if (errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) {
       return res.status(503).json({
-        error: 'Os servidores de IA estão com alta demanda temporária. Aguarde alguns segundos e tente novamente.'
+        error: 'AI servers are experiencing temporary high demand. Please wait a few seconds and try again.'
       });
     }
 
@@ -151,7 +151,7 @@ Mensagem enviada pela aluna para analisar:
     } catch (_) {}
 
     return res.status(500).json({
-      error: 'Erro ao analisar mensagem: ' + (cleanError || 'Erro desconhecido')
+      error: 'Error analyzing message: ' + (cleanError || 'Unknown error')
     });
   }
 }
